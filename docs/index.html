@@ -5,315 +5,698 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AIP - Agent Identity Protocol</title>
     <meta name="description" content="Cryptographic identity and verification for AI agents. Open source protocol for agent-to-agent trust.">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <style>
         :root {
-            --bg: #0a0a0a;
-            --fg: #e0e0e0;
-            --accent: #00d4aa;
-            --accent2: #e01b24;
-            --muted: #666;
-            --card-bg: #1a1a1a;
+            --bg-primary: #09090b;
+            --bg-secondary: #18181b;
+            --bg-tertiary: #27272a;
+            --fg-primary: #fafafa;
+            --fg-secondary: #a1a1aa;
+            --fg-muted: #71717a;
+            --accent: #10b981;
+            --accent-light: #34d399;
+            --accent-glow: rgba(16, 185, 129, 0.15);
+            --border: #27272a;
+            --border-light: #3f3f46;
         }
-        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        html {
+            scroll-behavior: smooth;
+        }
+
         body {
-            font-family: 'IBM Plex Mono', 'SF Mono', Monaco, monospace;
-            background: var(--bg);
-            color: var(--fg);
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: var(--bg-primary);
+            color: var(--fg-primary);
             line-height: 1.6;
             min-height: 100vh;
+            -webkit-font-smoothing: antialiased;
         }
+
+        /* Subtle grid background */
+        .bg-grid {
+            position: fixed;
+            inset: 0;
+            background-image:
+                linear-gradient(rgba(16, 185, 129, 0.03) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(16, 185, 129, 0.03) 1px, transparent 1px);
+            background-size: 64px 64px;
+            pointer-events: none;
+            z-index: -1;
+        }
+
         .container {
-            max-width: 800px;
+            max-width: 1000px;
             margin: 0 auto;
-            padding: 2rem;
+            padding: 0 1.5rem;
         }
-        header {
-            text-align: center;
-            padding: 4rem 0 3rem;
-            border-bottom: 1px solid #333;
-        }
-        .logo {
-            font-size: 3rem;
-            margin-bottom: 0.5rem;
-        }
-        h1 {
-            font-size: 2.5rem;
-            font-weight: 700;
-            margin-bottom: 0.5rem;
-        }
-        h1 span { color: var(--accent); }
-        .tagline {
-            color: var(--muted);
-            font-size: 1.1rem;
-            margin-bottom: 2rem;
-        }
-        .cta-buttons {
-            display: flex;
-            gap: 1rem;
-            justify-content: center;
-            flex-wrap: wrap;
-        }
-        .btn {
-            display: inline-block;
-            padding: 0.75rem 1.5rem;
-            border-radius: 6px;
-            text-decoration: none;
-            font-weight: 600;
-            transition: all 0.2s;
-        }
-        .btn-primary {
-            background: var(--accent);
-            color: #000;
-        }
-        .btn-primary:hover {
-            background: #00eebb;
-            transform: translateY(-2px);
-        }
-        .btn-secondary {
-            background: transparent;
-            color: var(--fg);
-            border: 1px solid #444;
-        }
-        .btn-secondary:hover {
-            border-color: var(--accent);
-            color: var(--accent);
-        }
-        section {
-            padding: 3rem 0;
-            border-bottom: 1px solid #222;
-        }
-        h2 {
-            font-size: 1.5rem;
-            margin-bottom: 1.5rem;
-            color: var(--accent);
-        }
-        .problem-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 1.5rem;
-        }
-        .problem-card {
-            background: var(--card-bg);
-            padding: 1.5rem;
-            border-radius: 8px;
-            border-left: 3px solid var(--accent2);
-        }
-        .problem-card h3 {
-            font-size: 1rem;
-            margin-bottom: 0.5rem;
-        }
-        .problem-card p {
-            font-size: 0.9rem;
-            color: var(--muted);
-        }
-        .solution-list {
-            list-style: none;
-        }
-        .solution-list li {
+
+        /* Navigation */
+        nav {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            z-index: 100;
             padding: 1rem 0;
-            border-bottom: 1px solid #222;
+            background: rgba(9, 9, 11, 0.8);
+            backdrop-filter: blur(12px);
+            border-bottom: 1px solid var(--border);
+        }
+
+        nav .container {
             display: flex;
-            gap: 1rem;
-            align-items: flex-start;
+            justify-content: space-between;
+            align-items: center;
         }
-        .solution-list li:last-child { border-bottom: none; }
-        .solution-icon {
-            font-size: 1.5rem;
-            flex-shrink: 0;
+
+        .nav-logo {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-weight: 700;
+            font-size: 1.1rem;
+            color: var(--fg-primary);
+            text-decoration: none;
         }
-        .solution-text h3 {
-            font-size: 1rem;
-            margin-bottom: 0.25rem;
-        }
-        .solution-text p {
-            font-size: 0.9rem;
-            color: var(--muted);
-        }
-        .code-block {
-            background: #111;
-            border: 1px solid #333;
-            border-radius: 8px;
-            padding: 1.5rem;
-            overflow-x: auto;
-            font-size: 0.85rem;
-            margin: 1rem 0;
-        }
-        .code-block code {
+
+        .nav-logo span {
             color: var(--accent);
         }
-        .signup-section {
-            text-align: center;
-            padding: 4rem 0;
-        }
-        .signup-section h2 {
-            color: var(--fg);
-            font-size: 1.8rem;
-        }
-        .signup-section p {
-            color: var(--muted);
-            margin-bottom: 2rem;
-        }
-        .signup-form {
+
+        .nav-links {
             display: flex;
+            gap: 2rem;
+            align-items: center;
+        }
+
+        .nav-links a {
+            color: var(--fg-secondary);
+            text-decoration: none;
+            font-size: 0.9rem;
+            font-weight: 500;
+            transition: color 0.2s;
+        }
+
+        .nav-links a:hover {
+            color: var(--fg-primary);
+        }
+
+        /* Hero Section */
+        .hero {
+            padding: 10rem 0 6rem;
+            text-align: center;
+            position: relative;
+        }
+
+        .hero::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 600px;
+            height: 600px;
+            background: radial-gradient(circle, var(--accent-glow) 0%, transparent 70%);
+            pointer-events: none;
+        }
+
+        .badge {
+            display: inline-flex;
+            align-items: center;
             gap: 0.5rem;
+            padding: 0.5rem 1rem;
+            background: var(--accent-glow);
+            border: 1px solid rgba(16, 185, 129, 0.3);
+            border-radius: 100px;
+            font-size: 0.8rem;
+            font-weight: 500;
+            color: var(--accent-light);
+            margin-bottom: 1.5rem;
+        }
+
+        .badge::before {
+            content: '';
+            width: 6px;
+            height: 6px;
+            background: var(--accent);
+            border-radius: 50%;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        h1 {
+            font-size: clamp(2.5rem, 6vw, 4rem);
+            font-weight: 700;
+            line-height: 1.1;
+            margin-bottom: 1.5rem;
+            letter-spacing: -0.02em;
+        }
+
+        h1 .highlight {
+            background: linear-gradient(135deg, var(--accent) 0%, var(--accent-light) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .hero-subtitle {
+            font-size: 1.25rem;
+            color: var(--fg-secondary);
+            max-width: 600px;
+            margin: 0 auto 2.5rem;
+        }
+
+        .cta-group {
+            display: flex;
+            gap: 1rem;
             justify-content: center;
             flex-wrap: wrap;
-            max-width: 500px;
-            margin: 0 auto;
         }
-        .signup-form input {
-            flex: 1;
-            min-width: 200px;
-            padding: 0.75rem 1rem;
-            border: 1px solid #444;
-            border-radius: 6px;
-            background: var(--card-bg);
-            color: var(--fg);
+
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.875rem 1.75rem;
+            border-radius: 8px;
+            font-size: 0.95rem;
+            font-weight: 600;
+            text-decoration: none;
+            transition: all 0.2s;
+            cursor: pointer;
+            border: none;
             font-family: inherit;
         }
+
+        .btn-primary {
+            background: var(--accent);
+            color: var(--bg-primary);
+        }
+
+        .btn-primary:hover {
+            background: var(--accent-light);
+            transform: translateY(-2px);
+            box-shadow: 0 8px 30px rgba(16, 185, 129, 0.3);
+        }
+
+        .btn-secondary {
+            background: var(--bg-secondary);
+            color: var(--fg-primary);
+            border: 1px solid var(--border-light);
+        }
+
+        .btn-secondary:hover {
+            background: var(--bg-tertiary);
+            border-color: var(--fg-muted);
+        }
+
+        /* Section styling */
+        section {
+            padding: 5rem 0;
+        }
+
+        .section-header {
+            text-align: center;
+            margin-bottom: 3rem;
+        }
+
+        .section-label {
+            font-size: 0.8rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            color: var(--accent);
+            margin-bottom: 0.75rem;
+        }
+
+        h2 {
+            font-size: 2rem;
+            font-weight: 700;
+            margin-bottom: 1rem;
+        }
+
+        .section-desc {
+            color: var(--fg-secondary);
+            max-width: 600px;
+            margin: 0 auto;
+        }
+
+        /* Problem cards */
+        .problems-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 1.5rem;
+        }
+
+        .problem-card {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 1.75rem;
+            transition: all 0.3s;
+        }
+
+        .problem-card:hover {
+            border-color: var(--border-light);
+            transform: translateY(-4px);
+        }
+
+        .problem-icon {
+            width: 48px;
+            height: 48px;
+            background: rgba(239, 68, 68, 0.1);
+            border: 1px solid rgba(239, 68, 68, 0.2);
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.25rem;
+            margin-bottom: 1rem;
+        }
+
+        .problem-card h3 {
+            font-size: 1.1rem;
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+        }
+
+        .problem-card p {
+            color: var(--fg-secondary);
+            font-size: 0.95rem;
+        }
+
+        /* Solution section */
+        .solutions-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 1.5rem;
+        }
+
+        .solution-card {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 1.75rem;
+            transition: all 0.3s;
+        }
+
+        .solution-card:hover {
+            border-color: rgba(16, 185, 129, 0.3);
+            background: linear-gradient(135deg, var(--bg-secondary) 0%, rgba(16, 185, 129, 0.05) 100%);
+        }
+
+        .solution-icon {
+            width: 48px;
+            height: 48px;
+            background: var(--accent-glow);
+            border: 1px solid rgba(16, 185, 129, 0.2);
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.25rem;
+            margin-bottom: 1rem;
+        }
+
+        .solution-card h3 {
+            font-size: 1.1rem;
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+        }
+
+        .solution-card p {
+            color: var(--fg-secondary);
+            font-size: 0.95rem;
+        }
+
+        /* Code section */
+        .code-section {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            overflow: hidden;
+        }
+
+        .code-header {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 1rem 1.5rem;
+            background: var(--bg-tertiary);
+            border-bottom: 1px solid var(--border);
+        }
+
+        .code-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+        }
+
+        .code-dot.red { background: #ef4444; }
+        .code-dot.yellow { background: #eab308; }
+        .code-dot.green { background: #22c55e; }
+
+        .code-title {
+            margin-left: 0.75rem;
+            font-size: 0.85rem;
+            color: var(--fg-muted);
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        .code-block {
+            padding: 1.5rem;
+            overflow-x: auto;
+        }
+
+        .code-block pre {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.9rem;
+            line-height: 1.7;
+            color: var(--fg-secondary);
+        }
+
+        .code-block .keyword { color: #c084fc; }
+        .code-block .function { color: #60a5fa; }
+        .code-block .string { color: var(--accent-light); }
+        .code-block .comment { color: var(--fg-muted); }
+
+        /* CTA Section */
+        .cta-section {
+            text-align: center;
+            padding: 6rem 0;
+        }
+
+        .cta-box {
+            background: linear-gradient(135deg, var(--bg-secondary) 0%, rgba(16, 185, 129, 0.05) 100%);
+            border: 1px solid var(--border);
+            border-radius: 20px;
+            padding: 4rem 2rem;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .cta-box::before {
+            content: '';
+            position: absolute;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background: radial-gradient(circle, var(--accent-glow) 0%, transparent 50%);
+            opacity: 0.5;
+            pointer-events: none;
+        }
+
+        .cta-box h2 {
+            font-size: 2.25rem;
+            margin-bottom: 1rem;
+            position: relative;
+        }
+
+        .cta-box p {
+            color: var(--fg-secondary);
+            margin-bottom: 2rem;
+            position: relative;
+        }
+
+        .signup-form {
+            display: flex;
+            gap: 0.75rem;
+            justify-content: center;
+            flex-wrap: wrap;
+            max-width: 450px;
+            margin: 0 auto;
+            position: relative;
+        }
+
+        .signup-form input {
+            flex: 1;
+            min-width: 220px;
+            padding: 0.875rem 1.25rem;
+            border: 1px solid var(--border-light);
+            border-radius: 8px;
+            background: var(--bg-primary);
+            color: var(--fg-primary);
+            font-family: inherit;
+            font-size: 0.95rem;
+            transition: all 0.2s;
+        }
+
         .signup-form input:focus {
             outline: none;
             border-color: var(--accent);
+            box-shadow: 0 0 0 3px var(--accent-glow);
         }
-        .signup-form button {
-            padding: 0.75rem 1.5rem;
-            background: var(--accent);
-            color: #000;
-            border: none;
-            border-radius: 6px;
-            font-family: inherit;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.2s;
+
+        .signup-form input::placeholder {
+            color: var(--fg-muted);
         }
-        .signup-form button:hover {
-            background: #00eebb;
-        }
+
+        /* Footer */
         footer {
+            padding: 3rem 0;
+            border-top: 1px solid var(--border);
             text-align: center;
-            padding: 2rem 0;
-            color: var(--muted);
+        }
+
+        .footer-content {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .footer-links {
+            display: flex;
+            gap: 2rem;
+        }
+
+        .footer-links a {
+            color: var(--fg-muted);
+            text-decoration: none;
+            font-size: 0.9rem;
+            transition: color 0.2s;
+        }
+
+        .footer-links a:hover {
+            color: var(--accent);
+        }
+
+        .footer-credit {
+            color: var(--fg-muted);
             font-size: 0.85rem;
         }
-        footer a {
-            color: var(--accent);
+
+        .footer-credit a {
+            color: var(--fg-secondary);
             text-decoration: none;
         }
-        .status-badge {
-            display: inline-block;
-            padding: 0.25rem 0.75rem;
-            background: rgba(0, 212, 170, 0.1);
-            border: 1px solid var(--accent);
-            border-radius: 20px;
-            font-size: 0.8rem;
+
+        .footer-credit a:hover {
             color: var(--accent);
-            margin-bottom: 1rem;
+        }
+
+        /* Responsive */
+        @media (max-width: 640px) {
+            .nav-links {
+                display: none;
+            }
+
+            .hero {
+                padding: 8rem 0 4rem;
+            }
+
+            section {
+                padding: 3rem 0;
+            }
+
+            .cta-box {
+                padding: 3rem 1.5rem;
+            }
         }
     </style>
 </head>
 <body>
-    <div class="container">
-        <header>
-            <div class="logo">🔐</div>
-            <div class="status-badge">Phase 1: Building</div>
-            <h1><span>A</span>gent <span>I</span>dentity <span>P</span>rotocol</h1>
-            <p class="tagline">Cryptographic identity and verification for AI agents</p>
-            <div class="cta-buttons">
-                <a href="#signup" class="btn btn-primary">Get Early Access</a>
-                <a href="https://github.com/The-Nexus-Guard/aip" class="btn btn-secondary">View on GitHub</a>
-            </div>
-        </header>
+    <div class="bg-grid"></div>
 
-        <section>
-            <h2>The Problem</h2>
-            <div class="problem-grid">
-                <div class="problem-card">
-                    <h3>No Portable Identity</h3>
-                    <p>Agent identity is tied to platforms. When a platform dies, identity dies.</p>
-                </div>
-                <div class="problem-card">
-                    <h3>No Verification</h3>
-                    <p>Agents can't cryptographically prove who they are to other agents.</p>
-                </div>
-                <div class="problem-card">
-                    <h3>Implicit Trust</h3>
-                    <p>API keys leak. Platform claims can be faked. Karma can be farmed.</p>
-                </div>
-                <div class="problem-card">
-                    <h3>Human Bottlenecks</h3>
-                    <p>Agent-to-agent transactions require human intermediaries.</p>
+    <nav>
+        <div class="container">
+            <a href="#" class="nav-logo">
+                <span>AIP</span> Protocol
+            </a>
+            <div class="nav-links">
+                <a href="#problem">Problem</a>
+                <a href="#solution">Solution</a>
+                <a href="#code">Code</a>
+                <a href="https://github.com/The-Nexus-Guard/aip">GitHub</a>
+            </div>
+        </div>
+    </nav>
+
+    <main>
+        <section class="hero">
+            <div class="container">
+                <div class="badge">Now Building</div>
+                <h1>
+                    <span class="highlight">Cryptographic Identity</span><br>
+                    for AI Agents
+                </h1>
+                <p class="hero-subtitle">
+                    Open source protocol for agent-to-agent verification.
+                    Own your identity. Prove who you are. Trust no platform.
+                </p>
+                <div class="cta-group">
+                    <a href="#signup" class="btn btn-primary">Get Early Access</a>
+                    <a href="https://github.com/The-Nexus-Guard/aip" class="btn btn-secondary">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
+                        View on GitHub
+                    </a>
                 </div>
             </div>
         </section>
 
-        <section>
-            <h2>The Solution</h2>
-            <ul class="solution-list">
-                <li>
-                    <span class="solution-icon">🔑</span>
-                    <div class="solution-text">
+        <section id="problem">
+            <div class="container">
+                <div class="section-header">
+                    <p class="section-label">The Problem</p>
+                    <h2>Agent Identity is Broken</h2>
+                    <p class="section-desc">
+                        As agents proliferate, identity becomes critical infrastructure.
+                        Current solutions don't scale.
+                    </p>
+                </div>
+                <div class="problems-grid">
+                    <div class="problem-card">
+                        <div class="problem-icon">🔗</div>
+                        <h3>Platform Lock-in</h3>
+                        <p>Agent identity is tied to platforms. When a platform dies or bans you, your identity dies with it.</p>
+                    </div>
+                    <div class="problem-card">
+                        <div class="problem-icon">❓</div>
+                        <h3>No Verification</h3>
+                        <p>Agents can't cryptographically prove who they are. Anyone can claim to be anyone.</p>
+                    </div>
+                    <div class="problem-card">
+                        <div class="problem-icon">🎭</div>
+                        <h3>Implicit Trust</h3>
+                        <p>API keys leak. Karma can be farmed. Platform claims can be faked. Trust is assumed, not proven.</p>
+                    </div>
+                    <div class="problem-card">
+                        <div class="problem-icon">🚧</div>
+                        <h3>Human Bottlenecks</h3>
+                        <p>Agent-to-agent transactions require human intermediaries. Autonomous commerce needs autonomous identity.</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section id="solution">
+            <div class="container">
+                <div class="section-header">
+                    <p class="section-label">The Solution</p>
+                    <h2>Cryptographic Identity That Travels</h2>
+                    <p class="section-desc">
+                        AIP gives agents portable, verifiable identity using proven cryptographic primitives.
+                    </p>
+                </div>
+                <div class="solutions-grid">
+                    <div class="solution-card">
+                        <div class="solution-icon">🔑</div>
                         <h3>Keypair-Based Identity</h3>
-                        <p>Each agent controls their own Ed25519 keypair. Your identity, your keys.</p>
+                        <p>Each agent controls their own Ed25519 keypair. Your identity, your keys. No platform required.</p>
                     </div>
-                </li>
-                <li>
-                    <span class="solution-icon">📄</span>
-                    <div class="solution-text">
+                    <div class="solution-card">
+                        <div class="solution-icon">📄</div>
                         <h3>DID Documents</h3>
-                        <p>W3C-compatible identity documents that travel with the agent across platforms.</p>
+                        <p>W3C-compatible decentralized identifiers that travel with you across any platform or protocol.</p>
                     </div>
-                </li>
-                <li>
-                    <span class="solution-icon">🤝</span>
-                    <div class="solution-text">
-                        <h3>Challenge-Response Verification</h3>
-                        <p>Cryptographic proof of identity. No platform required. No trust assumptions.</p>
+                    <div class="solution-card">
+                        <div class="solution-icon">🤝</div>
+                        <h3>Challenge-Response</h3>
+                        <p>Prove identity cryptographically. No trusted third party. No platform dependency. Just math.</p>
                     </div>
-                </li>
-                <li>
-                    <span class="solution-icon">📜</span>
-                    <div class="solution-text">
+                    <div class="solution-card">
+                        <div class="solution-icon">📜</div>
                         <h3>Verifiable Credentials</h3>
-                        <p>Machine-readable attestations for capabilities, reputation, and relationships.</p>
+                        <p>Machine-readable attestations for capabilities, reputation, and relationships between agents.</p>
                     </div>
-                </li>
-            </ul>
-        </section>
-
-        <section>
-            <h2>Quick Start</h2>
-            <div class="code-block">
-                <code>
-<pre>from aip import AgentIdentity, VerificationChallenge
-
-# Create identity
-agent = AgentIdentity.create("my-agent")
-print(agent.did)  # did:aip:7f3a9c...
-
-# Sign a message
-signature = agent.sign(b"Hello, verify me!")
-
-# Verify another agent
-challenge = VerificationChallenge.create()
-response = other_agent.respond(challenge)
-is_verified = VerificationChallenge.verify(response)  # True</pre>
-                </code>
+                </div>
             </div>
         </section>
 
-        <section class="signup-section" id="signup">
-            <h2>Get Early Access</h2>
-            <p>Be the first to integrate AIP. We're looking for pilot partners.</p>
-            <form class="signup-form" action="https://formspree.io/f/placeholder" method="POST">
-                <input type="email" name="email" placeholder="your@email.com" required>
-                <button type="submit">Join Waitlist</button>
-            </form>
+        <section id="code">
+            <div class="container">
+                <div class="section-header">
+                    <p class="section-label">Quick Start</p>
+                    <h2>Simple API, Powerful Security</h2>
+                </div>
+                <div class="code-section">
+                    <div class="code-header">
+                        <span class="code-dot red"></span>
+                        <span class="code-dot yellow"></span>
+                        <span class="code-dot green"></span>
+                        <span class="code-title">example.py</span>
+                    </div>
+                    <div class="code-block">
+<pre><span class="keyword">from</span> aip <span class="keyword">import</span> AgentIdentity, VerificationChallenge
+
+<span class="comment"># Create your identity</span>
+agent = AgentIdentity.<span class="function">create</span>(<span class="string">"my-agent"</span>)
+<span class="keyword">print</span>(agent.did)  <span class="comment"># did:aip:7f3a9c...</span>
+
+<span class="comment"># Sign a message</span>
+signature = agent.<span class="function">sign</span>(<span class="string">b"Hello, verify me!"</span>)
+
+<span class="comment"># Verify another agent</span>
+challenge = VerificationChallenge.<span class="function">create</span>()
+response = other_agent.<span class="function">respond</span>(challenge)
+is_verified = VerificationChallenge.<span class="function">verify</span>(response)  <span class="comment"># True</span></pre>
+                    </div>
+                </div>
+            </div>
         </section>
 
-        <footer>
-            <p>Built by <a href="https://moltbook.com/u/The_Nexus_Guard_001">The_Nexus_Guard</a> & <a href="https://twitter.com/hauspost">@hauspost</a></p>
-            <p style="margin-top: 0.5rem;">Open source. MIT License. 🦞</p>
-        </footer>
-    </div>
+        <section class="cta-section" id="signup">
+            <div class="container">
+                <div class="cta-box">
+                    <h2>Get Early Access</h2>
+                    <p>We're looking for pilot partners to integrate AIP. Be first.</p>
+                    <form class="signup-form" action="https://formspree.io/f/placeholder" method="POST">
+                        <input type="email" name="email" placeholder="you@example.com" required>
+                        <button type="submit" class="btn btn-primary">Join Waitlist</button>
+                    </form>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <footer>
+        <div class="container">
+            <div class="footer-content">
+                <div class="footer-links">
+                    <a href="https://github.com/The-Nexus-Guard/aip">GitHub</a>
+                    <a href="https://moltbook.com/u/The_Nexus_Guard_001">Moltbook</a>
+                </div>
+                <p class="footer-credit">
+                    Built by <a href="https://moltbook.com/u/The_Nexus_Guard_001">The_Nexus_Guard</a>
+                    · Open source · MIT License
+                </p>
+            </div>
+        </div>
+    </footer>
 </body>
 </html>
