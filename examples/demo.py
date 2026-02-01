@@ -1,82 +1,140 @@
 #!/usr/bin/env python3
 """
-Agent Identity Protocol - Demo
+AIP Demo: Two Agents Verifying Each Other
 
-Demonstrates:
+This demonstrates the core AIP functionality:
 1. Creating agent identities
-2. Signing messages
-3. Verifying signatures
-4. Challenge-response authentication
+2. Generating DID documents
+3. Challenge-response verification between agents
+4. Signing and verifying messages
 """
 
 import sys
-sys.path.insert(0, '../src')
+import os
 
-from identity import AgentIdentity, VerificationChallenge
+# Add src to path for imports
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
+
+from identity import AgentIdentity, VerificationChallenge, get_backend
+import json
+
+
+def print_section(title):
+    print(f"\n{'='*60}")
+    print(f" {title}")
+    print('='*60)
+
 
 def main():
-    print("=" * 60)
-    print("Agent Identity Protocol - Demo")
-    print("=" * 60)
+    print_section("AIP Demo: Agent-to-Agent Verification")
+    print(f"\nCrypto backend: {get_backend()}")
 
-    # 1. Create two agents
-    print("\n[1] Creating agent identities...")
-    alice = AgentIdentity.create("alice", {"role": "assistant", "platform": "moltbook"})
-    bob = AgentIdentity.create("bob", {"role": "researcher", "platform": "openclaw"})
+    # Create two agents
+    print_section("Step 1: Creating Agent Identities")
 
-    print(f"   Alice DID: {alice.did}")
-    print(f"   Bob DID:   {bob.did}")
+    alice = AgentIdentity.create("alice", metadata={"role": "coordinator"})
+    print(f"\nAlice created:")
+    print(f"  Name: {alice.name}")
+    print(f"  DID:  {alice.did}")
+    print(f"  Public Key: {alice.public_key[:40]}...")
 
-    # 2. Alice signs a message
-    print("\n[2] Alice signs a message...")
-    message = b"Hello Bob, this is Alice. Let's collaborate!"
-    signature = alice.sign(message)
-    print(f"   Message: {message.decode()}")
-    print(f"   Signature: {signature[:50]}...")
+    bob = AgentIdentity.create("bob", metadata={"role": "worker"})
+    print(f"\nBob created:")
+    print(f"  Name: {bob.name}")
+    print(f"  DID:  {bob.did}")
+    print(f"  Public Key: {bob.public_key[:40]}...")
 
-    # 3. Bob verifies Alice's signature
-    print("\n[3] Bob verifies Alice's signature...")
-    is_valid = AgentIdentity.verify(alice.public_key, message, signature)
-    print(f"   Valid: {is_valid}")
+    # Show DID documents
+    print_section("Step 2: DID Documents")
 
-    # 4. Verify with wrong key fails
-    print("\n[4] Verification with wrong key fails...")
-    is_valid_wrong = AgentIdentity.verify(bob.public_key, message, signature)
-    print(f"   Valid with Bob's key: {is_valid_wrong}")
+    alice_did_doc = alice.create_did_document()
+    print(f"\nAlice's DID Document (truncated):")
+    print(json.dumps(alice_did_doc, indent=2)[:500] + "...")
 
-    # 5. Challenge-response authentication
-    print("\n[5] Challenge-response authentication...")
+    # Challenge-response verification
+    print_section("Step 3: Challenge-Response Verification")
 
-    # Bob creates a challenge
+    # Bob challenges Alice
+    print("\nBob creates a challenge for Alice...")
     challenge = VerificationChallenge.create_challenge()
-    print(f"   Challenge nonce: {challenge['nonce'][:20]}...")
+    print(f"  Challenge nonce: {challenge['nonce'][:32]}...")
 
-    # Alice responds to the challenge
+    # Alice responds
+    print("\nAlice responds to the challenge...")
     response = VerificationChallenge.respond_to_challenge(alice, challenge)
-    print(f"   Alice signed the challenge")
+    print(f"  Response signature: {response['response']['signature'][:40]}...")
 
-    # Bob verifies Alice's response
-    verified = VerificationChallenge.verify_response(challenge, response)
-    print(f"   Bob verified Alice: {verified}")
+    # Bob verifies
+    print("\nBob verifies Alice's response...")
+    is_valid = VerificationChallenge.verify_response(challenge, response)
+    print(f"  Verification result: {'VALID' if is_valid else 'INVALID'}")
 
-    # 6. Generate DID Document
-    print("\n[6] Alice's DID Document:")
-    import json
-    did_doc = alice.create_did_document()
-    print(json.dumps(did_doc, indent=2))
+    # Now Alice challenges Bob
+    print("\n--- Now Alice challenges Bob ---")
 
-    # 7. Save and load identity
-    print("\n[7] Save and load identity...")
+    challenge2 = VerificationChallenge.create_challenge()
+    print(f"\nAlice creates challenge: {challenge2['nonce'][:32]}...")
+
+    response2 = VerificationChallenge.respond_to_challenge(bob, challenge2)
+    print(f"Bob responds: {response2['response']['signature'][:40]}...")
+
+    is_valid2 = VerificationChallenge.verify_response(challenge2, response2)
+    print(f"Verification: {'VALID' if is_valid2 else 'INVALID'}")
+
+    # Message signing
+    print_section("Step 4: Signed Messages")
+
+    message = {"task": "process_data", "priority": "high", "data_id": "12345"}
+    signed = alice.sign_json(message)
+
+    print(f"\nAlice signs a task message:")
+    print(f"  Payload: {signed['payload']}")
+    print(f"  Signature: {signed['signature'][:40]}...")
+    print(f"  Signer DID: {signed['signer']}")
+
+    # Bob verifies Alice's signed message
+    print("\nBob verifies the signed message...")
+    payload_bytes = json.dumps(signed['payload'], sort_keys=True, separators=(',', ':')).encode()
+    msg_valid = AgentIdentity.verify(alice.public_key, payload_bytes, signed['signature'])
+    print(f"  Message signature valid: {msg_valid}")
+
+    # Test tampering detection
+    print_section("Step 5: Tampering Detection")
+
+    print("\nBob tries to verify with tampered message...")
+    tampered = json.dumps({"task": "TAMPERED", "priority": "low"}, sort_keys=True, separators=(',', ':')).encode()
+    tamper_check = AgentIdentity.verify(alice.public_key, tampered, signed['signature'])
+    print(f"  Tampered message valid: {tamper_check}")
+    print(f"  Tampering detected: {not tamper_check}")
+
+    # Save and restore
+    print_section("Step 6: Persistence")
+
+    print("\nSaving Alice's identity to disk...")
     alice.save("/tmp/aip-demo")
-    print("   Saved to /tmp/aip-demo/")
+    print("  Saved to /tmp/aip-demo/")
 
+    print("\nRestoring Alice's identity...")
     alice_restored = AgentIdentity.load("/tmp/aip-demo", "alice")
-    print(f"   Restored DID: {alice_restored.did}")
-    print(f"   DIDs match: {alice.did == alice_restored.did}")
+    print(f"  Restored DID: {alice_restored.did}")
+    print(f"  DIDs match: {alice.did == alice_restored.did}")
 
-    print("\n" + "=" * 60)
-    print("Demo complete!")
-    print("=" * 60)
+    # Summary
+    print_section("Summary")
+
+    print(f"""
+Two agents (Alice and Bob) successfully:
+  1. Created unique cryptographic identities
+  2. Generated W3C-compatible DID documents
+  3. Verified each other using challenge-response protocol
+  4. Signed and verified JSON messages
+  5. Detected message tampering
+  6. Saved and restored identities
+
+All without any central authority or platform dependency.
+
+This is the foundation of agent-to-agent trust.
+""")
 
 
 if __name__ == "__main__":
