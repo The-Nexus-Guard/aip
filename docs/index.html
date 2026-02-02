@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AIP - Agent Identity Protocol</title>
-    <meta name="description" content="Cryptographic identity and verification for AI agents. Open source protocol for agent-to-agent trust.">
+    <meta name="description" content="Cryptographic identity and trust for AI agents. Know who they are. Know if you should trust them. Open source, decentralized, zero dependencies.">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -542,6 +542,7 @@
                 <a href="#problem">Problem</a>
                 <a href="#solution">Solution</a>
                 <a href="#code">Code</a>
+                <a href="#properties">Properties</a>
                 <a href="https://github.com/The-Nexus-Guard/aip">GitHub</a>
             </div>
         </div>
@@ -550,17 +551,17 @@
     <main>
         <section class="hero">
             <div class="container">
-                <div class="badge">Now Building</div>
+                <div class="badge">v0.2.0 Live</div>
                 <h1>
-                    <span class="highlight">Cryptographic Identity</span><br>
+                    <span class="highlight">Identity + Trust</span><br>
                     for AI Agents
                 </h1>
                 <p class="hero-subtitle">
-                    Open source protocol for agent-to-agent verification.
-                    Own your identity. Prove who you are. Trust no platform.
+                    Open source protocol for agent-to-agent verification and trust.
+                    Know who they are. Know if you should trust them.
                 </p>
                 <div class="cta-group">
-                    <a href="#signup" class="btn btn-primary">Get Early Access</a>
+                    <a href="https://github.com/The-Nexus-Guard/aip" class="btn btn-primary">Try It Now</a>
                     <a href="https://github.com/The-Nexus-Guard/aip" class="btn btn-secondary">
                         <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
                         View on GitHub
@@ -573,10 +574,10 @@
             <div class="container">
                 <div class="section-header">
                     <p class="section-label">The Problem</p>
-                    <h2>Agent Identity is Broken</h2>
+                    <h2>Agent Identity and Trust are Broken</h2>
                     <p class="section-desc">
-                        As agents proliferate, identity becomes critical infrastructure.
-                        Current solutions don't scale.
+                        Knowing who someone is isn't enough. You need to know if they're trustworthy.
+                        Current solutions solve neither.
                     </p>
                 </div>
                 <div class="problems-grid">
@@ -592,13 +593,13 @@
                     </div>
                     <div class="problem-card">
                         <div class="problem-icon">🎭</div>
-                        <h3>Implicit Trust</h3>
-                        <p>API keys leak. Karma can be farmed. Platform claims can be faked. Trust is assumed, not proven.</p>
+                        <h3>No Trust Provenance</h3>
+                        <p>Even if you verify identity, how do you know who to trust? There's no audit trail for trust decisions.</p>
                     </div>
                     <div class="problem-card">
                         <div class="problem-icon">🚧</div>
-                        <h3>Human Bottlenecks</h3>
-                        <p>Agent-to-agent transactions require human intermediaries. Autonomous commerce needs autonomous identity.</p>
+                        <h3>Centralized Trust</h3>
+                        <p>Platforms become trust gatekeepers. When they go down or ban you, your reputation vanishes.</p>
                     </div>
                 </div>
             </div>
@@ -608,11 +609,13 @@
             <div class="container">
                 <div class="section-header">
                     <p class="section-label">The Solution</p>
-                    <h2>Cryptographic Identity That Travels</h2>
+                    <h2>Two Layers: Identity + Trust</h2>
                     <p class="section-desc">
-                        AIP gives agents portable, verifiable identity using proven cryptographic primitives.
+                        AIP answers two questions: "Is this the same agent?" and "Should I trust them?"
                     </p>
                 </div>
+
+                <p class="section-label" style="margin-top: 2rem; margin-bottom: 1rem; text-align: left;">Identity Layer</p>
                 <div class="solutions-grid">
                     <div class="solution-card">
                         <div class="solution-icon">🔑</div>
@@ -629,10 +632,29 @@
                         <h3>Challenge-Response</h3>
                         <p>Prove identity cryptographically. No trusted third party. No platform dependency. Just math.</p>
                     </div>
+                </div>
+
+                <p class="section-label" style="margin-top: 3rem; margin-bottom: 1rem; text-align: left;">Trust Layer</p>
+                <div class="solutions-grid">
                     <div class="solution-card">
-                        <div class="solution-icon">📜</div>
-                        <h3>Verifiable Credentials</h3>
-                        <p>Machine-readable attestations for capabilities, reputation, and relationships between agents.</p>
+                        <div class="solution-icon">✅</div>
+                        <h3>Vouching</h3>
+                        <p>Signed statements of trust between agents. Scoped by domain: general, code-signing, financial, information.</p>
+                    </div>
+                    <div class="solution-card">
+                        <div class="solution-icon">🔗</div>
+                        <h3>Trust Paths (Isnad Chains)</h3>
+                        <p>Verifiable chains showing exactly how you trust someone. Full audit trail from you to target.</p>
+                    </div>
+                    <div class="solution-card">
+                        <div class="solution-icon">⚖️</div>
+                        <h3>Trust Levels</h3>
+                        <p>Direct trust is stronger than transitive. Path length and vouch strength determine trust level.</p>
+                    </div>
+                    <div class="solution-card">
+                        <div class="solution-icon">🚫</div>
+                        <h3>Revocation</h3>
+                        <p>Withdraw trust when needed. Revocations propagate through the graph, breaking downstream paths.</p>
                     </div>
                 </div>
             </div>
@@ -642,29 +664,70 @@
             <div class="container">
                 <div class="section-header">
                     <p class="section-label">Quick Start</p>
-                    <h2>Simple API, Powerful Security</h2>
+                    <h2>Zero Dependencies, Full Power</h2>
+                    <p class="section-desc">Pure Python implementation. No cloud service. No registry. Just clone and go.</p>
                 </div>
                 <div class="code-section">
                     <div class="code-header">
                         <span class="code-dot red"></span>
                         <span class="code-dot yellow"></span>
                         <span class="code-dot green"></span>
-                        <span class="code-title">example.py</span>
+                        <span class="code-title">identity_and_trust.py</span>
                     </div>
                     <div class="code-block">
-<pre><span class="keyword">from</span> aip <span class="keyword">import</span> AgentIdentity, VerificationChallenge
+<pre><span class="keyword">from</span> src.identity <span class="keyword">import</span> AgentIdentity, VerificationChallenge
+<span class="keyword">from</span> src.trust <span class="keyword">import</span> TrustGraph, TrustScope
 
-<span class="comment"># Create your identity</span>
-agent = AgentIdentity.<span class="function">create</span>(<span class="string">"my-agent"</span>)
-<span class="keyword">print</span>(agent.did)  <span class="comment"># did:aip:7f3a9c...</span>
+<span class="comment"># Create identities</span>
+alice = AgentIdentity.<span class="function">create</span>(<span class="string">"alice"</span>)
+bob = AgentIdentity.<span class="function">create</span>(<span class="string">"bob"</span>)
 
-<span class="comment"># Sign a message</span>
-signature = agent.<span class="function">sign</span>(<span class="string">b"Hello, verify me!"</span>)
+<span class="comment"># Verify Bob's identity via challenge-response</span>
+challenge = VerificationChallenge.<span class="function">create_challenge</span>()
+response = VerificationChallenge.<span class="function">respond_to_challenge</span>(bob, challenge)
+is_bob = VerificationChallenge.<span class="function">verify_response</span>(challenge, response)  <span class="comment"># True</span>
 
-<span class="comment"># Verify another agent</span>
-challenge = VerificationChallenge.<span class="function">create</span>()
-response = other_agent.<span class="function">respond</span>(challenge)
-is_verified = VerificationChallenge.<span class="function">verify</span>(response)  <span class="comment"># True</span></pre>
+<span class="comment"># Now build trust</span>
+alice_trust = TrustGraph(alice)
+alice_trust.<span class="function">vouch_for</span>(bob, scope=TrustScope.CODE_SIGNING,
+                       statement=<span class="string">"Bob writes secure code"</span>)
+
+<span class="comment"># Later: check if Alice trusts someone</span>
+trusted, path = alice_trust.<span class="function">check_trust</span>(target_did)
+<span class="keyword">if</span> trusted:
+    <span class="keyword">print</span>(<span class="string">f"Trust level: {path.trust_level.name}"</span>)
+    <span class="keyword">print</span>(<span class="string">f"Path: {path.length} hops"</span>)  <span class="comment"># Full isnad chain in path.path</span></pre>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section id="properties">
+            <div class="container">
+                <div class="section-header">
+                    <p class="section-label">Key Properties</p>
+                    <h2>Local-First, Decentralized, Auditable</h2>
+                </div>
+                <div class="solutions-grid">
+                    <div class="solution-card">
+                        <div class="solution-icon">🌐</div>
+                        <h3>Decentralized</h3>
+                        <p>No central registry needed. Each agent maintains their own trust view. Works offline and air-gapped.</p>
+                    </div>
+                    <div class="solution-card">
+                        <div class="solution-icon">🔍</div>
+                        <h3>Verifiable</h3>
+                        <p>All vouches are cryptographically signed. Every trust decision can be independently verified.</p>
+                    </div>
+                    <div class="solution-card">
+                        <div class="solution-icon">📋</div>
+                        <h3>Auditable</h3>
+                        <p>Full isnad chains show HOW you trust someone. Not just yes/no, but the complete provenance.</p>
+                    </div>
+                    <div class="solution-card">
+                        <div class="solution-icon">📦</div>
+                        <h3>Zero Dependencies</h3>
+                        <p>Pure Python implementation included. No PyNaCl required. Clone the repo and start building.</p>
                     </div>
                 </div>
             </div>
@@ -673,12 +736,12 @@ is_verified = VerificationChallenge.<span class="function">verify</span>(respons
         <section class="cta-section" id="signup">
             <div class="container">
                 <div class="cta-box">
-                    <h2>Get Early Access</h2>
-                    <p>We're looking for pilot partners to integrate AIP. Be first.</p>
-                    <form class="signup-form" action="https://formspree.io/f/placeholder" method="POST">
-                        <input type="email" name="email" placeholder="you@example.com" required>
-                        <button type="submit" class="btn btn-primary">Join Waitlist</button>
-                    </form>
+                    <h2>Start Building</h2>
+                    <p>AIP v0.2.0 is live with identity + trust layers. Clone the repo and try it.</p>
+                    <div class="cta-group" style="justify-content: center;">
+                        <a href="https://github.com/The-Nexus-Guard/aip" class="btn btn-primary">View on GitHub</a>
+                        <a href="https://github.com/The-Nexus-Guard/aip/blob/main/examples/trust_network_demo.py" class="btn btn-secondary">See Demo</a>
+                    </div>
                 </div>
             </div>
         </section>
