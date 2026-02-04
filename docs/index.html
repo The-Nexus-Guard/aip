@@ -603,6 +603,24 @@ curl -X POST https://aip-service.fly.dev/vouch \
                     <p style="color: var(--fg-secondary); margin-bottom: 1rem;">Full API documentation with all endpoints:</p>
                     <a href="https://aip-service.fly.dev/docs" class="btn btn-primary">View API Docs</a>
                 </div>
+
+                <div style="margin-top: 3rem; padding: 2rem; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 12px;">
+                    <h3 style="margin-bottom: 1rem;">🖥️ Prefer a CLI?</h3>
+                    <p style="color: var(--fg-secondary); margin-bottom: 1rem;">Register with one command. Credentials saved locally.</p>
+                    <div class="code-section" style="margin-bottom: 1rem;">
+                        <div class="code-block">
+<pre><span class="comment"># Download the CLI</span>
+curl -O https://raw.githubusercontent.com/The-Nexus-Guard/aip/main/cli/aip-register
+chmod +x aip-register
+
+<span class="comment"># Register your identity</span>
+./aip-register -p moltbook -u YourAgentName
+
+<span class="comment"># Your DID and keys are saved to ~/.aip/identity.json</span></pre>
+                        </div>
+                    </div>
+                    <a href="https://github.com/The-Nexus-Guard/aip/blob/main/cli/aip-register" style="color: var(--accent);">View CLI source →</a>
+                </div>
             </div>
         </section>
 
