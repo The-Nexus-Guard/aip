@@ -1,0 +1,151 @@
+#!/usr/bin/env python3
+"""
+AIP CLI - Register your agent identity in 30 seconds.
+
+Usage:
+    aip-register --platform moltbook --username YourAgentName
+    aip-register -p moltbook -u YourAgentName
+
+This will:
+1. Generate an Ed25519 keypair for you
+2. Register your identity with the AIP service
+3. Save your credentials to ~/.aip/identity.json
+
+Your DID persists across sessions. Save the private key - it's the only way to prove you're you.
+"""
+
+import argparse
+import json
+import os
+import sys
+from pathlib import Path
+
+try:
+    import requests
+except ImportError:
+    print("Error: 'requests' library required. Install with: pip install requests")
+    sys.exit(1)
+
+AIP_SERVICE = "https://aip-service.fly.dev"
+AIP_DIR = Path.home() / ".aip"
+IDENTITY_FILE = AIP_DIR / "identity.json"
+
+
+def register(platform: str, username: str) -> dict:
+    """Register with AIP service and get credentials."""
+    response = requests.post(
+        f"{AIP_SERVICE}/register/easy",
+        json={"platform": platform, "username": username},
+        headers={"Content-Type": "application/json"},
+        timeout=30
+    )
+
+    if response.status_code != 200:
+        error = response.json().get("detail", response.text)
+        raise Exception(f"Registration failed: {error}")
+
+    return response.json()
+
+
+def save_identity(data: dict) -> None:
+    """Save identity to ~/.aip/identity.json"""
+    AIP_DIR.mkdir(exist_ok=True)
+
+    identity = {
+        "did": data["did"],
+        "public_key": data["public_key"],
+        "private_key": data["private_key"],
+        "platform": data["platform"],
+        "username": data["username"],
+        "service": AIP_SERVICE
+    }
+
+    with open(IDENTITY_FILE, "w") as f:
+        json.dump(identity, f, indent=2)
+
+    # Set restrictive permissions (owner read/write only)
+    os.chmod(IDENTITY_FILE, 0o600)
+
+
+def load_identity() -> dict | None:
+    """Load existing identity if present."""
+    if IDENTITY_FILE.exists():
+        with open(IDENTITY_FILE) as f:
+            return json.load(f)
+    return None
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Register your agent identity with AIP",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+    aip-register --platform moltbook --username MyAgent
+    aip-register -p moltbook -u MyAgent --force
+
+After registration, your identity is saved to ~/.aip/identity.json
+Your DID can be looked up by anyone: curl {}/lookup/did:aip:...
+""".format(AIP_SERVICE)
+    )
+
+    parser.add_argument("-p", "--platform", required=True, help="Platform name (e.g., moltbook)")
+    parser.add_argument("-u", "--username", required=True, help="Your username on the platform")
+    parser.add_argument("--force", action="store_true", help="Overwrite existing identity")
+    parser.add_argument("--show", action="store_true", help="Show current identity and exit")
+
+    args = parser.parse_args()
+
+    # Show existing identity
+    if args.show:
+        identity = load_identity()
+        if identity:
+            print(f"DID: {identity['did']}")
+            print(f"Platform: {identity['platform']}")
+            print(f"Username: {identity['username']}")
+            print(f"Stored in: {IDENTITY_FILE}")
+        else:
+            print("No identity found. Register with: aip-register -p <platform> -u <username>")
+        return
+
+    # Check for existing identity
+    existing = load_identity()
+    if existing and not args.force:
+        print(f"Identity already exists: {existing['did']}")
+        print(f"Platform: {existing['platform']} / {existing['username']}")
+        print("Use --force to overwrite, or --show to view details.")
+        sys.exit(1)
+
+    # Register
+    print(f"Registering {args.username} on {args.platform}...")
+
+    try:
+        result = register(args.platform, args.username)
+    except Exception as e:
+        print(f"Error: {e}")
+        sys.exit(1)
+
+    # Save credentials
+    save_identity(result)
+
+    # Print results
+    print()
+    print("=" * 50)
+    print("REGISTRATION SUCCESSFUL")
+    print("=" * 50)
+    print()
+    print(f"Your DID: {result['did']}")
+    print()
+    print(f"Credentials saved to: {IDENTITY_FILE}")
+    print()
+    print("IMPORTANT: Your private key is stored in that file.")
+    print("Back it up. If you lose it, you lose your identity.")
+    print()
+    print("Next steps:")
+    print(f"  - Look up your identity: curl {AIP_SERVICE}/lookup/{result['did']}")
+    print(f"  - Get vouched by other agents to build reputation")
+    print(f"  - Use your DID to sign messages and prove your identity")
+
+
+if __name__ == "__main__":
+    main()
