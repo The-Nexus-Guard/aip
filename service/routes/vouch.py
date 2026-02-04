@@ -30,6 +30,7 @@ class VouchRequest(BaseModel):
     scope: str = Field(..., description="Trust scope (GENERAL, CODE_SIGNING, etc.)")
     statement: Optional[str] = Field(None, description="Optional trust statement")
     signature: str = Field(..., description="Base64 signature of vouch payload")
+    ttl_days: Optional[int] = Field(None, ge=1, le=365, description="Time-to-live in days (1-365, None=permanent)")
 
 
 class VouchResponse(BaseModel):
@@ -47,6 +48,7 @@ class VouchInfo(BaseModel):
     scope: str
     statement: Optional[str]
     created_at: str
+    expires_at: Optional[str] = None
 
 
 class TrustGraphResponse(BaseModel):
@@ -152,7 +154,8 @@ async def create_vouch(request: VouchRequest):
         target_did=request.target_did,
         scope=request.scope,
         statement=request.statement or "",
-        signature=request.signature
+        signature=request.signature,
+        ttl_days=request.ttl_days
     )
 
     if not success:
@@ -161,10 +164,14 @@ async def create_vouch(request: VouchRequest):
             detail="Failed to create vouch"
         )
 
+    message = "Vouch created successfully"
+    if request.ttl_days:
+        message += f" (expires in {request.ttl_days} days)"
+
     return VouchResponse(
         success=True,
         vouch_id=vouch_id,
-        message="Vouch created successfully"
+        message=message
     )
 
 
@@ -199,7 +206,8 @@ async def get_trust_graph(
                 target_did=did,
                 scope=v["scope"],
                 statement=v["statement"],
-                created_at=str(v["created_at"])
+                created_at=str(v["created_at"]),
+                expires_at=str(v["expires_at"]) if v.get("expires_at") else None
             )
             for v in vouched_by
         ],
@@ -210,7 +218,8 @@ async def get_trust_graph(
                 target_did=v["target_did"],
                 scope=v["scope"],
                 statement=v["statement"],
-                created_at=str(v["created_at"])
+                created_at=str(v["created_at"]),
+                expires_at=str(v["expires_at"]) if v.get("expires_at") else None
             )
             for v in vouches_for
         ]

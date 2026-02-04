@@ -66,11 +66,18 @@ def init_database():
                 statement TEXT,
                 signature TEXT NOT NULL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                expires_at TIMESTAMP,
                 revoked_at TIMESTAMP,
                 FOREIGN KEY (voucher_did) REFERENCES registrations(did),
                 FOREIGN KEY (target_did) REFERENCES registrations(did)
             )
         """)
+
+        # Migration: add expires_at column if missing (for existing databases)
+        try:
+            cursor.execute("ALTER TABLE vouches ADD COLUMN expires_at TIMESTAMP")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
 
         # Challenges - for live verification
         cursor.execute("""
@@ -83,10 +90,27 @@ def init_database():
             )
         """)
 
+        # Messages table - encrypted agent-to-agent messages
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS messages (
+                id TEXT PRIMARY KEY,
+                sender_did TEXT NOT NULL,
+                recipient_did TEXT NOT NULL,
+                encrypted_content TEXT NOT NULL,
+                signature TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                read_at TIMESTAMP,
+                FOREIGN KEY (sender_did) REFERENCES registrations(did),
+                FOREIGN KEY (recipient_did) REFERENCES registrations(did)
+            )
+        """)
+
         # Create indexes
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_platform_links_did ON platform_links(did)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_vouches_voucher ON vouches(voucher_did)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_vouches_target ON vouches(target_did)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_messages_recipient ON messages(recipient_did)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_messages_sender ON messages(sender_did)")
 
         conn.commit()
 
@@ -220,15 +244,33 @@ def cleanup_expired_challenges():
 # Vouch operations
 
 def create_vouch(vouch_id: str, voucher_did: str, target_did: str,
-                 scope: str, statement: str, signature: str) -> bool:
-    """Create a new vouch."""
+                 scope: str, statement: str, signature: str,
+                 ttl_days: Optional[int] = None) -> bool:
+    """Create a new vouch.
+
+    Args:
+        vouch_id: Unique ID for the vouch
+        voucher_did: DID of the agent vouching
+        target_did: DID being vouched for
+        scope: Trust scope (GENERAL, CODE_SIGNING, etc.)
+        statement: Optional trust statement
+        signature: Signature proving voucher identity
+        ttl_days: Optional time-to-live in days (None = permanent)
+
+    Returns:
+        True if vouch was created successfully
+    """
+    expires_at = None
+    if ttl_days is not None and ttl_days > 0:
+        expires_at = (datetime.utcnow() + timedelta(days=ttl_days)).isoformat()
+
     with get_connection() as conn:
         cursor = conn.cursor()
         try:
             cursor.execute(
-                """INSERT INTO vouches (id, voucher_did, target_did, scope, statement, signature)
-                   VALUES (?, ?, ?, ?, ?, ?)""",
-                (vouch_id, voucher_did, target_did, scope, statement, signature)
+                """INSERT INTO vouches (id, voucher_did, target_did, scope, statement, signature, expires_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (vouch_id, voucher_did, target_did, scope, statement, signature, expires_at)
             )
             conn.commit()
             return True
@@ -236,28 +278,80 @@ def create_vouch(vouch_id: str, voucher_did: str, target_did: str,
             return False
 
 
-def get_vouches_for(did: str) -> List[Dict[str, Any]]:
-    """Get vouches where this DID is the target (others vouching for them)."""
+def get_vouches_for(did: str, include_expired: bool = False) -> List[Dict[str, Any]]:
+    """Get vouches where this DID is the target (others vouching for them).
+
+    Args:
+        did: Target DID
+        include_expired: If True, include expired vouches
+
+    Returns:
+        List of active vouches for this DID
+    """
     with get_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute(
-            """SELECT id, voucher_did, scope, statement, created_at
-               FROM vouches WHERE target_did = ? AND revoked_at IS NULL""",
-            (did,)
-        )
+        now = datetime.utcnow().isoformat()
+        if include_expired:
+            cursor.execute(
+                """SELECT id, voucher_did, scope, statement, created_at, expires_at
+                   FROM vouches WHERE target_did = ? AND revoked_at IS NULL""",
+                (did,)
+            )
+        else:
+            cursor.execute(
+                """SELECT id, voucher_did, scope, statement, created_at, expires_at
+                   FROM vouches WHERE target_did = ? AND revoked_at IS NULL
+                   AND (expires_at IS NULL OR expires_at > ?)""",
+                (did, now)
+            )
         return [dict(row) for row in cursor.fetchall()]
 
 
-def get_vouches_by(did: str) -> List[Dict[str, Any]]:
-    """Get vouches where this DID is the voucher (they vouching for others)."""
+def get_vouches_by(did: str, include_expired: bool = False) -> List[Dict[str, Any]]:
+    """Get vouches where this DID is the voucher (they vouching for others).
+
+    Args:
+        did: Voucher DID
+        include_expired: If True, include expired vouches
+
+    Returns:
+        List of active vouches by this DID
+    """
     with get_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute(
-            """SELECT id, target_did, scope, statement, created_at
-               FROM vouches WHERE voucher_did = ? AND revoked_at IS NULL""",
-            (did,)
-        )
+        now = datetime.utcnow().isoformat()
+        if include_expired:
+            cursor.execute(
+                """SELECT id, target_did, scope, statement, created_at, expires_at
+                   FROM vouches WHERE voucher_did = ? AND revoked_at IS NULL""",
+                (did,)
+            )
+        else:
+            cursor.execute(
+                """SELECT id, target_did, scope, statement, created_at, expires_at
+                   FROM vouches WHERE voucher_did = ? AND revoked_at IS NULL
+                   AND (expires_at IS NULL OR expires_at > ?)""",
+                (did, now)
+            )
         return [dict(row) for row in cursor.fetchall()]
+
+
+def cleanup_expired_vouches() -> int:
+    """Remove expired vouches from database.
+
+    Returns:
+        Number of vouches cleaned up
+    """
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        now = datetime.utcnow().isoformat()
+        cursor.execute(
+            "DELETE FROM vouches WHERE expires_at IS NOT NULL AND expires_at < ?",
+            (now,)
+        )
+        count = cursor.rowcount
+        conn.commit()
+        return count
 
 
 def revoke_vouch(vouch_id: str, voucher_did: str) -> bool:
@@ -271,6 +365,128 @@ def revoke_vouch(vouch_id: str, voucher_did: str) -> bool:
         )
         conn.commit()
         return cursor.rowcount > 0
+
+
+# Message operations
+
+def store_message(message_id: str, sender_did: str, recipient_did: str,
+                  encrypted_content: str, signature: str) -> bool:
+    """Store an encrypted message."""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        try:
+            cursor.execute(
+                """INSERT INTO messages (id, sender_did, recipient_did, encrypted_content, signature)
+                   VALUES (?, ?, ?, ?, ?)""",
+                (message_id, sender_did, recipient_did, encrypted_content, signature)
+            )
+            conn.commit()
+            return True
+        except sqlite3.IntegrityError:
+            return False
+
+
+def get_messages_for(recipient_did: str, unread_only: bool = False) -> List[Dict[str, Any]]:
+    """Get messages for a recipient."""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        if unread_only:
+            cursor.execute(
+                """SELECT id, sender_did, encrypted_content, signature, created_at
+                   FROM messages WHERE recipient_did = ? AND read_at IS NULL
+                   ORDER BY created_at DESC""",
+                (recipient_did,)
+            )
+        else:
+            cursor.execute(
+                """SELECT id, sender_did, encrypted_content, signature, created_at, read_at
+                   FROM messages WHERE recipient_did = ?
+                   ORDER BY created_at DESC LIMIT 100""",
+                (recipient_did,)
+            )
+        return [dict(row) for row in cursor.fetchall()]
+
+
+def mark_message_read(message_id: str, recipient_did: str) -> bool:
+    """Mark a message as read. Only recipient can mark."""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            """UPDATE messages SET read_at = ?
+               WHERE id = ? AND recipient_did = ? AND read_at IS NULL""",
+            (datetime.utcnow().isoformat(), message_id, recipient_did)
+        )
+        conn.commit()
+        return cursor.rowcount > 0
+
+
+def delete_message(message_id: str, recipient_did: str) -> bool:
+    """Delete a message. Only recipient can delete."""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "DELETE FROM messages WHERE id = ? AND recipient_did = ?",
+            (message_id, recipient_did)
+        )
+        conn.commit()
+        return cursor.rowcount > 0
+
+
+def get_message_count(did: str) -> Dict[str, int]:
+    """Get message counts for a DID."""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT COUNT(*) as count FROM messages WHERE recipient_did = ? AND read_at IS NULL",
+            (did,)
+        )
+        unread = cursor.fetchone()["count"]
+        cursor.execute(
+            "SELECT COUNT(*) as count FROM messages WHERE sender_did = ?",
+            (did,)
+        )
+        sent = cursor.fetchone()["count"]
+        return {"unread": unread, "sent": sent}
+
+
+# Stats operations
+
+def get_stats() -> Dict[str, Any]:
+    """Get service statistics."""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+
+        # Count registrations
+        cursor.execute("SELECT COUNT(*) as count FROM registrations")
+        total_registrations = cursor.fetchone()["count"]
+
+        # Count platform links
+        cursor.execute("SELECT COUNT(*) as count FROM platform_links")
+        total_links = cursor.fetchone()["count"]
+
+        # Count by platform
+        cursor.execute("""
+            SELECT platform, COUNT(*) as count
+            FROM platform_links
+            GROUP BY platform
+        """)
+        by_platform = {row["platform"]: row["count"] for row in cursor.fetchall()}
+
+        # Count vouches
+        cursor.execute("SELECT COUNT(*) as count FROM vouches WHERE revoked_at IS NULL")
+        active_vouches = cursor.fetchone()["count"]
+
+        # Count challenges used (verifications)
+        cursor.execute("SELECT COUNT(*) as count FROM challenges WHERE used = 1")
+        verifications = cursor.fetchone()["count"]
+
+        return {
+            "registrations": total_registrations,
+            "platform_links": total_links,
+            "by_platform": by_platform,
+            "active_vouches": active_vouches,
+            "verifications_completed": verifications
+        }
 
 
 # Initialize on import
