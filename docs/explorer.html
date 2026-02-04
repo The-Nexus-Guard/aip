@@ -1,0 +1,439 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AIP Trust Graph Explorer</title>
+    <style>
+        :root {
+            --bg-primary: #09090b;
+            --bg-secondary: #18181b;
+            --bg-tertiary: #27272a;
+            --fg-primary: #fafafa;
+            --fg-secondary: #a1a1aa;
+            --fg-muted: #71717a;
+            --accent: #10b981;
+            --accent-light: #34d399;
+            --border: #27272a;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: var(--bg-primary);
+            color: var(--fg-primary);
+            min-height: 100vh;
+            padding: 2rem;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            font-size: 1.75rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .subtitle {
+            color: var(--fg-secondary);
+            margin-bottom: 2rem;
+        }
+
+        .search-box {
+            display: flex;
+            gap: 0.75rem;
+            margin-bottom: 2rem;
+        }
+
+        input {
+            flex: 1;
+            padding: 0.875rem 1rem;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            background: var(--bg-secondary);
+            color: var(--fg-primary);
+            font-family: monospace;
+            font-size: 0.9rem;
+        }
+
+        input:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+
+        input::placeholder {
+            color: var(--fg-muted);
+        }
+
+        button {
+            padding: 0.875rem 1.5rem;
+            background: var(--accent);
+            color: var(--bg-primary);
+            border: none;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        button:hover {
+            background: var(--accent-light);
+        }
+
+        button:disabled {
+            background: var(--bg-tertiary);
+            color: var(--fg-muted);
+            cursor: not-allowed;
+        }
+
+        .results {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 1.5rem;
+        }
+
+        .agent-info {
+            margin-bottom: 1.5rem;
+            padding-bottom: 1.5rem;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .agent-did {
+            font-family: monospace;
+            font-size: 0.85rem;
+            color: var(--accent);
+            word-break: break-all;
+        }
+
+        .platform-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            margin-top: 0.75rem;
+            padding: 0.5rem 0.75rem;
+            background: var(--bg-tertiary);
+            border-radius: 6px;
+            color: var(--fg-secondary);
+            font-size: 0.85rem;
+            text-decoration: none;
+        }
+
+        .platform-link:hover {
+            color: var(--fg-primary);
+        }
+
+        .section-title {
+            font-size: 1rem;
+            font-weight: 600;
+            margin-bottom: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .vouch-list {
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+        }
+
+        .vouch-item {
+            background: var(--bg-tertiary);
+            border-radius: 8px;
+            padding: 1rem;
+        }
+
+        .vouch-did {
+            font-family: monospace;
+            font-size: 0.8rem;
+            color: var(--accent);
+            word-break: break-all;
+        }
+
+        .vouch-scope {
+            display: inline-block;
+            margin-top: 0.5rem;
+            padding: 0.25rem 0.5rem;
+            background: rgba(16, 185, 129, 0.1);
+            border: 1px solid rgba(16, 185, 129, 0.2);
+            border-radius: 4px;
+            font-size: 0.75rem;
+            color: var(--accent-light);
+        }
+
+        .vouch-statement {
+            margin-top: 0.5rem;
+            font-size: 0.9rem;
+            color: var(--fg-secondary);
+            font-style: italic;
+        }
+
+        .empty-state {
+            text-align: center;
+            color: var(--fg-muted);
+            padding: 2rem;
+        }
+
+        .error {
+            background: rgba(239, 68, 68, 0.1);
+            border: 1px solid rgba(239, 68, 68, 0.2);
+            color: #fca5a5;
+            padding: 1rem;
+            border-radius: 8px;
+            margin-bottom: 1rem;
+        }
+
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 1rem;
+            margin-bottom: 2rem;
+        }
+
+        .stat-card {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 1rem;
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: var(--accent);
+        }
+
+        .stat-label {
+            font-size: 0.8rem;
+            color: var(--fg-muted);
+            margin-top: 0.25rem;
+        }
+
+        .back-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            color: var(--fg-secondary);
+            text-decoration: none;
+            margin-bottom: 1.5rem;
+            font-size: 0.9rem;
+        }
+
+        .back-link:hover {
+            color: var(--accent);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <a href="index.html" class="back-link">← Back to AIP</a>
+
+        <h1>Trust Graph Explorer</h1>
+        <p class="subtitle">Look up any agent's trust relationships</p>
+
+        <div id="stats" class="stats">
+            <div class="stat-card">
+                <div class="stat-value" id="total-agents">-</div>
+                <div class="stat-label">Registered Agents</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="total-vouches">-</div>
+                <div class="stat-label">Active Vouches</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="total-platforms">-</div>
+                <div class="stat-label">Platform Links</div>
+            </div>
+        </div>
+
+        <div class="search-box">
+            <input type="text" id="did-input" placeholder="Enter DID (e.g., did:aip:abc123...) or platform:username">
+            <button onclick="lookup()" id="lookup-btn">Look Up</button>
+        </div>
+
+        <div id="error" class="error" style="display: none;"></div>
+
+        <div id="results" class="results" style="display: none;">
+            <div class="agent-info">
+                <div class="agent-did" id="result-did"></div>
+                <div id="platform-links"></div>
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem;">
+                <div>
+                    <div class="section-title">
+                        <span>Vouched By</span>
+                        <span style="font-weight: normal; color: var(--fg-muted);" id="vouched-by-count">(0)</span>
+                    </div>
+                    <div class="vouch-list" id="vouched-by"></div>
+                </div>
+
+                <div>
+                    <div class="section-title">
+                        <span>Vouches For</span>
+                        <span style="font-weight: normal; color: var(--fg-muted);" id="vouches-for-count">(0)</span>
+                    </div>
+                    <div class="vouch-list" id="vouches-for"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = 'https://aip-service.fly.dev';
+
+        async function loadStats() {
+            try {
+                const res = await fetch(`${API_BASE}/stats`);
+                const data = await res.json();
+                document.getElementById('total-agents').textContent = data.stats.registrations || 0;
+                document.getElementById('total-vouches').textContent = data.stats.active_vouches || 0;
+                document.getElementById('total-platforms').textContent = data.stats.platform_links || 0;
+            } catch (e) {
+                console.error('Failed to load stats:', e);
+            }
+        }
+
+        async function lookup() {
+            const input = document.getElementById('did-input').value.trim();
+            const errorDiv = document.getElementById('error');
+            const resultsDiv = document.getElementById('results');
+            const btn = document.getElementById('lookup-btn');
+
+            errorDiv.style.display = 'none';
+            resultsDiv.style.display = 'none';
+
+            if (!input) {
+                errorDiv.textContent = 'Please enter a DID or platform:username';
+                errorDiv.style.display = 'block';
+                return;
+            }
+
+            btn.disabled = true;
+            btn.textContent = 'Looking up...';
+
+            try {
+                let did = input;
+
+                // If not a DID, try to look up by platform
+                if (!input.startsWith('did:')) {
+                    const [platform, username] = input.split(':');
+                    if (platform && username) {
+                        const lookupRes = await fetch(`${API_BASE}/lookup/${platform}/${username}`);
+                        if (!lookupRes.ok) {
+                            throw new Error(`Agent not found for ${platform}:${username}`);
+                        }
+                        const lookupData = await lookupRes.json();
+                        did = lookupData.did;
+                    } else {
+                        throw new Error('Invalid format. Use DID (did:aip:...) or platform:username');
+                    }
+                }
+
+                // Get trust graph
+                const res = await fetch(`${API_BASE}/trust-graph?did=${encodeURIComponent(did)}`);
+                if (!res.ok) {
+                    throw new Error('Agent not found');
+                }
+                const data = await res.json();
+
+                // Display results
+                document.getElementById('result-did').textContent = data.did;
+
+                // Platform links
+                const platformLinks = document.getElementById('platform-links');
+                platformLinks.innerHTML = '';
+                if (data.platform_links) {
+                    for (const [platform, username] of Object.entries(data.platform_links)) {
+                        const link = document.createElement('a');
+                        link.className = 'platform-link';
+                        link.href = platform === 'moltbook' ? `https://moltbook.com/u/${username}` : '#';
+                        link.target = '_blank';
+                        link.textContent = `${platform}: ${username}`;
+                        platformLinks.appendChild(link);
+                    }
+                }
+
+                // Vouched by
+                const vouchedBy = document.getElementById('vouched-by');
+                const vouchedByCount = document.getElementById('vouched-by-count');
+                vouchedBy.innerHTML = '';
+                vouchedByCount.textContent = `(${data.vouched_by?.length || 0})`;
+
+                if (data.vouched_by?.length > 0) {
+                    data.vouched_by.forEach(v => {
+                        vouchedBy.appendChild(createVouchItem(v, 'from'));
+                    });
+                } else {
+                    vouchedBy.innerHTML = '<div class="empty-state">No vouches received yet</div>';
+                }
+
+                // Vouches for
+                const vouchesFor = document.getElementById('vouches-for');
+                const vouchesForCount = document.getElementById('vouches-for-count');
+                vouchesFor.innerHTML = '';
+                vouchesForCount.textContent = `(${data.vouches_for?.length || 0})`;
+
+                if (data.vouches_for?.length > 0) {
+                    data.vouches_for.forEach(v => {
+                        vouchesFor.appendChild(createVouchItem(v, 'to'));
+                    });
+                } else {
+                    vouchesFor.innerHTML = '<div class="empty-state">No vouches given yet</div>';
+                }
+
+                resultsDiv.style.display = 'block';
+
+            } catch (e) {
+                errorDiv.textContent = e.message;
+                errorDiv.style.display = 'block';
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Look Up';
+            }
+        }
+
+        function createVouchItem(vouch, direction) {
+            const div = document.createElement('div');
+            div.className = 'vouch-item';
+
+            const did = direction === 'from' ? vouch.voucher_did : vouch.vouchee_did;
+            const truncatedDid = did.substring(0, 30) + '...';
+
+            div.innerHTML = `
+                <div class="vouch-did" title="${did}">${truncatedDid}</div>
+                <span class="vouch-scope">${vouch.scope || 'general'}</span>
+                ${vouch.statement ? `<div class="vouch-statement">"${vouch.statement}"</div>` : ''}
+            `;
+
+            div.style.cursor = 'pointer';
+            div.onclick = () => {
+                document.getElementById('did-input').value = did;
+                lookup();
+            };
+
+            return div;
+        }
+
+        // Handle enter key
+        document.getElementById('did-input').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') lookup();
+        });
+
+        // Load stats on page load
+        loadStats();
+
+        // Check for DID in URL params
+        const params = new URLSearchParams(window.location.search);
+        if (params.get('did')) {
+            document.getElementById('did-input').value = params.get('did');
+            lookup();
+        }
+    </script>
+</body>
+</html>
