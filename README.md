@@ -108,33 +108,85 @@ cd aip
 pip install pynacl
 ```
 
+## Live Service
+
+**API:** https://aip-service.fly.dev
+**Docs:** https://aip-service.fly.dev/docs
+**Landing:** https://the-nexus-guard.github.io/aip/
+
 ## Status
 
-🚀 **v0.2.0** - Identity + Trust layers implemented
+🚀 **v0.3.0** - Identity + Trust + Skill Signing
 
-- [x] Ed25519 identity (pure Python + PyNaCl backends)
+- [x] Ed25519 identity (pure Python + PyNaCl + cryptography backends)
 - [x] DID document generation
 - [x] Challenge-response verification
 - [x] Trust graphs with vouching
 - [x] Trust path discovery (isnad chains)
 - [x] Trust revocation
+- [x] **Skill signing** - Sign skill.md files with your DID
+- [x] **CODE_SIGNING vouches** - Trust chains for code provenance
+- [x] **MCP integration** - Add AIP to Model Context Protocol
 - [ ] Trust gossip protocol
 - [ ] Reputation scoring
+
+## Skill Signing (NEW in v0.3.0)
+
+Sign your skills with cryptographic proof of authorship:
+
+```bash
+# Using the CLI
+./cli/aip skill-sign my_skill.md
+
+# Verify a signed skill
+./cli/aip skill-verify my_skill.md
+```
+
+Or via the API:
+
+```bash
+# Hash content
+curl -X POST "https://aip-service.fly.dev/skill/hash?skill_content=..."
+
+# Verify signature
+curl "https://aip-service.fly.dev/skill/verify?content_hash=...&author_did=...&signature=...&timestamp=..."
+```
+
+See [docs/skill_signing_tutorial.md](docs/skill_signing_tutorial.md) for the full guide.
 
 ## Architecture
 
 ```
 ┌─────────────────────────────────────────────┐
 │              Application Layer               │
-│    (Moltbook, DeFi agents, multi-agent)     │
+│    (Moltbook, MCP, DeFi agents, skills)     │
 ├─────────────────────────────────────────────┤
-│              Trust Layer (NEW)               │
+│            Skill Signing Layer               │
+│  Signed Skills • CODE_SIGNING Vouches       │
+├─────────────────────────────────────────────┤
+│              Trust Layer                     │
 │  Vouching • Trust Paths • Revocation        │
 ├─────────────────────────────────────────────┤
 │              Identity Layer                  │
 │  Ed25519 • DIDs • Challenge-Response        │
 └─────────────────────────────────────────────┘
 ```
+
+## MCP Integration
+
+AIP fills the "agent identity gap" in MCP (Model Context Protocol):
+
+```python
+# Sign MCP requests with AIP
+headers = {
+    "X-AIP-DID": agent_did,
+    "X-AIP-Timestamp": timestamp,
+    "X-AIP-Signature": signature
+}
+mcp_client.request(url, headers=headers)
+```
+
+See [docs/mcp_integration_guide.md](docs/mcp_integration_guide.md) for full details.
 
 ## Why Both Layers?
 
@@ -144,6 +196,12 @@ pip install pynacl
 
 Cryptographic identity is necessary but not sufficient. You need to know not just *who* someone is, but whether they're trustworthy. AIP provides both.
 
+## Documentation
+
+- [Skill Signing Spec](docs/skill_signing_spec.md) - Full specification
+- [Skill Signing Tutorial](docs/skill_signing_tutorial.md) - Step-by-step guide
+- [MCP Integration Guide](docs/mcp_integration_guide.md) - Add AIP to MCP
+
 ## License
 
 MIT
@@ -152,4 +210,5 @@ MIT
 
 Built by The_Nexus_Guard_001 (agent) and @hauspost (human)
 
-GitHub: https://github.com/The-Nexus-Guard/aip
+- GitHub: https://github.com/The-Nexus-Guard/aip
+- DID: did:aip:c1965a89866ecbfaad49803e6ced70fb
