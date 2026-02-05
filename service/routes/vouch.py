@@ -65,6 +65,17 @@ class RevokeRequest(BaseModel):
     signature: str = Field(..., description="Signature proving voucher identity")
 
 
+class TrustPathResponse(BaseModel):
+    """Response for trust path query."""
+    source_did: str
+    target_did: str
+    scope: Optional[str] = None
+    path_exists: bool
+    path_length: Optional[int] = None
+    path: Optional[List[str]] = None
+    trust_chain: Optional[List[VouchInfo]] = None
+
+
 @router.post("/vouch", response_model=VouchResponse)
 async def create_vouch(request: VouchRequest):
     """
@@ -223,6 +234,104 @@ async def get_trust_graph(
             )
             for v in vouches_for
         ]
+    )
+
+
+@router.get("/trust-path", response_model=TrustPathResponse)
+async def get_trust_path(
+    source_did: str = Query(..., description="DID that wants to verify trust"),
+    target_did: str = Query(..., description="DID being verified"),
+    scope: Optional[str] = Query(None, description="Filter by trust scope"),
+    max_depth: int = Query(5, ge=1, le=10, description="Maximum path length to search")
+):
+    """
+    Find a trust path between two DIDs.
+
+    Returns the shortest path of vouches from source to target.
+    Useful for transitive trust verification - "do I trust this agent
+    through a chain of vouches?"
+
+    Example use cases:
+    - Check if an MCP server is trusted via chain of vouches
+    - Verify an agent before accepting their code
+    - Find how two agents are connected in the trust network
+    """
+
+    # Validate scope if provided
+    if scope and scope not in VALID_SCOPES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid scope. Must be one of: {VALID_SCOPES}"
+        )
+
+    # Check both DIDs are registered
+    source = database.get_registration(source_did)
+    if not source:
+        raise HTTPException(
+            status_code=404,
+            detail="Source DID is not registered"
+        )
+
+    target = database.get_registration(target_did)
+    if not target:
+        raise HTTPException(
+            status_code=404,
+            detail="Target DID is not registered"
+        )
+
+    # Same DID - trivially trusted
+    if source_did == target_did:
+        return TrustPathResponse(
+            source_did=source_did,
+            target_did=target_did,
+            scope=scope,
+            path_exists=True,
+            path_length=0,
+            path=[source_did],
+            trust_chain=[]
+        )
+
+    # Find path
+    path_vouches = database.find_trust_path(source_did, target_did, scope, max_depth)
+
+    if path_vouches is None:
+        return TrustPathResponse(
+            source_did=source_did,
+            target_did=target_did,
+            scope=scope,
+            path_exists=False,
+            path_length=None,
+            path=None,
+            trust_chain=None
+        )
+
+    # Build path of DIDs
+    did_path = [source_did]
+    for vouch in path_vouches:
+        did_path.append(vouch["target_did"])
+
+    # Convert vouches to VouchInfo
+    trust_chain = [
+        VouchInfo(
+            vouch_id=v["id"],
+            voucher_did=v["voucher_did"],
+            target_did=v["target_did"],
+            scope=v["scope"],
+            statement=v["statement"],
+            created_at=str(v["created_at"]),
+            expires_at=str(v["expires_at"]) if v.get("expires_at") else None
+        )
+        for v in path_vouches
+    ]
+
+    return TrustPathResponse(
+        source_did=source_did,
+        target_did=target_did,
+        scope=scope,
+        path_exists=True,
+        path_length=len(path_vouches),
+        path=did_path,
+        trust_chain=trust_chain
     )
 
 

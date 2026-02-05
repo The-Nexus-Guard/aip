@@ -491,6 +491,73 @@ def get_message_count(did: str) -> Dict[str, int]:
         return {"unread": unread, "sent": sent}
 
 
+# Trust path operations
+
+def find_trust_path(source_did: str, target_did: str, scope: Optional[str] = None, max_depth: int = 5) -> Optional[List[Dict[str, Any]]]:
+    """Find a trust path from source to target DID via vouches.
+
+    Uses BFS to find the shortest path. Returns list of vouches forming the path,
+    or None if no path exists within max_depth.
+
+    Args:
+        source_did: Starting DID (the one who wants to verify trust)
+        target_did: Ending DID (the one being verified)
+        scope: Optional scope filter - only follow vouches with this scope
+        max_depth: Maximum path length to search (default 5)
+
+    Returns:
+        List of vouch dicts forming the path, or None if no path exists
+    """
+    if source_did == target_did:
+        return []  # Already at target
+
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        now = datetime.utcnow().isoformat()
+
+        # BFS state
+        visited = {source_did}
+        queue = [(source_did, [])]  # (current_did, path_so_far)
+
+        while queue:
+            current_did, path = queue.pop(0)
+
+            if len(path) >= max_depth:
+                continue
+
+            # Get vouches FROM current_did (who they vouch for)
+            if scope:
+                cursor.execute(
+                    """SELECT id, voucher_did, target_did, scope, statement, created_at, expires_at
+                       FROM vouches
+                       WHERE voucher_did = ? AND scope = ? AND revoked_at IS NULL
+                       AND (expires_at IS NULL OR expires_at > ?)""",
+                    (current_did, scope, now)
+                )
+            else:
+                cursor.execute(
+                    """SELECT id, voucher_did, target_did, scope, statement, created_at, expires_at
+                       FROM vouches
+                       WHERE voucher_did = ? AND revoked_at IS NULL
+                       AND (expires_at IS NULL OR expires_at > ?)""",
+                    (current_did, now)
+                )
+
+            for row in cursor.fetchall():
+                vouch = dict(row)
+                next_did = vouch["target_did"]
+
+                if next_did == target_did:
+                    # Found the target
+                    return path + [vouch]
+
+                if next_did not in visited:
+                    visited.add(next_did)
+                    queue.append((next_did, path + [vouch]))
+
+        return None  # No path found
+
+
 # Stats operations
 
 def get_stats() -> Dict[str, Any]:

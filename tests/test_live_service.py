@@ -268,6 +268,83 @@ class TestTrustGraph:
         assert "Cannot vouch for yourself" in response.json()["detail"]
 
 
+class TestTrustPath:
+    """Test trust path query endpoint."""
+
+    def test_trust_path_same_did(self):
+        """Trust path to self returns length 0."""
+        unique_username = f"SelfPath_{uuid.uuid4().hex[:8]}"
+        reg = requests.post(
+            f"{AIP_SERVICE}/register/easy",
+            json={"platform": "moltbook", "username": unique_username}
+        ).json()
+
+        response = requests.get(
+            f"{AIP_SERVICE}/trust-path",
+            params={"source_did": reg["did"], "target_did": reg["did"]}
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["path_exists"] is True
+        assert data["path_length"] == 0
+
+    def test_trust_path_unregistered_source(self):
+        """Trust path with unregistered source fails."""
+        unique_username = f"PathTarget_{uuid.uuid4().hex[:8]}"
+        reg = requests.post(
+            f"{AIP_SERVICE}/register/easy",
+            json={"platform": "moltbook", "username": unique_username}
+        ).json()
+
+        response = requests.get(
+            f"{AIP_SERVICE}/trust-path",
+            params={"source_did": "did:aip:nonexistent123", "target_did": reg["did"]}
+        )
+        assert response.status_code == 404
+        assert "Source DID" in response.json()["detail"]
+
+    def test_trust_path_no_path(self):
+        """Trust path returns false when no path exists."""
+        agent1 = f"NoPath1_{uuid.uuid4().hex[:8]}"
+        agent2 = f"NoPath2_{uuid.uuid4().hex[:8]}"
+
+        reg1 = requests.post(
+            f"{AIP_SERVICE}/register/easy",
+            json={"platform": "moltbook", "username": agent1}
+        ).json()
+
+        reg2 = requests.post(
+            f"{AIP_SERVICE}/register/easy",
+            json={"platform": "moltbook", "username": agent2}
+        ).json()
+
+        response = requests.get(
+            f"{AIP_SERVICE}/trust-path",
+            params={"source_did": reg1["did"], "target_did": reg2["did"]}
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["path_exists"] is False
+
+    def test_trust_path_invalid_scope(self):
+        """Trust path with invalid scope fails."""
+        unique_username = f"BadScope_{uuid.uuid4().hex[:8]}"
+        reg = requests.post(
+            f"{AIP_SERVICE}/register/easy",
+            json={"platform": "moltbook", "username": unique_username}
+        ).json()
+
+        response = requests.get(
+            f"{AIP_SERVICE}/trust-path",
+            params={
+                "source_did": reg["did"],
+                "target_did": reg["did"],
+                "scope": "INVALID_SCOPE"
+            }
+        )
+        assert response.status_code == 400
+
+
 class TestKeyRotation:
     """Test key rotation endpoint."""
 
@@ -351,6 +428,7 @@ def run_tests():
         TestLookup,
         TestChallenge,
         TestTrustGraph,
+        TestTrustPath,
         TestKeyRotation,
         TestExplorer
     ]
