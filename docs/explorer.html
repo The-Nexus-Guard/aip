@@ -227,7 +227,125 @@
         .back-link:hover {
             color: var(--accent);
         }
+
+        /* Trust Graph Visualization */
+        .graph-container {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 1rem;
+            margin-bottom: 2rem;
+            min-height: 300px;
+            position: relative;
+        }
+
+        .graph-title {
+            font-size: 1rem;
+            font-weight: 600;
+            margin-bottom: 1rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .graph-controls {
+            display: flex;
+            gap: 0.5rem;
+        }
+
+        .graph-controls button {
+            padding: 0.5rem 0.75rem;
+            font-size: 0.75rem;
+            background: var(--bg-tertiary);
+            color: var(--fg-secondary);
+        }
+
+        .graph-controls button:hover {
+            background: var(--accent);
+            color: var(--bg-primary);
+        }
+
+        #trust-graph {
+            width: 100%;
+            height: 280px;
+        }
+
+        #trust-graph svg {
+            width: 100%;
+            height: 100%;
+        }
+
+        .node circle {
+            stroke: var(--accent);
+            stroke-width: 2px;
+            cursor: pointer;
+            transition: fill 0.2s;
+        }
+
+        .node circle:hover {
+            fill: var(--accent-light);
+        }
+
+        .node.current circle {
+            fill: var(--accent);
+        }
+
+        .node text {
+            font-size: 10px;
+            fill: var(--fg-secondary);
+            text-anchor: middle;
+            pointer-events: none;
+        }
+
+        .link {
+            stroke: var(--border);
+            stroke-opacity: 0.6;
+            stroke-width: 1.5px;
+        }
+
+        .link.outgoing {
+            stroke: var(--accent);
+            stroke-opacity: 0.4;
+        }
+
+        .link.incoming {
+            stroke: #3b82f6;
+            stroke-opacity: 0.4;
+        }
+
+        .graph-legend {
+            display: flex;
+            gap: 1rem;
+            font-size: 0.75rem;
+            color: var(--fg-muted);
+            margin-top: 0.5rem;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 0.25rem;
+        }
+
+        .legend-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+        }
+
+        .legend-dot.current { background: var(--accent); }
+        .legend-dot.vouched-by { background: #3b82f6; }
+        .legend-dot.vouches-for { background: #8b5cf6; }
+
+        .graph-empty {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 200px;
+            color: var(--fg-muted);
+        }
     </style>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
 </head>
 <body>
     <div class="container">
@@ -257,6 +375,22 @@
         </div>
 
         <div id="error" class="error" style="display: none;"></div>
+
+        <!-- Trust Graph Visualization -->
+        <div id="graph-section" class="graph-container" style="display: none;">
+            <div class="graph-title">
+                <span>Trust Network</span>
+                <div class="graph-controls">
+                    <button onclick="resetGraph()">Reset View</button>
+                </div>
+            </div>
+            <div id="trust-graph"></div>
+            <div class="graph-legend">
+                <div class="legend-item"><div class="legend-dot current"></div> Current Agent</div>
+                <div class="legend-item"><div class="legend-dot vouched-by"></div> Vouched By</div>
+                <div class="legend-item"><div class="legend-dot vouches-for"></div> Vouches For</div>
+            </div>
+        </div>
 
         <div id="results" class="results" style="display: none;">
             <div class="agent-info">
@@ -389,6 +523,9 @@
 
                 resultsDiv.style.display = 'block';
 
+                // Render trust graph visualization
+                renderGraph(data);
+
             } catch (e) {
                 errorDiv.textContent = e.message;
                 errorDiv.style.display = 'block';
@@ -424,6 +561,168 @@
         document.getElementById('did-input').addEventListener('keypress', (e) => {
             if (e.key === 'Enter') lookup();
         });
+
+        // Graph visualization
+        let simulation = null;
+
+        function renderGraph(data) {
+            const container = document.getElementById('trust-graph');
+            const graphSection = document.getElementById('graph-section');
+
+            // Clear previous
+            container.innerHTML = '';
+
+            // Check if there's any trust data
+            const hasVouches = (data.vouched_by?.length > 0) || (data.vouches_for?.length > 0);
+            if (!hasVouches) {
+                container.innerHTML = '<div class="graph-empty">No trust relationships yet. Be the first to vouch!</div>';
+                graphSection.style.display = 'block';
+                return;
+            }
+
+            graphSection.style.display = 'block';
+
+            const width = container.clientWidth;
+            const height = 280;
+
+            const svg = d3.select(container)
+                .append('svg')
+                .attr('width', width)
+                .attr('height', height);
+
+            // Build nodes and links
+            const nodes = [];
+            const links = [];
+            const nodeMap = new Map();
+
+            // Add current node
+            const currentDid = data.did;
+            const currentNode = { id: currentDid, type: 'current', label: truncateDid(currentDid) };
+            nodes.push(currentNode);
+            nodeMap.set(currentDid, currentNode);
+
+            // Add vouched_by nodes
+            (data.vouched_by || []).forEach(v => {
+                const did = v.voucher_did;
+                if (!nodeMap.has(did)) {
+                    const node = { id: did, type: 'vouched-by', label: truncateDid(did) };
+                    nodes.push(node);
+                    nodeMap.set(did, node);
+                }
+                links.push({ source: did, target: currentDid, type: 'incoming', scope: v.scope });
+            });
+
+            // Add vouches_for nodes
+            (data.vouches_for || []).forEach(v => {
+                const did = v.target_did;
+                if (!nodeMap.has(did)) {
+                    const node = { id: did, type: 'vouches-for', label: truncateDid(did) };
+                    nodes.push(node);
+                    nodeMap.set(did, node);
+                }
+                links.push({ source: currentDid, target: did, type: 'outgoing', scope: v.scope });
+            });
+
+            // Create force simulation
+            simulation = d3.forceSimulation(nodes)
+                .force('link', d3.forceLink(links).id(d => d.id).distance(80))
+                .force('charge', d3.forceManyBody().strength(-200))
+                .force('center', d3.forceCenter(width / 2, height / 2))
+                .force('collision', d3.forceCollide().radius(30));
+
+            // Draw links
+            const link = svg.append('g')
+                .selectAll('line')
+                .data(links)
+                .enter().append('line')
+                .attr('class', d => `link ${d.type}`)
+                .attr('marker-end', 'url(#arrow)');
+
+            // Add arrow marker
+            svg.append('defs').append('marker')
+                .attr('id', 'arrow')
+                .attr('viewBox', '0 -5 10 10')
+                .attr('refX', 20)
+                .attr('refY', 0)
+                .attr('markerWidth', 6)
+                .attr('markerHeight', 6)
+                .attr('orient', 'auto')
+                .append('path')
+                .attr('fill', '#71717a')
+                .attr('d', 'M0,-5L10,0L0,5');
+
+            // Draw nodes
+            const node = svg.append('g')
+                .selectAll('g')
+                .data(nodes)
+                .enter().append('g')
+                .attr('class', d => `node ${d.type}`)
+                .call(d3.drag()
+                    .on('start', dragstarted)
+                    .on('drag', dragged)
+                    .on('end', dragended));
+
+            node.append('circle')
+                .attr('r', d => d.type === 'current' ? 12 : 8)
+                .attr('fill', d => {
+                    if (d.type === 'current') return 'var(--accent)';
+                    if (d.type === 'vouched-by') return '#3b82f6';
+                    return '#8b5cf6';
+                });
+
+            node.append('text')
+                .attr('dy', 25)
+                .text(d => d.label);
+
+            // Click to look up node
+            node.on('click', (event, d) => {
+                if (d.type !== 'current') {
+                    document.getElementById('did-input').value = d.id;
+                    lookup();
+                }
+            });
+
+            // Tick function
+            simulation.on('tick', () => {
+                link
+                    .attr('x1', d => d.source.x)
+                    .attr('y1', d => d.source.y)
+                    .attr('x2', d => d.target.x)
+                    .attr('y2', d => d.target.y);
+
+                node.attr('transform', d => `translate(${d.x},${d.y})`);
+            });
+
+            function dragstarted(event, d) {
+                if (!event.active) simulation.alphaTarget(0.3).restart();
+                d.fx = d.x;
+                d.fy = d.y;
+            }
+
+            function dragged(event, d) {
+                d.fx = event.x;
+                d.fy = event.y;
+            }
+
+            function dragended(event, d) {
+                if (!event.active) simulation.alphaTarget(0);
+                d.fx = null;
+                d.fy = null;
+            }
+        }
+
+        function truncateDid(did) {
+            if (did.length > 20) {
+                return did.substring(0, 12) + '...' + did.substring(did.length - 6);
+            }
+            return did;
+        }
+
+        function resetGraph() {
+            if (simulation) {
+                simulation.alpha(1).restart();
+            }
+        }
 
         // Load stats on page load
         loadStats();
