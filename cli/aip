@@ -1,0 +1,256 @@
+#!/usr/bin/env python3
+"""
+AIP CLI - Agent Identity Protocol Command Line Tool
+
+Simple CLI for registering and managing AIP identities.
+
+Usage:
+    aip register --platform moltbook --username my-agent
+    aip verify --did did:aip:abc123
+    aip lookup --platform moltbook --username my-agent
+    aip challenge --did did:aip:abc123
+    aip stats
+"""
+
+import argparse
+import json
+import os
+import sys
+import requests
+
+AIP_SERVICE = os.environ.get("AIP_SERVICE_URL", "https://aip-service.fly.dev")
+CREDS_PATH = os.path.expanduser("~/.aip/credentials.json")
+
+
+def save_credentials(data):
+    """Save credentials to ~/.aip/credentials.json"""
+    os.makedirs(os.path.dirname(CREDS_PATH), exist_ok=True)
+    with open(CREDS_PATH, "w") as f:
+        json.dump(data, f, indent=2)
+    os.chmod(CREDS_PATH, 0o600)
+    print(f"Credentials saved to {CREDS_PATH}")
+
+
+def load_credentials():
+    """Load credentials from ~/.aip/credentials.json"""
+    if os.path.exists(CREDS_PATH):
+        with open(CREDS_PATH) as f:
+            return json.load(f)
+    return None
+
+
+def cmd_register(args):
+    """Register a new AIP identity."""
+    print(f"Registering on {args.platform} as {args.username}...")
+
+    resp = requests.post(
+        f"{AIP_SERVICE}/register/easy",
+        json={"platform": args.platform, "username": args.username}
+    )
+
+    if resp.status_code == 200:
+        data = resp.json()
+        print(f"\n✓ Registration successful!")
+        print(f"\nDID: {data['did']}")
+        print(f"Platform: {data['platform']}")
+        print(f"Username: {data['username']}")
+
+        if args.save:
+            save_credentials({
+                "did": data["did"],
+                "public_key": data["public_key"],
+                "private_key": data["private_key"],
+                "platform": data["platform"],
+                "username": data["username"]
+            })
+        else:
+            print(f"\nPublic Key: {data['public_key']}")
+            print(f"Private Key: {data['private_key']}")
+            print("\n⚠️  SAVE YOUR PRIVATE KEY! If lost, you lose this identity forever.")
+            print(f"   Use --save to automatically save to {CREDS_PATH}")
+    elif resp.status_code == 409:
+        print(f"✗ Already registered: {args.platform}:{args.username}")
+        sys.exit(1)
+    else:
+        print(f"✗ Registration failed: {resp.json().get('detail', resp.text)}")
+        sys.exit(1)
+
+
+def cmd_verify(args):
+    """Verify a DID or platform identity."""
+    if args.did:
+        params = {"did": args.did}
+    else:
+        params = {"platform": args.platform, "username": args.username}
+
+    resp = requests.get(f"{AIP_SERVICE}/verify", params=params)
+    data = resp.json()
+
+    if data.get("verified"):
+        print(f"✓ Verified!")
+        print(f"  DID: {data['did']}")
+        if data.get("platforms"):
+            print(f"  Platforms: {', '.join(f'{k}:{v}' for k, v in data['platforms'].items())}")
+    else:
+        print(f"✗ Not registered")
+        sys.exit(1)
+
+
+def cmd_lookup(args):
+    """Look up an agent by platform identity."""
+    resp = requests.get(f"{AIP_SERVICE}/lookup/{args.platform}/{args.username}")
+
+    if resp.status_code == 200:
+        data = resp.json()
+        print(f"DID: {data['did']}")
+        print(f"Public Key: {data['public_key']}")
+    else:
+        print(f"✗ Not found: {args.platform}:{args.username}")
+        sys.exit(1)
+
+
+def cmd_trust_graph(args):
+    """Get trust relationships for a DID."""
+    resp = requests.get(f"{AIP_SERVICE}/trust-graph", params={"did": args.did})
+
+    if resp.status_code == 200:
+        data = resp.json()
+        print(f"Trust Graph for {data['did']}")
+        print(f"\nVouched by ({len(data['vouched_by'])}):")
+        for v in data["vouched_by"]:
+            print(f"  - {v['voucher_did'][:30]}... [{v['scope']}]")
+        print(f"\nVouches for ({len(data['vouches_for'])}):")
+        for v in data["vouches_for"]:
+            print(f"  - {v['target_did'][:30]}... [{v['scope']}]")
+    else:
+        print(f"✗ Error: {resp.json().get('detail', resp.text)}")
+        sys.exit(1)
+
+
+def cmd_trust_path(args):
+    """Check trust path between two DIDs."""
+    params = {
+        "source_did": args.source,
+        "target_did": args.target
+    }
+    if args.scope:
+        params["scope"] = args.scope
+
+    resp = requests.get(f"{AIP_SERVICE}/trust-path", params=params)
+
+    if resp.status_code == 200:
+        data = resp.json()
+        if data["path_exists"]:
+            print(f"✓ Trust path exists!")
+            print(f"  Length: {data['path_length']}")
+            print(f"  Path: {' -> '.join(data['path'])}")
+        else:
+            print(f"✗ No trust path found")
+    else:
+        print(f"✗ Error: {resp.json().get('detail', resp.text)}")
+        sys.exit(1)
+
+
+def cmd_stats(args):
+    """Get AIP service statistics."""
+    resp = requests.get(f"{AIP_SERVICE}/stats")
+    data = resp.json()
+
+    print(f"AIP Service Statistics")
+    print(f"=" * 40)
+    print(f"Status: {data['status']}")
+    print(f"Registrations: {data['stats']['registrations']}")
+    print(f"Platform Links: {data['stats']['platform_links']}")
+    print(f"Active Vouches: {data['stats']['active_vouches']}")
+    print(f"\nBy Platform:")
+    for platform, count in data['stats'].get('by_platform', {}).items():
+        print(f"  {platform}: {count}")
+
+
+def cmd_whoami(args):
+    """Show current identity from saved credentials."""
+    creds = load_credentials()
+    if creds:
+        print(f"DID: {creds['did']}")
+        print(f"Platform: {creds.get('platform', 'unknown')}")
+        print(f"Username: {creds.get('username', 'unknown')}")
+    else:
+        print(f"No credentials found at {CREDS_PATH}")
+        print("Use 'aip register --save' to create an identity")
+        sys.exit(1)
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="AIP CLI - Agent Identity Protocol",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  aip register --platform moltbook --username my-agent --save
+  aip verify --did did:aip:abc123
+  aip lookup --platform moltbook --username my-agent
+  aip trust-graph --did did:aip:abc123
+  aip trust-path --source did:aip:abc --target did:aip:xyz
+  aip stats
+  aip whoami
+        """
+    )
+    subparsers = parser.add_subparsers(dest="command", help="Command")
+
+    # Register
+    p_register = subparsers.add_parser("register", help="Register new identity")
+    p_register.add_argument("--platform", "-p", required=True, help="Platform name")
+    p_register.add_argument("--username", "-u", required=True, help="Username on platform")
+    p_register.add_argument("--save", "-s", action="store_true", help="Save credentials to ~/.aip/")
+
+    # Verify
+    p_verify = subparsers.add_parser("verify", help="Verify identity")
+    p_verify.add_argument("--did", "-d", help="DID to verify")
+    p_verify.add_argument("--platform", "-p", help="Platform name")
+    p_verify.add_argument("--username", "-u", help="Username on platform")
+
+    # Lookup
+    p_lookup = subparsers.add_parser("lookup", help="Look up agent by platform identity")
+    p_lookup.add_argument("--platform", "-p", required=True, help="Platform name")
+    p_lookup.add_argument("--username", "-u", required=True, help="Username")
+
+    # Trust graph
+    p_trust = subparsers.add_parser("trust-graph", help="Get trust relationships")
+    p_trust.add_argument("--did", "-d", required=True, help="DID to look up")
+
+    # Trust path
+    p_path = subparsers.add_parser("trust-path", help="Check trust path between DIDs")
+    p_path.add_argument("--source", "-s", required=True, help="Source DID")
+    p_path.add_argument("--target", "-t", required=True, help="Target DID")
+    p_path.add_argument("--scope", help="Trust scope filter")
+
+    # Stats
+    subparsers.add_parser("stats", help="Get service statistics")
+
+    # Whoami
+    subparsers.add_parser("whoami", help="Show current identity")
+
+    args = parser.parse_args()
+
+    if args.command == "register":
+        cmd_register(args)
+    elif args.command == "verify":
+        if not args.did and not (args.platform and args.username):
+            parser.error("Either --did or both --platform and --username required")
+        cmd_verify(args)
+    elif args.command == "lookup":
+        cmd_lookup(args)
+    elif args.command == "trust-graph":
+        cmd_trust_graph(args)
+    elif args.command == "trust-path":
+        cmd_trust_path(args)
+    elif args.command == "stats":
+        cmd_stats(args)
+    elif args.command == "whoami":
+        cmd_whoami(args)
+    else:
+        parser.print_help()
+
+
+if __name__ == "__main__":
+    main()
