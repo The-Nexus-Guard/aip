@@ -75,19 +75,56 @@ async def verify_proof_post(
         }
 
     # Try to extract and verify signed claim
-    # Look for JSON block in content
+    # Look for AIP-PROOF block in content
     try:
-        # Simple approach: look for DID and signature in content
-        # More robust: parse JSON claim block
+        import re
+        import nacl.signing
+        import nacl.exceptions
 
-        # For MVP, just verify DID is present
-        # Full implementation would parse and verify signature
+        # Look for signed proof block: ```aip-proof\n{JSON}\n```
+        proof_match = re.search(r'```aip-proof\s*\n(.*?)\n```', content, re.DOTALL)
 
-        # TODO: Implement full signed claim verification
-        # For now, presence of DID + correct author is sufficient for MVP
+        if proof_match:
+            # Parse the proof JSON
+            proof_json = proof_match.group(1).strip()
+            proof = json.loads(proof_json)
 
-        return {"valid": True}
+            # Extract claim and signature
+            claim = proof.get("claim", {})
+            signature_b64 = proof.get("signature", "")
 
+            if not claim or not signature_b64:
+                return {"valid": False, "error": "Invalid proof format: missing claim or signature"}
+
+            # Verify claim contains correct DID
+            if claim.get("did") != expected_did:
+                return {"valid": False, "error": f"Proof DID mismatch: expected {expected_did}"}
+
+            # Verify signature
+            try:
+                public_key_bytes = base64.b64decode(public_key_b64)
+                signature_bytes = base64.b64decode(signature_b64)
+                claim_bytes = json.dumps(claim, sort_keys=True, separators=(',', ':')).encode()
+
+                verify_key = nacl.signing.VerifyKey(public_key_bytes)
+                verify_key.verify(claim_bytes, signature_bytes)
+
+                return {"valid": True, "verified_claim": claim}
+
+            except nacl.exceptions.BadSignature:
+                return {"valid": False, "error": "Invalid signature - does not match public key"}
+            except Exception as e:
+                return {"valid": False, "error": f"Signature verification failed: {str(e)}"}
+        else:
+            # No signed proof block - for MVP, DID presence + correct author is acceptable
+            # but flag it as unverified
+            return {
+                "valid": True,
+                "warning": "No cryptographic proof found - verified by author match only"
+            }
+
+    except json.JSONDecodeError as e:
+        return {"valid": False, "error": f"Invalid proof JSON: {str(e)}"}
     except Exception as e:
         return {"valid": False, "error": f"Verification error: {str(e)}"}
 

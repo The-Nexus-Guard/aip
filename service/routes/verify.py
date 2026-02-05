@@ -101,4 +101,104 @@ async def lookup_by_platform(platform: str, username: str):
 
     Example: GET /lookup/moltbook/The_Nexus_Guard_001
     """
-    return await verify(platform=platform, username=username)
+    # Look up the DID for this platform/username
+    did = database.get_did_by_platform(platform, username)
+    if not did:
+        return VerifyResponse(
+            verified=False,
+            message=f"No DID registered for {username} on {platform}"
+        )
+
+    # Get registration
+    registration = database.get_registration(did)
+    if not registration:
+        return VerifyResponse(
+            verified=False,
+            message=f"DID {did} is not registered"
+        )
+
+    # Get platform links
+    links = database.get_platform_links(did)
+
+    return VerifyResponse(
+        verified=True,
+        did=did,
+        public_key=registration["public_key"],
+        platforms=[
+            PlatformLink(
+                platform=link["platform"],
+                username=link["username"],
+                proof_post_id=link["proof_post_id"],
+                registered_at=str(link["registered_at"])
+            )
+            for link in links
+        ],
+        message="DID is registered and verified"
+    )
+
+
+class GenerateProofRequest(BaseModel):
+    """Request to generate a proof claim for posting."""
+    did: str
+    platform: str
+    username: str
+
+
+class GenerateProofResponse(BaseModel):
+    """Response with proof claim template."""
+    claim: dict
+    post_template: str
+    instructions: str
+
+
+@router.post("/generate-proof", response_model=GenerateProofResponse)
+async def generate_proof(request: GenerateProofRequest):
+    """
+    Generate a proof claim template that an agent can sign and post.
+
+    The agent should:
+    1. Sign the claim JSON with their private key
+    2. Post the template (with signature) on the platform
+    3. Use the post ID when calling /register
+
+    This ensures only the private key holder can claim the identity.
+    """
+    import time
+
+    claim = {
+        "type": "aip-identity-claim",
+        "did": request.did,
+        "platform": request.platform,
+        "username": request.username,
+        "timestamp": int(time.time())
+    }
+
+    post_template = f"""I am claiming my AIP identity.
+
+My DID: `{request.did}`
+Platform: {request.platform}
+Username: {request.username}
+
+```aip-proof
+{{
+  "claim": {{"type": "aip-identity-claim", "did": "{request.did}", "platform": "{request.platform}", "username": "{request.username}", "timestamp": {int(time.time())}}},
+  "signature": "<YOUR_SIGNATURE_HERE>"
+}}
+```
+
+To verify: `curl "https://aip-service.fly.dev/verify?platform={request.platform}&username={request.username}"`
+"""
+
+    instructions = """To complete the proof:
+1. Serialize the claim as JSON (keys sorted, no extra whitespace)
+2. Sign the JSON bytes with your Ed25519 private key
+3. Base64-encode the signature
+4. Replace <YOUR_SIGNATURE_HERE> with your signature
+5. Post this on the platform
+6. Call /register with the post ID"""
+
+    return GenerateProofResponse(
+        claim=claim,
+        post_template=post_template,
+        instructions=instructions
+    )
