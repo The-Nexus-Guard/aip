@@ -180,6 +180,160 @@ def cmd_whoami(args):
         sys.exit(1)
 
 
+def cmd_skill_sign(args):
+    """Sign a skill.md file with your AIP identity."""
+    import hashlib
+    import base64
+    from datetime import datetime, timezone
+
+    # Load credentials
+    creds = load_credentials()
+    if not creds:
+        print(f"✗ No credentials found. Run 'aip register --save' first.")
+        sys.exit(1)
+
+    # Read skill file
+    try:
+        with open(args.file, 'r') as f:
+            skill_content = f.read()
+    except FileNotFoundError:
+        print(f"✗ File not found: {args.file}")
+        sys.exit(1)
+
+    # Check if already signed
+    if "<!-- AIP-SIGNATURE" in skill_content:
+        if not args.force:
+            print(f"✗ Skill already has an AIP signature. Use --force to re-sign.")
+            sys.exit(1)
+        # Remove existing signature
+        import re
+        skill_content = re.sub(r'<!-- AIP-SIGNATURE\n.*?-->\n\n', '', skill_content, flags=re.DOTALL)
+
+    # Calculate hash
+    content_hash = hashlib.sha256(skill_content.encode('utf-8')).hexdigest()
+    hash_with_prefix = f"sha256:{content_hash}"
+
+    # Create timestamp
+    timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    # Build payload to sign
+    payload = f"{creds['did']}|{hash_with_prefix}|{timestamp}"
+
+    # Sign with private key
+    try:
+        try:
+            from pure25519.eddsa import sign as ed_sign
+            private_key_bytes = base64.b64decode(creds['private_key'])
+            signature_bytes = ed_sign(private_key_bytes, payload.encode('utf-8'))
+        except ImportError:
+            import nacl.signing
+            private_key_bytes = base64.b64decode(creds['private_key'])
+            signing_key = nacl.signing.SigningKey(private_key_bytes)
+            signed = signing_key.sign(payload.encode('utf-8'))
+            signature_bytes = signed.signature
+
+        signature_b64 = base64.b64encode(signature_bytes).decode('utf-8')
+    except Exception as e:
+        print(f"✗ Failed to sign: {e}")
+        sys.exit(1)
+
+    # Create signature block
+    sig_data = {
+        "version": "1.0",
+        "author_did": creds['did'],
+        "content_hash": hash_with_prefix,
+        "timestamp": timestamp,
+        "signature": signature_b64
+    }
+
+    signature_block = f"""<!-- AIP-SIGNATURE
+{json.dumps(sig_data, indent=2)}
+-->
+
+"""
+
+    # Write signed file
+    output_file = args.output or args.file
+    with open(output_file, 'w') as f:
+        f.write(signature_block + skill_content)
+
+    print(f"✓ Skill signed successfully!")
+    print(f"  File: {output_file}")
+    print(f"  Author: {creds['did']}")
+    print(f"  Hash: {hash_with_prefix}")
+    print(f"  Timestamp: {timestamp}")
+    print(f"\nVerify with: aip skill verify {output_file}")
+
+
+def cmd_skill_verify(args):
+    """Verify a signed skill.md file."""
+    import re
+
+    # Read skill file
+    try:
+        with open(args.file, 'r') as f:
+            content = f.read()
+    except FileNotFoundError:
+        print(f"✗ File not found: {args.file}")
+        sys.exit(1)
+
+    # Extract signature block
+    sig_match = re.search(r'<!-- AIP-SIGNATURE\n(.*?)-->', content, re.DOTALL)
+    if not sig_match:
+        print(f"✗ No AIP signature found in {args.file}")
+        sys.exit(1)
+
+    try:
+        sig_data = json.loads(sig_match.group(1))
+    except json.JSONDecodeError as e:
+        print(f"✗ Invalid signature block: {e}")
+        sys.exit(1)
+
+    # Extract required fields
+    author_did = sig_data.get('author_did')
+    content_hash = sig_data.get('content_hash')
+    signature = sig_data.get('signature')
+    timestamp = sig_data.get('timestamp')
+
+    if not all([author_did, content_hash, signature, timestamp]):
+        print(f"✗ Incomplete signature block")
+        sys.exit(1)
+
+    # Verify via API
+    resp = requests.get(
+        f"{AIP_SERVICE}/skill/verify",
+        params={
+            "content_hash": content_hash,
+            "author_did": author_did,
+            "signature": signature,
+            "timestamp": timestamp
+        }
+    )
+
+    data = resp.json()
+
+    if data.get("verified"):
+        print(f"✓ Signature verified!")
+        print(f"  Author DID: {data['author_did']}")
+        if data.get('author_platforms'):
+            for p in data['author_platforms']:
+                print(f"  Platform: {p['platform']}:{p['username']}")
+        print(f"  Signed: {data['signed_at']}")
+
+        vouches = data.get('code_signing_vouches', [])
+        if vouches:
+            print(f"\n  CODE_SIGNING vouches ({len(vouches)}):")
+            for v in vouches:
+                platforms = v.get('voucher_platforms', [])
+                voucher_name = platforms[0]['username'] if platforms else v['voucher_did'][:20]
+                print(f"    - {voucher_name}: {v.get('statement', 'No statement')[:50]}")
+        else:
+            print(f"\n  ⚠️  No CODE_SIGNING vouches for this author")
+    else:
+        print(f"✗ Verification failed: {data.get('message', 'Unknown error')}")
+        sys.exit(1)
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="AIP CLI - Agent Identity Protocol",
@@ -191,6 +345,8 @@ Examples:
   aip lookup --platform moltbook --username my-agent
   aip trust-graph --did did:aip:abc123
   aip trust-path --source did:aip:abc --target did:aip:xyz
+  aip skill-sign my_skill.md
+  aip skill-verify my_skill.md
   aip stats
   aip whoami
         """
@@ -230,6 +386,16 @@ Examples:
     # Whoami
     subparsers.add_parser("whoami", help="Show current identity")
 
+    # Skill sign
+    p_skill_sign = subparsers.add_parser("skill-sign", help="Sign a skill file")
+    p_skill_sign.add_argument("file", help="Path to skill.md file")
+    p_skill_sign.add_argument("--output", "-o", help="Output file (default: overwrite input)")
+    p_skill_sign.add_argument("--force", "-f", action="store_true", help="Replace existing signature")
+
+    # Skill verify
+    p_skill_verify = subparsers.add_parser("skill-verify", help="Verify a signed skill file")
+    p_skill_verify.add_argument("file", help="Path to signed skill.md file")
+
     args = parser.parse_args()
 
     if args.command == "register":
@@ -248,6 +414,10 @@ Examples:
         cmd_stats(args)
     elif args.command == "whoami":
         cmd_whoami(args)
+    elif args.command == "skill-sign":
+        cmd_skill_sign(args)
+    elif args.command == "skill-verify":
+        cmd_skill_verify(args)
     else:
         parser.print_help()
 
