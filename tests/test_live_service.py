@@ -268,6 +268,55 @@ class TestTrustGraph:
         assert "Cannot vouch for yourself" in response.json()["detail"]
 
 
+class TestKeyRotation:
+    """Test key rotation endpoint."""
+
+    def test_rotate_key_unregistered_did_fails(self):
+        """Key rotation fails for unregistered DID."""
+        response = requests.post(
+            f"{AIP_SERVICE}/rotate-key",
+            json={
+                "did": "did:aip:nonexistent12345678",
+                "new_public_key": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+                "signature": "fake_signature"
+            }
+        )
+        assert response.status_code == 404
+        assert "not registered" in response.json()["detail"]
+
+    def test_rotate_key_invalid_signature_fails(self):
+        """Key rotation with invalid signature fails."""
+        # Register an agent first
+        unique_username = f"RotateTest_{uuid.uuid4().hex[:8]}"
+        reg = requests.post(
+            f"{AIP_SERVICE}/register/easy",
+            json={"platform": "moltbook", "username": unique_username}
+        ).json()
+
+        # Try to rotate with a fake signature
+        response = requests.post(
+            f"{AIP_SERVICE}/rotate-key",
+            json={
+                "did": reg["did"],
+                "new_public_key": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+                "signature": "fake_signature_not_valid_base64!"
+            }
+        )
+        assert response.status_code == 400
+        assert "Signature" in response.json()["detail"] or "signature" in response.json()["detail"].lower()
+
+    def test_rotate_key_missing_fields(self):
+        """Key rotation requires all fields."""
+        response = requests.post(
+            f"{AIP_SERVICE}/rotate-key",
+            json={
+                "did": "did:aip:test123"
+                # Missing new_public_key and signature
+            }
+        )
+        assert response.status_code == 422
+
+
 class TestExplorer:
     """Test explorer/stats endpoints."""
 
@@ -302,6 +351,7 @@ def run_tests():
         TestLookup,
         TestChallenge,
         TestTrustGraph,
+        TestKeyRotation,
         TestExplorer
     ]
     passed = 0
