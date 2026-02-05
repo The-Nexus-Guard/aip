@@ -137,6 +137,55 @@ async def lookup_by_platform(platform: str, username: str):
     )
 
 
+class RegistrationSummary(BaseModel):
+    """Summary of a registration."""
+    did: str
+    created_at: str
+    platforms: List[dict]
+
+
+class ListRegistrationsResponse(BaseModel):
+    """Response listing all registrations."""
+    total: int
+    limit: int
+    offset: int
+    registrations: List[RegistrationSummary]
+
+
+@router.get("/registrations", response_model=ListRegistrationsResponse)
+async def list_registrations(
+    limit: int = Query(50, ge=1, le=100, description="Max results (1-100)"),
+    offset: int = Query(0, ge=0, description="Offset for pagination")
+):
+    """
+    List all registered agents.
+
+    Returns DIDs with their linked platform identities.
+    Useful for discovering who has registered with AIP.
+
+    Example: GET /registrations?limit=20&offset=0
+    """
+    registrations = database.list_registrations(limit=limit, offset=offset)
+
+    # Get total count from stats
+    stats = database.get_stats()
+    total = stats["registrations"]
+
+    return ListRegistrationsResponse(
+        total=total,
+        limit=limit,
+        offset=offset,
+        registrations=[
+            RegistrationSummary(
+                did=reg["did"],
+                created_at=str(reg["created_at"]),
+                platforms=reg["platforms"]
+            )
+            for reg in registrations
+        ]
+    )
+
+
 class GenerateProofRequest(BaseModel):
     """Request to generate a proof claim for posting."""
     did: str

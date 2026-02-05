@@ -558,6 +558,38 @@ def find_trust_path(source_did: str, target_did: str, scope: Optional[str] = Non
         return None  # No path found
 
 
+# List operations
+
+def list_registrations(limit: int = 100, offset: int = 0) -> List[Dict[str, Any]]:
+    """List all registrations with their platform links.
+
+    Args:
+        limit: Maximum number of results (default 100)
+        offset: Offset for pagination (default 0)
+
+    Returns:
+        List of registration dicts with platform links
+    """
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            """SELECT did, public_key, created_at FROM registrations
+               ORDER BY created_at DESC LIMIT ? OFFSET ?""",
+            (limit, offset)
+        )
+        registrations = []
+        for row in cursor.fetchall():
+            reg = dict(row)
+            # Get platform links for this DID
+            cursor.execute(
+                """SELECT platform, username, registered_at FROM platform_links WHERE did = ?""",
+                (reg["did"],)
+            )
+            reg["platforms"] = [dict(link) for link in cursor.fetchall()]
+            registrations.append(reg)
+        return registrations
+
+
 # Stats operations
 
 def get_stats() -> Dict[str, Any]:
