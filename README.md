@@ -32,6 +32,8 @@ AIP provides two layers:
 
 ## Quick Start
 
+**New to AIP?** See [docs/quickstart.md](docs/quickstart.md) for a 2-minute guide.
+
 ### Identity
 
 ```python
