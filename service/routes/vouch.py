@@ -2,7 +2,7 @@
 Vouch endpoints for trust management.
 """
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 from typing import Optional, List
 import sys
@@ -16,6 +16,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'src'))
 
 import database
+from rate_limit import vouch_limiter
 
 router = APIRouter()
 
@@ -77,13 +78,22 @@ class TrustPathResponse(BaseModel):
 
 
 @router.post("/vouch", response_model=VouchResponse)
-async def create_vouch(request: VouchRequest):
+async def create_vouch(request: VouchRequest, req: Request):
     """
     Create a vouch (trust statement) for another agent.
 
     The vouch must be signed by the voucher's private key.
     The signature should be over: voucher_did|target_did|scope|statement
     """
+    # Rate limit check
+    client_ip = req.client.host if req.client else "unknown"
+    allowed, retry_after = vouch_limiter.is_allowed(client_ip)
+    if not allowed:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Rate limit exceeded. Try again in {retry_after} seconds.",
+            headers={"Retry-After": str(retry_after)}
+        )
 
     # Validate scope
     if request.scope not in VALID_SCOPES:
