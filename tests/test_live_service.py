@@ -417,6 +417,103 @@ class TestExplorer:
         assert "timestamp" in data
 
 
+class TestSkillSigning:
+    """Test skill signing endpoints."""
+
+    def test_hash_content(self):
+        """Hash endpoint returns valid SHA256 hash."""
+        response = requests.post(
+            f"{AIP_SERVICE}/skill/hash",
+            params={"skill_content": "# My Skill\n\nThis is a test skill."}
+        )
+        assert response.status_code == 200, f"Got {response.status_code}: {response.text}"
+        data = response.json()
+        assert data["content_hash"].startswith("sha256:")
+        assert len(data["content_hash"]) == 71  # sha256: + 64 hex chars
+
+    def test_hash_deterministic(self):
+        """Same content always produces same hash."""
+        content = "# Test Skill v1.0"
+
+        response1 = requests.post(
+            f"{AIP_SERVICE}/skill/hash",
+            params={"skill_content": content}
+        )
+        response2 = requests.post(
+            f"{AIP_SERVICE}/skill/hash",
+            params={"skill_content": content}
+        )
+
+        assert response1.json()["content_hash"] == response2.json()["content_hash"]
+
+    def test_verify_unregistered_author_fails(self):
+        """Verify fails for unregistered author DID."""
+        response = requests.get(
+            f"{AIP_SERVICE}/skill/verify",
+            params={
+                "content_hash": "sha256:abc123def456",
+                "author_did": "did:aip:nonexistent12345678",
+                "signature": "fake_signature",
+                "timestamp": "2026-02-05T00:00:00Z"
+            }
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["verified"] is False
+        assert "not registered" in data.get("message", "").lower()
+
+    def test_verify_with_valid_signature(self):
+        """Verify works with properly signed content."""
+        import base64
+        import hashlib
+        from datetime import datetime, timezone
+
+        # Register a new agent for signing
+        unique_username = f"SkillSigner_{uuid.uuid4().hex[:8]}"
+        reg_response = requests.post(
+            f"{AIP_SERVICE}/register/easy",
+            json={"platform": "moltbook", "username": unique_username}
+        )
+        assert reg_response.status_code == 200, f"Registration failed: {reg_response.text}"
+        reg = reg_response.json()
+
+        did = reg["did"]
+        private_key_bytes = base64.b64decode(reg["private_key"])
+
+        # Create content and hash
+        content = "# Test Skill\n\nSome content here."
+        content_hash = "sha256:" + hashlib.sha256(content.encode()).hexdigest()
+
+        # Create timestamp and payload
+        timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        payload = f"{did}|{content_hash}|{timestamp}"
+
+        # Sign with Ed25519 (try cryptography lib)
+        try:
+            from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+            private_key = Ed25519PrivateKey.from_private_bytes(private_key_bytes)
+            signature_bytes = private_key.sign(payload.encode())
+            signature_b64 = base64.b64encode(signature_bytes).decode()
+        except ImportError:
+            # Skip if cryptography not available
+            return
+
+        # Verify via API
+        response = requests.get(
+            f"{AIP_SERVICE}/skill/verify",
+            params={
+                "content_hash": content_hash,
+                "author_did": did,
+                "signature": signature_b64,
+                "timestamp": timestamp
+            }
+        )
+        assert response.status_code == 200, f"Got {response.status_code}: {response.text}"
+        data = response.json()
+        assert data["verified"] is True
+        assert data["author_did"] == did
+
+
 def run_tests():
     """Run all tests manually."""
     import traceback
@@ -430,7 +527,8 @@ def run_tests():
         TestTrustGraph,
         TestTrustPath,
         TestKeyRotation,
-        TestExplorer
+        TestExplorer,
+        TestSkillSigning
     ]
     passed = 0
     failed = 0

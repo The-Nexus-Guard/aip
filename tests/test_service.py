@@ -1,0 +1,369 @@
+#!/usr/bin/env python3
+"""
+AIP Service API Tests
+
+Tests the FastAPI service endpoints.
+Run with: python3 tests/test_service.py
+"""
+
+import sys
+import os
+from pathlib import Path
+
+# Add paths
+sys.path.insert(0, str(Path(__file__).parent.parent / "service"))
+sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+
+# Set test database
+os.environ["AIP_DB_PATH"] = ":memory:"
+
+from fastapi.testclient import TestClient
+
+
+def get_test_client():
+    """Create a test client with fresh database."""
+    # Import here to use test database
+    from main import app
+    return TestClient(app)
+
+
+class TestHealthEndpoints:
+    """Test health and info endpoints."""
+
+    def test_root(self):
+        """Root endpoint returns service info."""
+        client = get_test_client()
+        response = client.get("/")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["service"] == "AIP - Agent Identity Protocol"
+        assert "version" in data
+
+    def test_stats(self):
+        """Stats endpoint returns registration counts."""
+        client = get_test_client()
+        response = client.get("/stats")
+        assert response.status_code == 200
+        data = response.json()
+        assert "stats" in data
+        assert "registrations" in data["stats"]
+
+
+class TestRegistration:
+    """Test registration endpoints."""
+
+    def test_easy_register(self):
+        """Easy registration creates identity and returns keys."""
+        client = get_test_client()
+        response = client.post(
+            "/register/easy",
+            json={"platform": "moltbook", "username": "TestAgent"}
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["success"] is True
+        assert data["did"].startswith("did:aip:")
+        assert "public_key" in data
+        assert "private_key" in data
+        assert data["platform"] == "moltbook"
+        assert data["username"] == "TestAgent"
+
+    def test_easy_register_duplicate_fails(self):
+        """Cannot register same platform+username twice."""
+        client = get_test_client()
+
+        # First registration succeeds
+        response1 = client.post(
+            "/register/easy",
+            json={"platform": "moltbook", "username": "DupeAgent"}
+        )
+        assert response1.status_code == 200
+
+        # Second registration fails
+        response2 = client.post(
+            "/register/easy",
+            json={"platform": "moltbook", "username": "DupeAgent"}
+        )
+        assert response2.status_code == 400
+
+    def test_easy_register_missing_fields(self):
+        """Registration requires platform and username."""
+        client = get_test_client()
+
+        response = client.post(
+            "/register/easy",
+            json={"platform": "moltbook"}  # Missing username
+        )
+        assert response.status_code == 422  # Validation error
+
+
+class TestVerification:
+    """Test verification endpoints."""
+
+    def test_verify_registered_agent(self):
+        """Can verify a registered agent."""
+        client = get_test_client()
+
+        # Register first
+        reg_response = client.post(
+            "/register/easy",
+            json={"platform": "moltbook", "username": "VerifyMe"}
+        )
+        assert reg_response.status_code == 200
+        did = reg_response.json()["did"]
+
+        # Now verify
+        verify_response = client.get(
+            "/verify",
+            params={"platform": "moltbook", "platform_id": "VerifyMe"}
+        )
+        assert verify_response.status_code == 200
+        data = verify_response.json()
+        assert data["verified"] is True
+        assert data["did"] == did
+
+    def test_verify_unregistered_agent(self):
+        """Verifying unregistered agent returns false."""
+        client = get_test_client()
+
+        response = client.get(
+            "/verify",
+            params={"platform": "moltbook", "platform_id": "NotRegistered"}
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["verified"] is False
+
+
+class TestLookup:
+    """Test lookup endpoints."""
+
+    def test_lookup_by_did(self):
+        """Can look up agent by DID."""
+        client = get_test_client()
+
+        # Register first
+        reg_response = client.post(
+            "/register/easy",
+            json={"platform": "moltbook", "username": "LookupTest"}
+        )
+        did = reg_response.json()["did"]
+        public_key = reg_response.json()["public_key"]
+
+        # Lookup by DID
+        lookup_response = client.get(f"/lookup/{did}")
+        assert lookup_response.status_code == 200
+        data = lookup_response.json()
+        assert data["did"] == did
+        assert data["public_key"] == public_key
+
+    def test_lookup_unknown_did(self):
+        """Looking up unknown DID returns 404."""
+        client = get_test_client()
+
+        response = client.get("/lookup/did:aip:nonexistent123456")
+        assert response.status_code == 404
+
+
+class TestChallenge:
+    """Test challenge-response endpoints."""
+
+    def test_create_challenge(self):
+        """Can create a challenge."""
+        client = get_test_client()
+
+        response = client.post("/challenge")
+        assert response.status_code == 200
+        data = response.json()
+        assert "challenge_id" in data
+        assert "nonce" in data
+        assert "expires_at" in data
+
+    def test_respond_to_challenge(self):
+        """Can respond to a challenge with valid signature."""
+        client = get_test_client()
+
+        # Register to get keys
+        reg_response = client.post(
+            "/register/easy",
+            json={"platform": "moltbook", "username": "ChallengeTest"}
+        )
+        did = reg_response.json()["did"]
+        private_key = reg_response.json()["private_key"]
+        public_key = reg_response.json()["public_key"]
+
+        # Create challenge
+        challenge_response = client.post("/challenge")
+        challenge_id = challenge_response.json()["challenge_id"]
+        nonce = challenge_response.json()["nonce"]
+
+        # Sign the nonce
+        from identity import AgentIdentity
+        agent = AgentIdentity.from_private_key("ChallengeTest", private_key)
+        signature = agent.sign(nonce.encode())
+
+        import base64
+        signature_b64 = base64.b64encode(signature).decode()
+
+        # Respond to challenge
+        verify_response = client.post(
+            "/challenge/verify",
+            json={
+                "challenge_id": challenge_id,
+                "did": did,
+                "signature": signature_b64
+            }
+        )
+        assert verify_response.status_code == 200
+        data = verify_response.json()
+        assert data["verified"] is True
+
+
+class TestSkillSigning:
+    """Test skill signing endpoints."""
+
+    def test_hash_content(self):
+        """Hash endpoint returns valid SHA256 hash."""
+        client = get_test_client()
+
+        response = client.post(
+            "/skill/hash",
+            json={"content": "# My Skill\n\nThis is a test skill."}
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["hash"].startswith("sha256:")
+        assert len(data["hash"]) == 71  # sha256: + 64 hex chars
+
+    def test_verify_valid_signature(self):
+        """Verify endpoint validates correct signatures."""
+        client = get_test_client()
+
+        # Register to get keys
+        reg_response = client.post(
+            "/register/easy",
+            json={"platform": "moltbook", "username": "SkillSigner"}
+        )
+        did = reg_response.json()["did"]
+        private_key = reg_response.json()["private_key"]
+
+        # Create content and hash
+        content = "# Test Skill\n\nContent here."
+        hash_response = client.post("/skill/hash", json={"content": content})
+        content_hash = hash_response.json()["hash"]
+
+        # Create timestamp and payload
+        from datetime import datetime, timezone
+        timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        payload = f"{did}|{content_hash}|{timestamp}"
+
+        # Sign payload
+        import base64
+        from identity import AgentIdentity
+        private_key_bytes = base64.b64decode(private_key)
+        agent = AgentIdentity.from_private_key("SkillSigner", private_key)
+        signature = agent.sign(payload.encode())
+        signature_b64 = base64.b64encode(signature).decode()
+
+        # Verify
+        verify_response = client.get(
+            "/skill/verify",
+            params={
+                "content_hash": content_hash,
+                "author_did": did,
+                "signature": signature_b64,
+                "timestamp": timestamp
+            }
+        )
+        assert verify_response.status_code == 200
+        data = verify_response.json()
+        assert data["verified"] is True
+        assert data["author_did"] == did
+
+    def test_verify_unregistered_author(self):
+        """Verify fails for unregistered author DID."""
+        client = get_test_client()
+
+        response = client.get(
+            "/skill/verify",
+            params={
+                "content_hash": "sha256:abc123",
+                "author_did": "did:aip:nonexistent",
+                "signature": "fake",
+                "timestamp": "2026-02-05T00:00:00Z"
+            }
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["verified"] is False
+
+    def test_verify_invalid_signature(self):
+        """Verify fails for invalid signature."""
+        client = get_test_client()
+
+        # Register first
+        reg_response = client.post(
+            "/register/easy",
+            json={"platform": "moltbook", "username": "BadSigner"}
+        )
+        did = reg_response.json()["did"]
+
+        # Try to verify with bad signature
+        import base64
+        bad_sig = base64.b64encode(b"not a real signature").decode()
+
+        response = client.get(
+            "/skill/verify",
+            params={
+                "content_hash": "sha256:abc123",
+                "author_did": did,
+                "signature": bad_sig,
+                "timestamp": "2026-02-05T00:00:00Z"
+            }
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["verified"] is False
+
+
+def run_tests():
+    """Run all tests manually."""
+    import traceback
+
+    test_classes = [
+        TestHealthEndpoints,
+        TestRegistration,
+        TestVerification,
+        TestLookup,
+        TestChallenge,
+        TestSkillSigning
+    ]
+    passed = 0
+    failed = 0
+
+    print("AIP Service API Tests")
+    print("=" * 60)
+
+    for test_class in test_classes:
+        print(f"\n{test_class.__name__}:")
+        instance = test_class()
+
+        for name in dir(instance):
+            if name.startswith("test_"):
+                try:
+                    getattr(instance, name)()
+                    print(f"  ✓ {name}")
+                    passed += 1
+                except Exception as e:
+                    print(f"  ✗ {name}: {e}")
+                    traceback.print_exc()
+                    failed += 1
+
+    print("\n" + "=" * 60)
+    print(f"Results: {passed} passed, {failed} failed")
+    return failed == 0
+
+
+if __name__ == "__main__":
+    success = run_tests()
+    sys.exit(0 if success else 1)
