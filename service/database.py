@@ -146,6 +146,48 @@ def get_registration(did: str) -> Optional[Dict[str, Any]]:
         return None
 
 
+def rotate_key(did: str, new_public_key: str) -> bool:
+    """Rotate the public key for a DID.
+
+    Args:
+        did: The DID to rotate keys for
+        new_public_key: The new base64-encoded public key
+
+    Returns:
+        True if rotation succeeded
+    """
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "UPDATE registrations SET public_key = ? WHERE did = ?",
+            (new_public_key, did)
+        )
+        conn.commit()
+        return cursor.rowcount > 0
+
+
+def mark_key_compromised(did: str) -> int:
+    """Mark a DID's key as compromised, revoking all vouches made by it.
+
+    Args:
+        did: The DID whose key was compromised
+
+    Returns:
+        Number of vouches revoked
+    """
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        now = datetime.utcnow().isoformat()
+        cursor.execute(
+            """UPDATE vouches SET revoked_at = ?
+               WHERE voucher_did = ? AND revoked_at IS NULL""",
+            (now, did)
+        )
+        count = cursor.rowcount
+        conn.commit()
+        return count
+
+
 def add_platform_link(did: str, platform: str, username: str, proof_post_id: Optional[str] = None) -> bool:
     """Link a DID to a platform identity."""
     with get_connection() as conn:
