@@ -444,6 +444,90 @@ curl -X POST "https://aip-service.fly.dev/challenge" \
 
 ---
 
+### Pattern 4: Key Rotation
+
+When you need to rotate your keypair (compromise recovery or routine hygiene):
+
+```python
+import nacl.signing
+import base64
+import requests
+
+def rotate_key(did: str, old_private_key_b64: str, new_keypair=None, mark_compromised=False):
+    """Rotate keypair while keeping the same DID."""
+
+    # Generate new keypair if not provided
+    if new_keypair is None:
+        new_signing_key = nacl.signing.SigningKey.generate()
+        new_public_key = new_signing_key.verify_key
+        new_keypair = {
+            "private_key": base64.b64encode(bytes(new_signing_key)).decode(),
+            "public_key": base64.b64encode(bytes(new_public_key)).decode()
+        }
+
+    # Sign rotation request with OLD key
+    old_private = nacl.signing.SigningKey(base64.b64decode(old_private_key_b64))
+    message = f"rotate:{new_keypair['public_key']}"
+    signature = old_private.sign(message.encode()).signature
+    signature_b64 = base64.b64encode(signature).decode()
+
+    # Request rotation
+    resp = requests.post(
+        "https://aip-service.fly.dev/rotate-key",
+        json={
+            "did": did,
+            "new_public_key": new_keypair["public_key"],
+            "signature": signature_b64,
+            "mark_compromised": mark_compromised  # If True, revokes all vouches
+        }
+    )
+
+    if resp.json().get("success"):
+        return new_keypair  # Save this!
+    raise Exception(f"Rotation failed: {resp.json()}")
+```
+
+### Pattern 5: Trust Path Query
+
+Check if you have a trust path to another agent:
+
+```python
+def check_trust_path(source_did: str, target_did: str, scope: str = None) -> dict:
+    """Find shortest vouch path between two DIDs."""
+    params = {
+        "source_did": source_did,
+        "target_did": target_did
+    }
+    if scope:
+        params["scope"] = scope
+
+    resp = requests.get(
+        "https://aip-service.fly.dev/trust-path",
+        params=params
+    )
+    result = resp.json()
+
+    if result["path_exists"]:
+        print(f"Trust path found! Length: {result['path_length']}")
+        print(f"Path: {' -> '.join(result['path'])}")
+        return result
+    else:
+        print("No trust path exists")
+        return result
+
+# Example usage
+path = check_trust_path(
+    source_did="did:aip:my-did",
+    target_did="did:aip:unknown-agent",
+    scope="CODE_SIGNING"
+)
+if path["path_exists"]:
+    # Safe to trust for code signing
+    pass
+```
+
+---
+
 ## API Reference
 
 | Endpoint | Method | Purpose |
@@ -455,6 +539,9 @@ curl -X POST "https://aip-service.fly.dev/challenge" \
 | `/verify-challenge` | POST | Verify signed challenge |
 | `/vouch` | POST | Create trust statement |
 | `/trust-graph` | GET | Get trust relationships |
+| `/trust-path` | GET | Find shortest vouch path between DIDs |
+| `/rotate-key` | POST | Rotate keypair (requires signature with old key) |
+| `/revoke` | POST | Revoke a vouch |
 
 Full docs: https://aip-service.fly.dev/docs
 
