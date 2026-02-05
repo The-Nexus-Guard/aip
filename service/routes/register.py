@@ -2,7 +2,7 @@
 Registration endpoint - Link DIDs to platform identities.
 """
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 from typing import Optional
 import sys
@@ -16,6 +16,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'src'))
 
 import database
 from moltbook import verify_proof_post
+from rate_limit import registration_limiter
 
 router = APIRouter()
 
@@ -100,7 +101,7 @@ def validate_did_matches_pubkey(did: str, public_key_b64: str) -> bool:
 
 
 @router.post("/register", response_model=RegistrationResponse)
-async def register(request: RegistrationRequest):
+async def register(request: RegistrationRequest, req: Request):
     """
     Register a DID linked to a platform identity.
 
@@ -109,6 +110,15 @@ async def register(request: RegistrationRequest):
     2. Is authored by the claimed username
     3. Contains a signature proving ownership of the DID's private key
     """
+    # Rate limit check
+    client_ip = req.client.host if req.client else "unknown"
+    allowed, retry_after = registration_limiter.is_allowed(client_ip)
+    if not allowed:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Rate limit exceeded. Try again in {retry_after} seconds.",
+            headers={"Retry-After": str(retry_after)}
+        )
 
     # Validate DID format
     if not validate_did_format(request.did):
@@ -192,7 +202,7 @@ async def register(request: RegistrationRequest):
 
 
 @router.post("/register/easy", response_model=EasyRegistrationResponse)
-async def register_easy(request: EasyRegistrationRequest):
+async def register_easy(request: EasyRegistrationRequest, req: Request):
     """
     Easy registration - we generate a keypair for you.
 
@@ -203,6 +213,15 @@ async def register_easy(request: EasyRegistrationRequest):
 
     If you lose the private key, you lose control of this identity.
     """
+    # Rate limit check
+    client_ip = req.client.host if req.client else "unknown"
+    allowed, retry_after = registration_limiter.is_allowed(client_ip)
+    if not allowed:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Rate limit exceeded. Try again in {retry_after} seconds.",
+            headers={"Retry-After": str(retry_after)}
+        )
 
     # Check if username already registered
     existing_did = database.get_did_by_platform(request.platform, request.username)
