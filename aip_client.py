@@ -261,6 +261,46 @@ class AIPClient:
 
         return response.json()
 
+    def get_trust(self, did: str, scope: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Quick trust lookup for a DID.
+
+        Returns:
+            - registered: whether DID exists
+            - vouched_by: list of DIDs that vouch for them
+            - scopes: what scopes they're trusted for
+            - vouch_count: total active vouches
+
+        Example:
+            trust = client.get_trust("did:aip:abc123")
+            if trust["vouch_count"] > 0:
+                print(f"Vouched by: {trust['vouched_by']}")
+        """
+        params = {}
+        if scope:
+            params["scope"] = scope
+
+        response = requests.get(f"{self.service_url}/trust/{did}", params=params)
+
+        if response.status_code != 200:
+            raise AIPError(f"Trust lookup failed: {response.text}")
+
+        return response.json()
+
+    def is_trusted(self, did: str, scope: Optional[str] = None) -> bool:
+        """
+        Simple check: does this DID have any vouches?
+
+        Args:
+            did: DID to check
+            scope: Optional scope filter
+
+        Returns:
+            True if DID is registered and has at least one vouch
+        """
+        trust = self.get_trust(did, scope)
+        return trust.get("registered", False) and trust.get("vouch_count", 0) > 0
+
 
 class AIPError(Exception):
     """Error from AIP operations."""
