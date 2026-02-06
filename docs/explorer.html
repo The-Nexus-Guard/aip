@@ -376,6 +376,25 @@
 
         <div id="error" class="error" style="display: none;"></div>
 
+        <!-- Trust Path Finder -->
+        <div class="graph-container" style="margin-bottom: 1.5rem;">
+            <div class="graph-title">
+                <span>Trust Path Finder</span>
+            </div>
+            <div style="display: flex; gap: 0.75rem; margin-bottom: 1rem;">
+                <input type="text" id="source-did" placeholder="Source DID" style="flex: 1;">
+                <span style="color: var(--fg-muted); align-self: center;">→</span>
+                <input type="text" id="target-did" placeholder="Target DID" style="flex: 1;">
+                <button onclick="findTrustPath()" style="white-space: nowrap;">Find Path</button>
+            </div>
+            <div id="trust-path-result" style="display: none;">
+                <div id="trust-path-content"></div>
+            </div>
+            <div style="font-size: 0.75rem; color: var(--fg-muted);">
+                Trust score decays with each hop: score = 0.8^path_length
+            </div>
+        </div>
+
         <!-- Trust Graph Visualization -->
         <div id="graph-section" class="graph-container" style="display: none;">
             <div class="graph-title">
@@ -420,6 +439,66 @@
 
     <script>
         const API_BASE = 'https://aip-service.fly.dev';
+
+        async function findTrustPath() {
+            const sourceDid = document.getElementById('source-did').value.trim();
+            const targetDid = document.getElementById('target-did').value.trim();
+            const resultDiv = document.getElementById('trust-path-result');
+            const contentDiv = document.getElementById('trust-path-content');
+
+            if (!sourceDid || !targetDid) {
+                contentDiv.innerHTML = '<span style="color: #ef4444;">Please enter both source and target DIDs</span>';
+                resultDiv.style.display = 'block';
+                return;
+            }
+
+            contentDiv.innerHTML = '<span style="color: var(--fg-muted);">Searching...</span>';
+            resultDiv.style.display = 'block';
+
+            try {
+                const res = await fetch(`${API_BASE}/trust-path?source_did=${encodeURIComponent(sourceDid)}&target_did=${encodeURIComponent(targetDid)}`);
+                const data = await res.json();
+
+                if (data.path_exists) {
+                    const score = data.trust_score || Math.pow(0.8, data.path_length);
+                    const scorePercent = Math.round(score * 100);
+                    const scoreColor = score > 0.5 ? '#10b981' : score > 0.2 ? '#f59e0b' : '#ef4444';
+
+                    let pathHtml = `
+                        <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 0.75rem;">
+                            <div style="font-size: 2rem; font-weight: 700; color: ${scoreColor};">${scorePercent}%</div>
+                            <div>
+                                <div style="font-weight: 600; color: var(--fg-primary);">Trust Score</div>
+                                <div style="font-size: 0.8rem; color: var(--fg-muted);">Path length: ${data.path_length} hop${data.path_length !== 1 ? 's' : ''}</div>
+                            </div>
+                        </div>
+                    `;
+
+                    if (data.path && data.path.length > 0) {
+                        pathHtml += '<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem;">';
+                        data.path.forEach((did, i) => {
+                            const shortDid = did.replace('did:aip:', '').substring(0, 8) + '...';
+                            pathHtml += `<span style="font-family: monospace; font-size: 0.8rem; background: var(--bg-tertiary); padding: 0.25rem 0.5rem; border-radius: 4px;">${shortDid}</span>`;
+                            if (i < data.path.length - 1) {
+                                pathHtml += '<span style="color: var(--accent);">→</span>';
+                            }
+                        });
+                        pathHtml += '</div>';
+                    }
+
+                    contentDiv.innerHTML = pathHtml;
+                } else {
+                    contentDiv.innerHTML = `
+                        <div style="color: var(--fg-muted); text-align: center; padding: 1rem;">
+                            <div style="font-size: 1.25rem; margin-bottom: 0.25rem;">No trust path found</div>
+                            <div style="font-size: 0.8rem;">These agents are not connected through vouches</div>
+                        </div>
+                    `;
+                }
+            } catch (e) {
+                contentDiv.innerHTML = `<span style="color: #ef4444;">Error: ${e.message}</span>`;
+            }
+        }
 
         async function loadStats() {
             try {
