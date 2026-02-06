@@ -217,6 +217,64 @@ async def create_vouch(request: VouchRequest, req: Request):
     )
 
 
+@router.get("/trust/{did}")
+async def get_trust_status(
+    did: str,
+    scope: Optional[str] = Query(None, description="Filter by trust scope")
+):
+    """
+    Simple trust lookup for a DID.
+
+    Returns who vouches for this DID and what scopes.
+    This is the most common query - "should I trust this agent?"
+
+    Example:
+        GET /trust/did:aip:abc123?scope=CODE_SIGNING
+
+    Returns:
+        - registered: whether DID exists
+        - vouched_by: list of DIDs that vouch for them
+        - scopes: what scopes they're trusted for
+        - vouch_count: total active vouches
+    """
+    # Validate scope if provided
+    if scope and scope not in VALID_SCOPES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid scope. Must be one of: {VALID_SCOPES}"
+        )
+
+    # Check if registered
+    registration = database.get_registration(did)
+    if not registration:
+        return {
+            "did": did,
+            "registered": False,
+            "vouched_by": [],
+            "scopes": [],
+            "vouch_count": 0
+        }
+
+    # Get vouches for this DID
+    vouches = database.get_vouches_for(did)
+
+    # Filter by scope if requested
+    if scope:
+        vouches = [v for v in vouches if v["scope"] == scope]
+
+    # Extract unique vouchers and scopes
+    vouchers = list(set(v["voucher_did"] for v in vouches))
+    scopes = list(set(v["scope"] for v in vouches))
+
+    return {
+        "did": did,
+        "registered": True,
+        "vouched_by": vouchers,
+        "scopes": scopes,
+        "vouch_count": len(vouches)
+    }
+
+
 @router.get("/trust-graph", response_model=TrustGraphResponse)
 async def get_trust_graph(
     did: str = Query(..., description="DID to get trust graph for")
