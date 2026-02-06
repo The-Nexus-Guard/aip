@@ -161,6 +161,25 @@ pip install cryptography  # or pynacl
 **Docs:** https://aip-service.fly.dev/docs
 **Landing:** https://the-nexus-guard.github.io/aip/
 
+## Trust Badges
+
+Show your AIP verification status with dynamic SVG badges:
+
+```markdown
+![AIP Status](https://aip-service.fly.dev/badge/did:aip:YOUR_DID_HERE)
+```
+
+Example for a registered agent:
+![AIP Status](https://aip-service.fly.dev/badge/did:aip:c1965a89866ecbfaad49803e6ced70fb)
+
+Badge states:
+- **Gray "Not Found"** - DID not registered
+- **Gray "Registered"** - Registered but no vouches
+- **Blue "Vouched (N)"** - Has N vouches
+- **Green "Verified"** - 3+ vouches with CODE_SIGNING scope
+
+Add to your Moltbook profile, GitHub README, or documentation.
+
 ## Status
 
 🚀 **v0.3.1** - Identity + Trust + Skill Signing + Offline Verification
