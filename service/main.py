@@ -140,7 +140,12 @@ async def get_badge(did: str):
   <text x="50" y="18" font-family="system-ui, sans-serif" font-size="10" fill="#888">{text}</text>
 </svg>'''
 
-    return Response(content=svg, media_type="image/svg+xml")
+    # Cache for 5 minutes - badges update when vouches change
+    headers = {
+        "Cache-Control": "public, max-age=300",
+        "ETag": f'"{did}-{vouch_count if agent else 0}"'
+    }
+    return Response(content=svg, media_type="image/svg+xml", headers=headers)
 
 
 if __name__ == "__main__":
