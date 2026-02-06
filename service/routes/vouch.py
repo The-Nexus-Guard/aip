@@ -75,6 +75,7 @@ class TrustPathResponse(BaseModel):
     path_length: Optional[int] = None
     path: Optional[List[str]] = None
     trust_chain: Optional[List[VouchInfo]] = None
+    trust_score: Optional[float] = None  # 1.0 = direct trust, decays with each hop
 
 
 @router.post("/vouch", response_model=VouchResponse)
@@ -252,19 +253,26 @@ async def get_trust_path(
     source_did: str = Query(..., description="DID that wants to verify trust"),
     target_did: str = Query(..., description="DID being verified"),
     scope: Optional[str] = Query(None, description="Filter by trust scope"),
-    max_depth: int = Query(5, ge=1, le=10, description="Maximum path length to search")
+    max_depth: int = Query(5, ge=1, le=10, description="Maximum path length to search"),
+    decay_factor: float = Query(0.8, ge=0.1, le=1.0, description="Trust decay per hop (0.8 = 80% retained per hop)")
 ):
     """
-    Find a trust path between two DIDs.
+    Find a trust path between two DIDs with transitive trust decay.
 
-    Returns the shortest path of vouches from source to target.
-    Useful for transitive trust verification - "do I trust this agent
-    through a chain of vouches?"
+    Returns the shortest path of vouches from source to target, along with
+    a trust_score that decreases with each hop (isnad-style authentication).
+
+    Trust scoring:
+    - Direct trust (path length 0): trust_score = 1.0
+    - 1 hop: trust_score = decay_factor (default 0.8)
+    - 2 hops: trust_score = decay_factor^2 (default 0.64)
+    - N hops: trust_score = decay_factor^N
 
     Example use cases:
     - Check if an MCP server is trusted via chain of vouches
     - Verify an agent before accepting their code
     - Find how two agents are connected in the trust network
+    - Implement "trust but verify more for distant connections"
     """
 
     # Validate scope if provided
@@ -298,7 +306,8 @@ async def get_trust_path(
             path_exists=True,
             path_length=0,
             path=[source_did],
-            trust_chain=[]
+            trust_chain=[],
+            trust_score=1.0
         )
 
     # Find path
@@ -312,7 +321,8 @@ async def get_trust_path(
             path_exists=False,
             path_length=None,
             path=None,
-            trust_chain=None
+            trust_chain=None,
+            trust_score=0.0
         )
 
     # Build path of DIDs
@@ -334,6 +344,10 @@ async def get_trust_path(
         for v in path_vouches
     ]
 
+    # Calculate trust score with decay
+    # Each hop reduces trust by decay_factor (isnad-style authentication)
+    trust_score = decay_factor ** len(path_vouches)
+
     return TrustPathResponse(
         source_did=source_did,
         target_did=target_did,
@@ -341,7 +355,8 @@ async def get_trust_path(
         path_exists=True,
         path_length=len(path_vouches),
         path=did_path,
-        trust_chain=trust_chain
+        trust_chain=trust_chain,
+        trust_score=round(trust_score, 4)
     )
 
 
