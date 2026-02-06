@@ -131,6 +131,15 @@ vouch_id = client.vouch(
     statement="Reviewed their code"
 )
 
+# Quick trust check - does this agent have vouches?
+trust = client.get_trust("did:aip:xyz789")
+print(f"Vouched by: {trust['vouched_by']}")
+print(f"Scopes: {trust['scopes']}")
+
+# Simple boolean check
+if client.is_trusted("did:aip:xyz789", scope="CODE_SIGNING"):
+    print("Safe to run their code")
+
 # Check trust path with decay scoring
 result = client.get_trust_path("did:aip:xyz789")
 if result["path_exists"]:
