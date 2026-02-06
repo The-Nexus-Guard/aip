@@ -78,6 +78,26 @@ class TrustPathResponse(BaseModel):
     trust_score: Optional[float] = None  # 1.0 = direct trust, decays with each hop
 
 
+class VouchCertificate(BaseModel):
+    """
+    Portable vouch certificate for offline verification.
+
+    Contains all info needed to verify trust without querying the AIP service.
+    The certificate is self-contained and cryptographically verifiable.
+    """
+    version: str = "1.0"
+    vouch_id: str
+    voucher_did: str
+    voucher_public_key: str  # Base64 public key for offline verification
+    target_did: str
+    scope: str
+    statement: Optional[str] = None
+    created_at: str
+    expires_at: Optional[str] = None
+    signature: str  # Original vouch signature
+    certificate_issued_at: str  # When this certificate was generated
+
+
 @router.post("/vouch", response_model=VouchResponse)
 async def create_vouch(request: VouchRequest, req: Request):
     """
@@ -427,3 +447,135 @@ async def revoke_vouch(request: RevokeRequest):
         vouch_id=request.vouch_id,
         message="Vouch revoked successfully"
     )
+
+
+@router.get("/vouch/certificate/{vouch_id}", response_model=VouchCertificate)
+async def get_vouch_certificate(vouch_id: str):
+    """
+    Export a vouch as a portable certificate for offline verification.
+
+    The certificate contains:
+    - The original vouch data (voucher, target, scope, statement)
+    - The voucher's public key (for signature verification)
+    - The original signature
+
+    Clients can verify the certificate offline by:
+    1. Reconstructing the signed payload: voucher_did|target_did|scope|statement
+    2. Verifying the signature against voucher_public_key
+    3. Checking expires_at hasn't passed
+
+    This enables trust verification without querying AIP service.
+    """
+    # Get vouch from database
+    with database.get_connection() as conn:
+        cursor = conn.cursor()
+        now = datetime.utcnow().isoformat()
+        cursor.execute(
+            """SELECT id, voucher_did, target_did, scope, statement, signature, created_at, expires_at
+               FROM vouches
+               WHERE id = ? AND revoked_at IS NULL
+               AND (expires_at IS NULL OR expires_at > ?)""",
+            (vouch_id, now)
+        )
+        row = cursor.fetchone()
+
+    if not row:
+        raise HTTPException(
+            status_code=404,
+            detail="Vouch not found, expired, or revoked"
+        )
+
+    vouch = dict(row)
+
+    # Get voucher's public key
+    voucher = database.get_registration(vouch["voucher_did"])
+    if not voucher:
+        raise HTTPException(
+            status_code=404,
+            detail="Voucher registration not found"
+        )
+
+    return VouchCertificate(
+        version="1.0",
+        vouch_id=vouch["id"],
+        voucher_did=vouch["voucher_did"],
+        voucher_public_key=voucher["public_key"],
+        target_did=vouch["target_did"],
+        scope=vouch["scope"],
+        statement=vouch["statement"],
+        created_at=str(vouch["created_at"]),
+        expires_at=str(vouch["expires_at"]) if vouch.get("expires_at") else None,
+        signature=vouch["signature"],
+        certificate_issued_at=datetime.utcnow().isoformat()
+    )
+
+
+@router.post("/vouch/verify-certificate")
+async def verify_vouch_certificate(certificate: VouchCertificate):
+    """
+    Verify a vouch certificate offline (no database lookup).
+
+    This endpoint demonstrates certificate verification but the same logic
+    can be performed entirely client-side without network access.
+
+    Returns whether the certificate is cryptographically valid and not expired.
+    """
+    # Check expiration
+    if certificate.expires_at:
+        try:
+            expires = datetime.fromisoformat(certificate.expires_at.replace('Z', '+00:00'))
+            if expires < datetime.utcnow():
+                return {
+                    "valid": False,
+                    "reason": "Certificate expired",
+                    "expires_at": certificate.expires_at
+                }
+        except ValueError:
+            pass  # Invalid date format, skip check
+
+    # Reconstruct signed payload
+    payload = f"{certificate.voucher_did}|{certificate.target_did}|{certificate.scope}|{certificate.statement or ''}"
+    payload_bytes = payload.encode('utf-8')
+
+    # Verify signature
+    try:
+        public_key_bytes = base64.b64decode(certificate.voucher_public_key)
+        signature_bytes = base64.b64decode(certificate.signature)
+
+        try:
+            from pure25519.eddsa import verify as ed_verify
+            from pure25519.eddsa import BadSignature
+
+            try:
+                ed_verify(public_key_bytes, payload_bytes, signature_bytes)
+                signature_valid = True
+            except BadSignature:
+                signature_valid = False
+        except ImportError:
+            import nacl.signing
+            verify_key = nacl.signing.VerifyKey(public_key_bytes)
+            try:
+                verify_key.verify(payload_bytes, signature_bytes)
+                signature_valid = True
+            except nacl.exceptions.BadSignature:
+                signature_valid = False
+
+        if not signature_valid:
+            return {
+                "valid": False,
+                "reason": "Invalid signature"
+            }
+
+    except Exception as e:
+        return {
+            "valid": False,
+            "reason": f"Verification error: {str(e)}"
+        }
+
+    return {
+        "valid": True,
+        "voucher_did": certificate.voucher_did,
+        "target_did": certificate.target_did,
+        "scope": certificate.scope,
+        "expires_at": certificate.expires_at
+    }
