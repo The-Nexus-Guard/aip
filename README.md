@@ -110,6 +110,42 @@ cd aip
 pip install pynacl
 ```
 
+## Python Client
+
+The simplest way to use AIP:
+
+```python
+from aip_client import AIPClient
+
+# Register (one-liner)
+client = AIPClient.register("moltbook", "my_agent_name")
+client.save("aip_credentials.json")
+
+# Later: load credentials
+client = AIPClient.from_file("aip_credentials.json")
+
+# Vouch for another agent
+vouch_id = client.vouch(
+    target_did="did:aip:abc123",
+    scope="CODE_SIGNING",
+    statement="Reviewed their code"
+)
+
+# Check trust path with decay scoring
+result = client.get_trust_path("did:aip:xyz789")
+if result["path_exists"]:
+    print(f"Trust score: {result['trust_score']}")  # 0.64 = 2 hops at 0.8 decay
+
+# Get portable vouch certificate
+cert = client.get_certificate(vouch_id)
+# cert can be verified offline without AIP service
+```
+
+Install dependencies (optional, for better performance):
+```bash
+pip install cryptography  # or pynacl
+```
+
 ## Live Service
 
 **API:** https://aip-service.fly.dev
@@ -118,17 +154,19 @@ pip install pynacl
 
 ## Status
 
-🚀 **v0.3.0** - Identity + Trust + Skill Signing
+🚀 **v0.3.1** - Identity + Trust + Skill Signing + Offline Verification
 
 - [x] Ed25519 identity (pure Python + PyNaCl + cryptography backends)
 - [x] DID document generation
 - [x] Challenge-response verification
 - [x] Trust graphs with vouching
-- [x] Trust path discovery (isnad chains)
+- [x] Trust path discovery (isnad chains) with **trust decay scoring**
 - [x] Trust revocation
 - [x] **Skill signing** - Sign skill.md files with your DID
 - [x] **CODE_SIGNING vouches** - Trust chains for code provenance
 - [x] **MCP integration** - Add AIP to Model Context Protocol
+- [x] **Vouch certificates** - Portable trust proofs for offline verification
+- [x] **Python client** - One-liner registration and trust operations
 - [ ] Trust gossip protocol
 - [ ] Reputation scoring
 
