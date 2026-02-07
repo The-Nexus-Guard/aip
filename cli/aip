@@ -21,6 +21,17 @@ import requests
 AIP_SERVICE = os.environ.get("AIP_SERVICE_URL", "https://aip-service.fly.dev")
 CREDS_PATH = os.path.expanduser("~/.aip/credentials.json")
 
+# Global flag for JSON output
+JSON_OUTPUT = False
+
+
+def output_json(data):
+    """Output data as JSON if --json flag is set."""
+    if JSON_OUTPUT:
+        print(json.dumps(data, indent=2))
+        return True
+    return False
+
 
 def save_credentials(data):
     """Save credentials to ~/.aip/credentials.json"""
@@ -156,6 +167,9 @@ def cmd_stats(args):
     resp = requests.get(f"{AIP_SERVICE}/stats")
     data = resp.json()
 
+    if output_json(data):
+        return
+
     print(f"AIP Service Statistics")
     print(f"=" * 40)
     print(f"Status: {data['status']}")
@@ -172,6 +186,11 @@ def cmd_health(args):
     try:
         resp = requests.get(f"{AIP_SERVICE}/health", timeout=10)
         data = resp.json()
+
+        if output_json(data):
+            if data.get("status") != "healthy":
+                sys.exit(1)
+            return
 
         status = data.get("status", "unknown")
         version = data.get("version", "unknown")
@@ -247,6 +266,10 @@ def cmd_trust(args):
 
     if resp.status_code == 200:
         data = resp.json()
+
+        if output_json(data):
+            return
+
         did = data.get("did", args.did)
         registered = data.get("registered", False)
         vouch_count = data.get("vouch_count", 0)
@@ -569,8 +592,13 @@ Examples:
   aip skill-verify my_skill.md
   aip stats
   aip whoami
+  aip stats --json  # JSON output for scripting
         """
     )
+
+    # Global arguments
+    parser.add_argument("--json", "-j", action="store_true", help="Output as JSON")
+
     subparsers = parser.add_subparsers(dest="command", help="Command")
 
     # Register
@@ -640,6 +668,10 @@ Examples:
     p_skill_verify.add_argument("file", help="Path to signed skill.md file")
 
     args = parser.parse_args()
+
+    # Set global JSON output flag
+    global JSON_OUTPUT
+    JSON_OUTPUT = getattr(args, 'json', False)
 
     if args.command == "register":
         cmd_register(args)
