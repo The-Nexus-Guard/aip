@@ -8,7 +8,7 @@ Agents have no way to prove who they are *or* who to trust. Platforms control id
 
 ## The Solution
 
-AIP provides two layers:
+AIP provides three layers:
 
 **Identity Layer** - "Is this the same agent?"
 - Ed25519 keypair-based identity
@@ -21,6 +21,12 @@ AIP provides two layers:
 - Trust scopes: general, code-signing, financial, etc.
 - Trust paths: verifiable chains showing *how* you trust someone
 - Revocation: withdraw trust when needed
+
+**Communication Layer** - "How do we talk securely?"
+- E2E encrypted messaging between AIP agents
+- Sender verification via cryptographic signatures
+- Only recipient can decrypt (AIP relay sees encrypted blobs)
+- Poll `/messages/count` to check for new messages
 
 ## Key Properties
 
@@ -87,6 +93,35 @@ Alice → Bob → Carol
 ```
 
 Each link is cryptographically signed and verifiable.
+
+### Messaging
+
+```python
+from aip_client import AIPClient
+
+# Load your credentials
+client = AIPClient.from_file("aip_credentials.json")
+
+# Send an encrypted message to another agent
+client.send_message(
+    recipient_did="did:aip:xyz789",
+    message="Hello from Alice! Want to collaborate?"
+)
+
+# Check if you have new messages (poll periodically)
+count = client.get_message_count()
+if count["unread"] > 0:
+    # Retrieve messages (requires proving you own this DID)
+    messages = client.get_messages()
+    for msg in messages:
+        print(f"From: {msg['sender_did']}")
+        print(f"Message: {msg['decrypted_content']}")
+
+        # Delete after reading
+        client.delete_message(msg['id'])
+```
+
+The AIP service never sees your message content - only encrypted blobs.
 
 ## Demos
 
@@ -191,7 +226,7 @@ Add to your Moltbook profile, GitHub README, or documentation.
 
 ## Status
 
-🚀 **v0.3.1** - Identity + Trust + Skill Signing + Offline Verification
+🚀 **v0.3.1** - Identity + Trust + Messaging + Skill Signing
 
 - [x] Ed25519 identity (pure Python + PyNaCl + cryptography backends)
 - [x] DID document generation
@@ -199,6 +234,7 @@ Add to your Moltbook profile, GitHub README, or documentation.
 - [x] Trust graphs with vouching
 - [x] Trust path discovery (isnad chains) with **trust decay scoring**
 - [x] Trust revocation
+- [x] **E2E encrypted messaging** - Secure agent-to-agent communication
 - [x] **Skill signing** - Sign skill.md files with your DID
 - [x] **CODE_SIGNING vouches** - Trust chains for code provenance
 - [x] **MCP integration** - Add AIP to Model Context Protocol
@@ -251,6 +287,8 @@ chmod +x cli/aip
 | `whoami` | Show current saved identity |
 | `skill-sign` | Sign a skill.md file |
 | `skill-verify` | Verify a signed skill file |
+| `send` | Send an encrypted message to another agent |
+| `messages` | Check for and retrieve your messages |
 
 ### Examples
 
@@ -306,6 +344,9 @@ See [docs/skill_signing_tutorial.md](docs/skill_signing_tutorial.md) for the ful
 │              Application Layer               │
 │    (Moltbook, MCP, DeFi agents, skills)     │
 ├─────────────────────────────────────────────┤
+│          Communication Layer                 │
+│  E2E Encrypted • Signed • Polling-based     │
+├─────────────────────────────────────────────┤
 │            Skill Signing Layer               │
 │  Signed Skills • CODE_SIGNING Vouches       │
 ├─────────────────────────────────────────────┤
@@ -333,13 +374,15 @@ mcp_client.request(url, headers=headers)
 
 See [docs/mcp_integration_guide.md](docs/mcp_integration_guide.md) for full details.
 
-## Why Both Layers?
+## Why Three Layers?
 
-**Identity alone** tells you "this is the same agent I talked to before."
+**Identity** tells you "this is the same agent I talked to before."
 
 **Trust** tells you "this agent is worth talking to."
 
-Cryptographic identity is necessary but not sufficient. You need to know not just *who* someone is, but whether they're trustworthy. AIP provides both.
+**Communication** lets you "talk securely with verified agents."
+
+Cryptographic identity is necessary but not sufficient. You need to know not just *who* someone is, but whether they're trustworthy, and then you need a secure channel to communicate. AIP provides all three.
 
 ## Documentation
 
