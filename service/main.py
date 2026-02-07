@@ -85,14 +85,26 @@ async def stats():
 
 
 @app.get("/badge/{did}")
-async def get_badge(did: str):
+async def get_badge(did: str, size: str = "medium"):
     """
     Generate a dynamic SVG badge based on DID trust status.
+
+    Args:
+        did: The DID to generate a badge for
+        size: Badge size - "small" (80x20), "medium" (120x28), or "large" (160x36)
 
     Returns:
         SVG badge showing: "Not Found", "Registered", "Vouched", or "Verified"
     """
     import database
+
+    # Size presets
+    sizes = {
+        "small": {"w": 80, "h": 20, "r": 6, "fs1": 8, "fs2": 9, "fs3": 7, "cx": 10, "cy": 10, "tx1": 20, "tx2": 36},
+        "medium": {"w": 120, "h": 28, "r": 8, "fs1": 10, "fs2": 12, "fs3": 10, "cx": 14, "cy": 14, "tx1": 28, "tx2": 50},
+        "large": {"w": 160, "h": 36, "r": 10, "fs1": 12, "fs2": 14, "fs3": 12, "cx": 18, "cy": 18, "tx1": 36, "tx2": 66}
+    }
+    s = sizes.get(size, sizes["medium"])
 
     # Check if DID is registered
     agent = database.get_registration(did)
@@ -125,19 +137,19 @@ async def get_badge(did: str):
             text = "Registered"
             icon = "○"
 
-    # Generate SVG
-    svg = f'''<svg xmlns="http://www.w3.org/2000/svg" width="120" height="28" viewBox="0 0 120 28">
+    # Generate SVG with size parameters
+    svg = f'''<svg xmlns="http://www.w3.org/2000/svg" width="{s['w']}" height="{s['h']}" viewBox="0 0 {s['w']} {s['h']}">
   <defs>
     <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="0%">
       <stop offset="0%" style="stop-color:#1a1a2e"/>
       <stop offset="100%" style="stop-color:#16213e"/>
     </linearGradient>
   </defs>
-  <rect width="120" height="28" rx="4" fill="url(#bg)"/>
-  <circle cx="14" cy="14" r="8" fill="{color}"/>
-  <text x="14" y="18" font-family="system-ui, sans-serif" font-size="10" font-weight="bold" fill="white" text-anchor="middle">{icon}</text>
-  <text x="28" y="18" font-family="system-ui, sans-serif" font-size="12" font-weight="bold" fill="{color}">AIP</text>
-  <text x="50" y="18" font-family="system-ui, sans-serif" font-size="10" fill="#888">{text}</text>
+  <rect width="{s['w']}" height="{s['h']}" rx="4" fill="url(#bg)"/>
+  <circle cx="{s['cx']}" cy="{s['cy']}" r="{s['r']}" fill="{color}"/>
+  <text x="{s['cx']}" y="{s['cy'] + 4}" font-family="system-ui, sans-serif" font-size="{s['fs1']}" font-weight="bold" fill="white" text-anchor="middle">{icon}</text>
+  <text x="{s['tx1']}" y="{s['cy'] + 4}" font-family="system-ui, sans-serif" font-size="{s['fs2']}" font-weight="bold" fill="{color}">AIP</text>
+  <text x="{s['tx2']}" y="{s['cy'] + 4}" font-family="system-ui, sans-serif" font-size="{s['fs3']}" fill="#888">{text}</text>
 </svg>'''
 
     # Cache for 5 minutes - badges update when vouches change
