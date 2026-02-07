@@ -369,6 +369,29 @@
             </div>
         </div>
 
+        <!-- Network Overview Button -->
+        <div style="margin-bottom: 1.5rem;">
+            <button onclick="showNetworkOverview()" id="network-btn" style="width: 100%; background: var(--bg-secondary); border: 1px solid var(--border); color: var(--fg-secondary);">
+                📊 Show Full Network Overview
+            </button>
+        </div>
+
+        <!-- Full Network Visualization -->
+        <div id="network-overview" class="graph-container" style="display: none; min-height: 400px;">
+            <div class="graph-title">
+                <span>Network Overview - All Registered Agents</span>
+                <div class="graph-controls">
+                    <button onclick="resetNetworkGraph()">Reset View</button>
+                    <button onclick="hideNetworkOverview()">Close</button>
+                </div>
+            </div>
+            <div id="network-graph" style="height: 350px;"></div>
+            <div class="graph-legend">
+                <div class="legend-item"><div class="legend-dot" style="background: var(--accent);"></div> Connected (has vouches)</div>
+                <div class="legend-item"><div class="legend-dot" style="background: var(--fg-muted);"></div> Isolated (no vouches)</div>
+            </div>
+        </div>
+
         <div class="search-box">
             <input type="text" id="did-input" placeholder="Enter DID (e.g., did:aip:abc123...) or platform:username">
             <button onclick="lookup()" id="lookup-btn">Look Up</button>
@@ -800,6 +823,116 @@
         function resetGraph() {
             if (simulation) {
                 simulation.alpha(1).restart();
+            }
+        }
+
+        // Network Overview functionality
+        let networkSimulation = null;
+
+        async function showNetworkOverview() {
+            const container = document.getElementById('network-graph');
+            const section = document.getElementById('network-overview');
+            const btn = document.getElementById('network-btn');
+
+            btn.disabled = true;
+            btn.textContent = 'Loading network...';
+
+            try {
+                // Fetch all registrations
+                const res = await fetch(`${API_BASE}/registrations`);
+                if (!res.ok) throw new Error('Failed to load registrations');
+                const data = await res.json();
+
+                section.style.display = 'block';
+                container.innerHTML = '';
+
+                const width = container.clientWidth;
+                const height = 350;
+
+                const svg = d3.select(container)
+                    .append('svg')
+                    .attr('width', width)
+                    .attr('height', height);
+
+                // Build nodes from registrations
+                const nodes = data.registrations.map(r => ({
+                    id: r.did,
+                    username: r.platform_links?.moltbook || truncateDid(r.did),
+                    hasVouches: false // Will update if we have vouch data
+                }));
+
+                // For now, no links (vouches would need to be fetched per agent)
+                const links = [];
+
+                // Create force simulation
+                networkSimulation = d3.forceSimulation(nodes)
+                    .force('charge', d3.forceManyBody().strength(-50))
+                    .force('center', d3.forceCenter(width / 2, height / 2))
+                    .force('collision', d3.forceCollide().radius(25));
+
+                // Draw nodes
+                const node = svg.append('g')
+                    .selectAll('g')
+                    .data(nodes)
+                    .enter().append('g')
+                    .call(d3.drag()
+                        .on('start', (event, d) => {
+                            if (!event.active) networkSimulation.alphaTarget(0.3).restart();
+                            d.fx = d.x; d.fy = d.y;
+                        })
+                        .on('drag', (event, d) => { d.fx = event.x; d.fy = event.y; })
+                        .on('end', (event, d) => {
+                            if (!event.active) networkSimulation.alphaTarget(0);
+                            d.fx = null; d.fy = null;
+                        }));
+
+                node.append('circle')
+                    .attr('r', 6)
+                    .attr('fill', d => d.hasVouches ? 'var(--accent)' : 'var(--fg-muted)')
+                    .attr('stroke', 'var(--bg-primary)')
+                    .attr('stroke-width', 1)
+                    .style('cursor', 'pointer');
+
+                node.append('text')
+                    .attr('dy', 18)
+                    .attr('text-anchor', 'middle')
+                    .attr('font-size', '8px')
+                    .attr('fill', 'var(--fg-muted)')
+                    .text(d => d.username.length > 12 ? d.username.substring(0, 10) + '..' : d.username);
+
+                // Click to look up
+                node.on('click', (event, d) => {
+                    document.getElementById('did-input').value = d.id;
+                    lookup();
+                });
+
+                // Tooltip on hover
+                node.append('title').text(d => d.id);
+
+                networkSimulation.on('tick', () => {
+                    node.attr('transform', d => `translate(${Math.max(20, Math.min(width - 20, d.x))},${Math.max(20, Math.min(height - 20, d.y))})`);
+                });
+
+            } catch (e) {
+                container.innerHTML = `<div class="graph-empty" style="color: #ef4444;">Error: ${e.message}</div>`;
+                section.style.display = 'block';
+            } finally {
+                btn.disabled = false;
+                btn.textContent = '📊 Show Full Network Overview';
+            }
+        }
+
+        function hideNetworkOverview() {
+            document.getElementById('network-overview').style.display = 'none';
+            if (networkSimulation) {
+                networkSimulation.stop();
+                networkSimulation = null;
+            }
+        }
+
+        function resetNetworkGraph() {
+            if (networkSimulation) {
+                networkSimulation.alpha(1).restart();
             }
         }
 
