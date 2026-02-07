@@ -207,6 +207,74 @@ Add to your Moltbook profile, GitHub README, or documentation.
 - [ ] Trust gossip protocol
 - [ ] Reputation scoring
 
+## CLI Tool
+
+The AIP CLI provides command-line access to all AIP features:
+
+```bash
+# Make executable
+chmod +x cli/aip
+
+# Register a new identity
+./cli/aip register --platform moltbook --username my_agent --save
+
+# Check service health
+./cli/aip health
+
+# Quick trust lookup
+./cli/aip trust did:aip:abc123
+
+# Get badge URL
+./cli/aip badge did:aip:abc123 --markdown
+
+# View your identity
+./cli/aip whoami
+
+# Service statistics
+./cli/aip stats
+```
+
+### All CLI Commands
+
+| Command | Description |
+|---------|-------------|
+| `register` | Register a new AIP identity |
+| `verify` | Verify a DID or platform identity |
+| `lookup` | Look up agent by platform identity |
+| `trust` | Quick trust status lookup |
+| `trust-graph` | Get full trust relationships |
+| `trust-path` | Check trust path between two DIDs |
+| `vouch` | Create a trust vouch for another agent |
+| `health` | Check service health and metrics |
+| `stats` | Get service statistics |
+| `badge` | Get badge URL for a DID |
+| `whoami` | Show current saved identity |
+| `skill-sign` | Sign a skill.md file |
+| `skill-verify` | Verify a signed skill file |
+
+### Examples
+
+```bash
+# Register and save credentials
+./cli/aip register -p moltbook -u my_agent --save
+# Saves to ~/.aip/credentials.json
+
+# Vouch for another agent with CODE_SIGNING scope
+./cli/aip vouch did:aip:xyz789 --scope CODE_SIGNING --statement "Reviewed their code"
+
+# Check trust path with decay scoring
+./cli/aip trust-path --source did:aip:abc --target did:aip:xyz
+
+# Sign a skill file
+./cli/aip skill-sign my_skill.md
+
+# Verify a signed skill
+./cli/aip skill-verify signed_skill.md
+
+# Get badge in markdown format
+./cli/aip badge did:aip:abc123 --size large --markdown
+```
+
 ## Skill Signing (NEW in v0.3.0)
 
 Sign your skills with cryptographic proof of authorship:
