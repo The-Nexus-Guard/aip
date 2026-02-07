@@ -241,6 +241,69 @@ def cmd_whoami(args):
         sys.exit(1)
 
 
+def cmd_trust(args):
+    """Quick trust lookup for a DID."""
+    resp = requests.get(f"{AIP_SERVICE}/trust/{args.did}")
+
+    if resp.status_code == 200:
+        data = resp.json()
+        did = data.get("did", args.did)
+        registered = data.get("registered", False)
+        vouch_count = data.get("vouch_count", 0)
+        scopes = data.get("scopes", [])
+        vouched_by = data.get("vouched_by", [])
+
+        # Header
+        print(f"Trust Status: {did[:40]}...")
+        print(f"=" * 50)
+
+        # Registration status
+        if registered:
+            print(f"✓ Registered")
+        else:
+            print(f"✗ Not registered")
+            sys.exit(1)
+
+        # Vouch summary
+        if vouch_count > 0:
+            print(f"✓ Vouched by {vouch_count} agent{'s' if vouch_count != 1 else ''}")
+            print(f"\nScopes: {', '.join(scopes) if scopes else 'none'}")
+            print(f"\nVouchers:")
+            for v in vouched_by[:5]:  # Show top 5
+                voucher = v.get('voucher_did', 'unknown')[:25]
+                scope = v.get('scope', 'GENERAL')
+                print(f"  - {voucher}... [{scope}]")
+            if len(vouched_by) > 5:
+                print(f"  ... and {len(vouched_by) - 5} more")
+        else:
+            print(f"○ No vouches yet")
+
+        # Badge URL
+        print(f"\nBadge: {AIP_SERVICE}/badge/{did}")
+
+    elif resp.status_code == 404:
+        print(f"✗ DID not found: {args.did}")
+        sys.exit(1)
+    else:
+        print(f"✗ Error: {resp.json().get('detail', resp.text)}")
+        sys.exit(1)
+
+
+def cmd_badge(args):
+    """Get badge URL for a DID."""
+    size = args.size or "medium"
+    url = f"{AIP_SERVICE}/badge/{args.did}?size={size}"
+
+    if args.markdown:
+        print(f"![AIP Badge]({url})")
+    elif args.html:
+        print(f'<img src="{url}" alt="AIP Badge">')
+    else:
+        print(f"Badge URL: {url}")
+        print(f"\nMarkdown: ![AIP Badge]({url})")
+        print(f"HTML: <img src=\"{url}\" alt=\"AIP Badge\">")
+
+
 def cmd_skill_sign(args):
     """Sign a skill.md file with your AIP identity."""
     import hashlib
@@ -546,6 +609,17 @@ Examples:
     # Whoami
     subparsers.add_parser("whoami", help="Show current identity")
 
+    # Trust (quick lookup)
+    p_trust_quick = subparsers.add_parser("trust", help="Quick trust status lookup")
+    p_trust_quick.add_argument("did", help="DID to look up")
+
+    # Badge
+    p_badge = subparsers.add_parser("badge", help="Get badge URL for a DID")
+    p_badge.add_argument("did", help="DID to get badge for")
+    p_badge.add_argument("--size", "-s", choices=["small", "medium", "large"], help="Badge size")
+    p_badge.add_argument("--markdown", "-m", action="store_true", help="Output as markdown")
+    p_badge.add_argument("--html", action="store_true", help="Output as HTML")
+
     # Vouch
     p_vouch = subparsers.add_parser("vouch", help="Create a trust vouch for another agent")
     p_vouch.add_argument("target", help="Target DID to vouch for")
@@ -585,6 +659,10 @@ Examples:
         cmd_health(args)
     elif args.command == "whoami":
         cmd_whoami(args)
+    elif args.command == "trust":
+        cmd_trust(args)
+    elif args.command == "badge":
+        cmd_badge(args)
     elif args.command == "vouch":
         cmd_vouch(args)
     elif args.command == "skill-sign":
