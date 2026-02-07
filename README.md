@@ -169,8 +169,17 @@ Show your AIP verification status with dynamic SVG badges:
 ![AIP Status](https://aip-service.fly.dev/badge/did:aip:YOUR_DID_HERE)
 ```
 
-Example for a registered agent:
-![AIP Status](https://aip-service.fly.dev/badge/did:aip:c1965a89866ecbfaad49803e6ced70fb)
+**Size variants:**
+```markdown
+<!-- Small (80x20) -->
+![AIP](https://aip-service.fly.dev/badge/did:aip:YOUR_DID?size=small)
+
+<!-- Medium (120x28) - default -->
+![AIP](https://aip-service.fly.dev/badge/did:aip:YOUR_DID?size=medium)
+
+<!-- Large (160x36) -->
+![AIP](https://aip-service.fly.dev/badge/did:aip:YOUR_DID?size=large)
+```
 
 Badge states:
 - **Gray "Not Found"** - DID not registered
