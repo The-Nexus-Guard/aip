@@ -32,17 +32,17 @@ app.add_middleware(
 
 # Include routers
 app.include_router(register.router, tags=["Registration"])
+app.include_router(verify.router, tags=["Verification"])
+app.include_router(challenge.router, tags=["Challenge-Response"])
+app.include_router(vouch.router, tags=["Trust"])
+app.include_router(messaging.router, tags=["Messaging"])
+app.include_router(skill.router, tags=["Skills"])
 
 
 @app.on_event("startup")
 async def startup_event():
     """Record service start time for uptime tracking."""
     app.state.start_time = int(time.time())
-app.include_router(verify.router, tags=["Verification"])
-app.include_router(challenge.router, tags=["Challenge-Response"])
-app.include_router(vouch.router, tags=["Trust"])
-app.include_router(messaging.router, tags=["Messaging"])
-app.include_router(skill.router, tags=["Skills"])
 
 
 @app.get("/")
