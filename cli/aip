@@ -8,7 +8,7 @@ Usage:
     aip register --platform moltbook --username my-agent
     aip verify --did did:aip:abc123
     aip lookup --platform moltbook --username my-agent
-    aip challenge --did did:aip:abc123
+    aip health
     aip stats
 """
 
@@ -165,6 +165,67 @@ def cmd_stats(args):
     print(f"\nBy Platform:")
     for platform, count in data['stats'].get('by_platform', {}).items():
         print(f"  {platform}: {count}")
+
+
+def cmd_health(args):
+    """Check AIP service health."""
+    try:
+        resp = requests.get(f"{AIP_SERVICE}/health", timeout=10)
+        data = resp.json()
+
+        status = data.get("status", "unknown")
+        version = data.get("version", "unknown")
+        metrics = data.get("metrics", {})
+        checks = data.get("checks", {})
+
+        # Status indicator
+        if status == "healthy":
+            print(f"✓ AIP Service: HEALTHY")
+        elif status == "degraded":
+            print(f"⚠ AIP Service: DEGRADED")
+        else:
+            print(f"✗ AIP Service: {status.upper()}")
+
+        print(f"\nVersion: {version}")
+        print(f"Endpoint: {AIP_SERVICE}")
+
+        # Uptime
+        uptime = metrics.get("uptime_seconds", 0)
+        if uptime > 86400:
+            print(f"Uptime: {uptime // 86400}d {(uptime % 86400) // 3600}h")
+        elif uptime > 3600:
+            print(f"Uptime: {uptime // 3600}h {(uptime % 3600) // 60}m")
+        else:
+            print(f"Uptime: {uptime // 60}m {uptime % 60}s")
+
+        # Checks
+        print(f"\nChecks:")
+        for check_name, check_data in checks.items():
+            if check_data.get("ok"):
+                print(f"  ✓ {check_name}")
+            else:
+                print(f"  ✗ {check_name}: {check_data.get('error', 'failed')}")
+
+        # Metrics
+        print(f"\nMetrics:")
+        print(f"  Registrations: {metrics.get('registrations', 0)}")
+        print(f"  Active Vouches: {metrics.get('active_vouches', 0)}")
+
+        if status != "healthy":
+            sys.exit(1)
+
+    except requests.exceptions.Timeout:
+        print(f"✗ AIP Service: TIMEOUT")
+        print(f"  Endpoint: {AIP_SERVICE}")
+        sys.exit(1)
+    except requests.exceptions.ConnectionError:
+        print(f"✗ AIP Service: UNREACHABLE")
+        print(f"  Endpoint: {AIP_SERVICE}")
+        sys.exit(1)
+    except Exception as e:
+        print(f"✗ AIP Service: ERROR")
+        print(f"  {e}")
+        sys.exit(1)
 
 
 def cmd_whoami(args):
@@ -479,6 +540,9 @@ Examples:
     # Stats
     subparsers.add_parser("stats", help="Get service statistics")
 
+    # Health
+    subparsers.add_parser("health", help="Check service health")
+
     # Whoami
     subparsers.add_parser("whoami", help="Show current identity")
 
@@ -517,6 +581,8 @@ Examples:
         cmd_trust_path(args)
     elif args.command == "stats":
         cmd_stats(args)
+    elif args.command == "health":
+        cmd_health(args)
     elif args.command == "whoami":
         cmd_whoami(args)
     elif args.command == "vouch":
