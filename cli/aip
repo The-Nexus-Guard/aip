@@ -97,6 +97,11 @@ def cmd_verify(args):
     resp = requests.get(f"{AIP_SERVICE}/verify", params=params)
     data = resp.json()
 
+    if output_json(data):
+        if not data.get("verified"):
+            sys.exit(1)
+        return
+
     if data.get("verified"):
         print(f"✓ Verified!")
         print(f"  DID: {data['did']}")
@@ -113,10 +118,15 @@ def cmd_lookup(args):
 
     if resp.status_code == 200:
         data = resp.json()
+        if output_json(data):
+            return
         print(f"DID: {data['did']}")
         print(f"Public Key: {data['public_key']}")
     else:
-        print(f"✗ Not found: {args.platform}:{args.username}")
+        if JSON_OUTPUT:
+            print(json.dumps({"error": "not_found", "platform": args.platform, "username": args.username}))
+        else:
+            print(f"✗ Not found: {args.platform}:{args.username}")
         sys.exit(1)
 
 
@@ -251,12 +261,22 @@ def cmd_whoami(args):
     """Show current identity from saved credentials."""
     creds = load_credentials()
     if creds:
+        if output_json({
+            "did": creds['did'],
+            "platform": creds.get('platform', 'unknown'),
+            "username": creds.get('username', 'unknown'),
+            "public_key": creds.get('public_key', '')
+        }):
+            return
         print(f"DID: {creds['did']}")
         print(f"Platform: {creds.get('platform', 'unknown')}")
         print(f"Username: {creds.get('username', 'unknown')}")
     else:
-        print(f"No credentials found at {CREDS_PATH}")
-        print("Use 'aip register --save' to create an identity")
+        if JSON_OUTPUT:
+            print(json.dumps({"error": "no_credentials", "path": CREDS_PATH}))
+        else:
+            print(f"No credentials found at {CREDS_PATH}")
+            print("Use 'aip register --save' to create an identity")
         sys.exit(1)
 
 
@@ -508,6 +528,80 @@ def cmd_vouch(args):
         sys.exit(1)
 
 
+def cmd_revoke(args):
+    """Revoke a trust vouch."""
+    import base64
+
+    # Load credentials
+    creds = load_credentials()
+    if not creds:
+        print(f"✗ No credentials found. Run 'aip register --save' first.")
+        sys.exit(1)
+
+    # Sign the vouch_id to prove identity
+    private_key_bytes = base64.b64decode(creds['private_key'])
+    payload = args.vouch_id.encode('utf-8')
+    signature_bytes = None
+
+    # Try multiple crypto libraries
+    try:
+        from pure25519.eddsa import sign as ed_sign
+        signature_bytes = ed_sign(private_key_bytes, payload)
+    except ImportError:
+        pass
+
+    if signature_bytes is None:
+        try:
+            import nacl.signing
+            signing_key = nacl.signing.SigningKey(private_key_bytes)
+            signed = signing_key.sign(payload)
+            signature_bytes = signed.signature
+        except ImportError:
+            pass
+
+    if signature_bytes is None:
+        try:
+            from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+            private_key = Ed25519PrivateKey.from_private_bytes(private_key_bytes)
+            signature_bytes = private_key.sign(payload)
+        except ImportError:
+            pass
+
+    if signature_bytes is None:
+        print("✗ No Ed25519 signing library found.")
+        print("  Install one of: pynacl, pure25519, or cryptography")
+        sys.exit(1)
+
+    signature_b64 = base64.b64encode(signature_bytes).decode('utf-8')
+
+    # Revoke via API
+    data = {
+        "voucher_did": creds['did'],
+        "vouch_id": args.vouch_id,
+        "signature": signature_b64
+    }
+
+    resp = requests.post(f"{AIP_SERVICE}/revoke", json=data)
+
+    if resp.status_code == 200:
+        result = resp.json()
+        print(f"✓ Vouch revoked!")
+        print(f"  Vouch ID: {args.vouch_id}")
+        print(f"  Status: {result.get('status', 'revoked')}")
+    elif resp.status_code == 404:
+        error = resp.json().get('detail', 'Vouch not found')
+        print(f"✗ {error}")
+        sys.exit(1)
+    elif resp.status_code == 403:
+        error = resp.json().get('detail', 'Not authorized to revoke this vouch')
+        print(f"✗ {error}")
+        sys.exit(1)
+    else:
+        error = resp.json().get('detail', resp.text)
+        print(f"✗ Revoke failed: {error}")
+        sys.exit(1)
+
+
 def cmd_skill_verify(args):
     """Verify a signed skill.md file."""
     import re
@@ -667,6 +761,10 @@ Examples:
     p_skill_verify = subparsers.add_parser("skill-verify", help="Verify a signed skill file")
     p_skill_verify.add_argument("file", help="Path to signed skill.md file")
 
+    # Revoke
+    p_revoke = subparsers.add_parser("revoke", help="Revoke a trust vouch")
+    p_revoke.add_argument("vouch_id", help="ID of the vouch to revoke")
+
     args = parser.parse_args()
 
     # Set global JSON output flag
@@ -701,6 +799,8 @@ Examples:
         cmd_skill_sign(args)
     elif args.command == "skill-verify":
         cmd_skill_verify(args)
+    elif args.command == "revoke":
+        cmd_revoke(args)
     else:
         parser.print_help()
 
