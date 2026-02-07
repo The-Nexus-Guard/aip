@@ -32,6 +32,12 @@ app.add_middleware(
 
 # Include routers
 app.include_router(register.router, tags=["Registration"])
+
+
+@app.on_event("startup")
+async def startup_event():
+    """Record service start time for uptime tracking."""
+    app.state.start_time = int(time.time())
 app.include_router(verify.router, tags=["Verification"])
 app.include_router(challenge.router, tags=["Challenge-Response"])
 app.include_router(vouch.router, tags=["Trust"])
@@ -67,8 +73,34 @@ async def root():
 
 @app.get("/health")
 async def health():
-    """Simple health check."""
-    return {"status": "ok", "timestamp": int(time.time())}
+    """Detailed health check with service status."""
+    import database
+
+    # Check database connectivity
+    try:
+        db_stats = database.get_stats()
+        db_ok = True
+        db_error = None
+    except Exception as e:
+        db_ok = False
+        db_error = str(e)
+        db_stats = {}
+
+    uptime_seconds = int(time.time()) - app.state.start_time if hasattr(app.state, 'start_time') else 0
+
+    return {
+        "status": "healthy" if db_ok else "degraded",
+        "timestamp": int(time.time()),
+        "version": "0.3.1",
+        "checks": {
+            "database": {"ok": db_ok, "error": db_error},
+        },
+        "metrics": {
+            "registrations": db_stats.get("registrations", 0),
+            "active_vouches": db_stats.get("active_vouches", 0),
+            "uptime_seconds": uptime_seconds
+        }
+    }
 
 
 @app.get("/stats")
