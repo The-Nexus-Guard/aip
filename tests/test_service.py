@@ -726,8 +726,8 @@ class TestVouchFlow:
         trust = client.get(f"/trust/{b_did}")
         assert trust.status_code == 200
         data = trust.json()
-        assert data["trusted"] is True
-        assert any(v["voucher_did"] == a_did for v in data.get("vouches", []))
+        assert data["vouch_count"] >= 1
+        assert a_did in data.get("vouched_by", [])
 
 
 class TestVouchRevocationFlow:
@@ -768,7 +768,7 @@ class TestVouchRevocationFlow:
         # Verify trust exists
         trust = client.get(f"/trust/{b_did}")
         assert trust.status_code == 200
-        assert trust.json()["trusted"] is True
+        assert trust.json()["vouch_count"] >= 1
 
         # Revoke
         revoke_sig = self._sign(a_sk, vouch_id)
@@ -780,7 +780,7 @@ class TestVouchRevocationFlow:
         # Trust should be gone
         trust2 = client.get(f"/trust/{b_did}")
         assert trust2.status_code == 200
-        assert trust2.json()["trusted"] is False
+        assert trust2.json()["vouch_count"] == 0
 
 
 class TestTransitiveTrustPath:
@@ -822,7 +822,7 @@ class TestTransitiveTrustPath:
         self._vouch(client, b_did, b_sk, c_did)
 
         # Check trust path from A to C
-        path_resp = client.get("/trust-path", params={"from_did": a_did, "to_did": c_did})
+        path_resp = client.get("/trust-path", params={"source_did": a_did, "target_did": c_did})
         assert path_resp.status_code == 200
         data = path_resp.json()
         assert data["path_exists"] is True
