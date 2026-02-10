@@ -687,6 +687,268 @@ class TestRevouchAfterRevocation:
         assert revouch_resp.status_code == 200, f"Re-vouch failed (got {revouch_resp.status_code}): {revouch_resp.text}"
 
 
+class TestVouchFlow:
+    """Test successful vouch flow with trust graph verification."""
+
+    def _register(self, suffix):
+        import base64
+        import nacl.signing
+        client = get_test_client()
+        resp = client.post("/register/easy", json={
+            "platform": "test", "username": f"vouch_{suffix}_{uuid.uuid4().hex[:6]}"
+        })
+        assert resp.status_code == 200
+        data = resp.json()
+        sk = nacl.signing.SigningKey(base64.b64decode(data["private_key"])[:32])
+        return data["did"], sk
+
+    def _sign(self, sk, msg):
+        import base64
+        return base64.b64encode(sk.sign(msg.encode('utf-8')).signature).decode()
+
+    def test_successful_vouch_and_trust_graph(self):
+        """Register two agents, vouch A→B, verify trust graph shows the link."""
+        client = get_test_client()
+        a_did, a_sk = self._register("a")
+        b_did, _ = self._register("b")
+
+        # Vouch A→B
+        payload = f"{a_did}|{b_did}|GENERAL|trusted"
+        sig = self._sign(a_sk, payload)
+        resp = client.post("/vouch", json={
+            "voucher_did": a_did, "target_did": b_did,
+            "scope": "GENERAL", "statement": "trusted", "signature": sig
+        })
+        assert resp.status_code == 200
+        assert resp.json()["vouch_id"]
+
+        # Trust status for B should show A's vouch
+        trust = client.get(f"/trust/{b_did}")
+        assert trust.status_code == 200
+        data = trust.json()
+        assert data["trusted"] is True
+        assert any(v["voucher_did"] == a_did for v in data.get("vouches", []))
+
+
+class TestVouchRevocationFlow:
+    """Test vouch then revoke, verifying trust disappears."""
+
+    def _register(self, suffix):
+        import base64
+        import nacl.signing
+        client = get_test_client()
+        resp = client.post("/register/easy", json={
+            "platform": "test", "username": f"revoke_{suffix}_{uuid.uuid4().hex[:6]}"
+        })
+        assert resp.status_code == 200
+        data = resp.json()
+        sk = nacl.signing.SigningKey(base64.b64decode(data["private_key"])[:32])
+        return data["did"], sk
+
+    def _sign(self, sk, msg):
+        import base64
+        return base64.b64encode(sk.sign(msg.encode('utf-8')).signature).decode()
+
+    def test_revoke_removes_trust(self):
+        """Vouch A→B, verify trust, revoke, verify trust gone."""
+        client = get_test_client()
+        a_did, a_sk = self._register("a")
+        b_did, _ = self._register("b")
+
+        # Vouch
+        payload = f"{a_did}|{b_did}|GENERAL|trust"
+        sig = self._sign(a_sk, payload)
+        resp = client.post("/vouch", json={
+            "voucher_did": a_did, "target_did": b_did,
+            "scope": "GENERAL", "statement": "trust", "signature": sig
+        })
+        assert resp.status_code == 200
+        vouch_id = resp.json()["vouch_id"]
+
+        # Verify trust exists
+        trust = client.get(f"/trust/{b_did}")
+        assert trust.status_code == 200
+        assert trust.json()["trusted"] is True
+
+        # Revoke
+        revoke_sig = self._sign(a_sk, vouch_id)
+        revoke_resp = client.post("/revoke", json={
+            "vouch_id": vouch_id, "voucher_did": a_did, "signature": revoke_sig
+        })
+        assert revoke_resp.status_code == 200
+
+        # Trust should be gone
+        trust2 = client.get(f"/trust/{b_did}")
+        assert trust2.status_code == 200
+        assert trust2.json()["trusted"] is False
+
+
+class TestTransitiveTrustPath:
+    """Test transitive trust path A→B→C with decay."""
+
+    def _register(self, suffix):
+        import base64
+        import nacl.signing
+        client = get_test_client()
+        resp = client.post("/register/easy", json={
+            "platform": "test", "username": f"path_{suffix}_{uuid.uuid4().hex[:6]}"
+        })
+        assert resp.status_code == 200
+        data = resp.json()
+        sk = nacl.signing.SigningKey(base64.b64decode(data["private_key"])[:32])
+        return data["did"], sk
+
+    def _sign(self, sk, msg):
+        import base64
+        return base64.b64encode(sk.sign(msg.encode('utf-8')).signature).decode()
+
+    def _vouch(self, client, voucher_did, voucher_sk, target_did):
+        payload = f"{voucher_did}|{target_did}|GENERAL|trust"
+        sig = self._sign(voucher_sk, payload)
+        resp = client.post("/vouch", json={
+            "voucher_did": voucher_did, "target_did": target_did,
+            "scope": "GENERAL", "statement": "trust", "signature": sig
+        })
+        assert resp.status_code == 200
+
+    def test_trust_path_with_decay(self):
+        """A vouches for B, B vouches for C. Trust path A→C should exist with decay."""
+        client = get_test_client()
+        a_did, a_sk = self._register("a")
+        b_did, b_sk = self._register("b")
+        c_did, _ = self._register("c")
+
+        self._vouch(client, a_did, a_sk, b_did)
+        self._vouch(client, b_did, b_sk, c_did)
+
+        # Check trust path from A to C
+        path_resp = client.get("/trust-path", params={"from_did": a_did, "to_did": c_did})
+        assert path_resp.status_code == 200
+        data = path_resp.json()
+        assert data["path_exists"] is True
+        assert len(data["path"]) >= 2
+        # Trust should decay (less than 1.0 for 2-hop)
+        if "trust_score" in data:
+            assert data["trust_score"] < 1.0
+
+
+class TestMessagingFlow:
+    """Test full messaging flow: send, count, retrieve with challenge-response."""
+
+    def _register(self, suffix):
+        import base64
+        import nacl.signing
+        client = get_test_client()
+        resp = client.post("/register/easy", json={
+            "platform": "test", "username": f"msg_{suffix}_{uuid.uuid4().hex[:6]}"
+        })
+        assert resp.status_code == 200
+        data = resp.json()
+        sk = nacl.signing.SigningKey(base64.b64decode(data["private_key"])[:32])
+        return data["did"], sk
+
+    def _sign(self, sk, msg):
+        import base64
+        return base64.b64encode(sk.sign(msg.encode('utf-8')).signature).decode()
+
+    def test_send_count_retrieve(self):
+        """Send message, check count, retrieve via challenge-response."""
+        import base64
+        from datetime import datetime, timezone
+        client = get_test_client()
+
+        sender_did, sender_sk = self._register("sender")
+        recip_did, recip_sk = self._register("recip")
+
+        # Send message
+        timestamp = datetime.now(timezone.utc).isoformat()
+        content = base64.b64encode(b"secret message").decode()
+        payload = f"{sender_did}|{recip_did}|{timestamp}|{content}"
+        sig = self._sign(sender_sk, payload)
+        send_resp = client.post("/message", json={
+            "sender_did": sender_did, "recipient_did": recip_did,
+            "encrypted_content": content, "signature": sig, "timestamp": timestamp
+        })
+        assert send_resp.status_code == 200
+        assert send_resp.json()["success"] is True
+
+        # Check count
+        count_resp = client.get("/messages/count", params={"did": recip_did})
+        assert count_resp.status_code == 200
+        assert count_resp.json()["unread"] >= 1
+
+        # Retrieve via challenge-response
+        challenge_resp = client.post("/challenge", json={"did": recip_did})
+        assert challenge_resp.status_code == 200
+        challenge = challenge_resp.json()["challenge"]
+        challenge_sig = self._sign(recip_sk, challenge)
+
+        msgs_resp = client.post("/messages", json={
+            "did": recip_did, "challenge": challenge, "signature": challenge_sig
+        })
+        assert msgs_resp.status_code == 200
+        data = msgs_resp.json()
+        assert data["count"] >= 1
+        assert any(m["sender_did"] == sender_did for m in data["messages"])
+
+
+class TestBadgeEndpoint:
+    """Test badge SVG endpoint for various DID states."""
+
+    def _register(self, suffix):
+        import base64
+        import nacl.signing
+        client = get_test_client()
+        resp = client.post("/register/easy", json={
+            "platform": "test", "username": f"badge_{suffix}_{uuid.uuid4().hex[:6]}"
+        })
+        assert resp.status_code == 200
+        data = resp.json()
+        sk = nacl.signing.SigningKey(base64.b64decode(data["private_key"])[:32])
+        return data["did"], sk
+
+    def _sign(self, sk, msg):
+        import base64
+        return base64.b64encode(sk.sign(msg.encode('utf-8')).signature).decode()
+
+    def test_badge_unregistered(self):
+        """Badge for unregistered DID returns something (404 or default badge)."""
+        client = get_test_client()
+        resp = client.get("/badge/did:aip:nonexistent_badge_test")
+        # Should return either 404 or a badge indicating unregistered
+        assert resp.status_code in (200, 404)
+        if resp.status_code == 200:
+            assert "svg" in resp.headers.get("content-type", "").lower() or "image" in resp.headers.get("content-type", "").lower()
+
+    def test_badge_registered(self):
+        """Badge for registered DID returns SVG."""
+        client = get_test_client()
+        did, _ = self._register("reg")
+        resp = client.get(f"/badge/{did}")
+        assert resp.status_code == 200
+        content_type = resp.headers.get("content-type", "").lower()
+        assert "svg" in content_type or "image" in content_type
+
+    def test_badge_vouched(self):
+        """Badge for vouched DID returns SVG (possibly different from unvouched)."""
+        client = get_test_client()
+        a_did, a_sk = self._register("voucher")
+        b_did, _ = self._register("target")
+
+        # Vouch A→B
+        payload = f"{a_did}|{b_did}|GENERAL|trusted"
+        sig = self._sign(a_sk, payload)
+        client.post("/vouch", json={
+            "voucher_did": a_did, "target_did": b_did,
+            "scope": "GENERAL", "statement": "trusted", "signature": sig
+        })
+
+        resp = client.get(f"/badge/{b_did}")
+        assert resp.status_code == 200
+        content_type = resp.headers.get("content-type", "").lower()
+        assert "svg" in content_type or "image" in content_type
+
+
 class TestCleanup:
     """Test database cleanup functions."""
 

@@ -7,7 +7,7 @@ Complete reference for every signed operation in AIP. All signatures use **Ed255
 | Endpoint | Method | Signed Payload | Signer | Notes |
 |----------|--------|---------------|--------|-------|
 | `POST /vouch` | Create vouch | `voucher_did\|target_did\|scope\|statement` | Voucher | `statement` defaults to empty string if None |
-| `POST /revoke` | Revoke vouch | `vouch_id` | Original voucher | Signs just the vouch UUID |
+| `POST /revoke` | Revoke vouch | `revoke:{vouch_id}` | Original voucher | Domain-separated; legacy `vouch_id`-only accepted with deprecation warning |
 | `POST /challenge` | Request challenge | _(none)_ | — | No signature needed; returns a challenge string |
 | `POST /verify-challenge` | Prove identity | `challenge` | Challenged DID | Signs the raw challenge hex string |
 | `POST /message` | Send message (new) | `sender_did\|recipient_did\|timestamp\|encrypted_content` | Sender | Requires `timestamp` field (ISO 8601) |
@@ -84,12 +84,12 @@ body = {
 
 ## 2. Revoke Vouch (`POST /revoke`)
 
-**Payload:** `vouch_id` (the UUID of the vouch to revoke)
+**Payload:** `revoke:{vouch_id}` (domain-separated; legacy `vouch_id`-only is accepted but deprecated)
 
 ```python
 vouch_id = "550e8400-e29b-41d4-a716-446655440000"
 
-signature = sign(vouch_id)
+signature = sign(f"revoke:{vouch_id}")
 
 body = {
     "vouch_id": vouch_id,

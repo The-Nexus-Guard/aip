@@ -538,9 +538,9 @@ def cmd_revoke(args):
         print(f"✗ No credentials found. Run 'aip register --save' first.")
         sys.exit(1)
 
-    # Sign the vouch_id to prove identity
+    # Sign with domain separation: "revoke:{vouch_id}"
     private_key_bytes = base64.b64decode(creds['private_key'])
-    payload = args.vouch_id.encode('utf-8')
+    payload = f"revoke:{args.vouch_id}".encode('utf-8')
     signature_bytes = None
 
     # Try multiple crypto libraries
