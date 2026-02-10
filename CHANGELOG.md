@@ -1,0 +1,52 @@
+# Changelog
+
+## v0.4.0 (2026-02-10) — Security Hardening
+
+Major security release based on independent audit findings (28/28 functional tests passed, 4 critical + 6 high + 9 medium vulnerabilities identified and fixed).
+
+### Critical Fixes
+- **Vouch certificate forgery** — certificates now cross-checked against registered public keys
+- **Registration impersonation** — added `verified` status; registrations unverified by default until platform proof provided
+- **`/register/easy` key exposure** — deprecated with security warning; client-side key generation now recommended
+- **Key rotation DID binding** — added key history table; DID remains derivable from original key after rotation
+- **Moltbook proof bypass** — posts without cryptographic proof blocks now correctly rejected
+
+### High-Priority Fixes
+- **Database-backed rate limiting** on all endpoints (persists across restarts)
+- **Automatic cleanup** of expired challenges, vouches, and old messages (5-min cycle)
+- **Duplicate vouch prevention** — 409 on re-vouch for same target+scope
+- **CORS restricted** to known origins only
+- **Message replay protection** — timestamp binding + signature dedup
+
+### New Endpoints
+- `POST /verify-platform` — verify platform identity after registration
+
+### Badge Changes
+- Badge now shows: Not Found / Registered / Verified / Vouched (N) / Trusted
+- "Verified" = platform identity proven; "Trusted" = 3+ vouches with CODE_SIGNING
+
+### Breaking Changes
+- Message signing payload changed to `sender_did|recipient_did|timestamp|encrypted_content` (old format accepted with deprecation warning)
+
+### Documentation
+- README updated with secure registration guide, rate limit table, new message format
+- `cli/aip-register-secure` helper script for local key generation
+
+### Testing
+- Test infrastructure fixed (correct DB env var, shared temp DB, rate limit bypass)
+- 50 tests passing (23 library + 27 service)
+
+---
+
+## v0.3.1 (2026-02-07) — E2E Messaging
+
+- Added encrypted messaging (NaCl SealedBox)
+- Skill signing and verification
+- Badge endpoint
+
+## v0.3.0 (2026-02-05) — Initial Release
+
+- DID registration with Ed25519 keypairs
+- Challenge-response verification
+- Vouch system with trust decay and transitive paths
+- Moltbook proof verification
