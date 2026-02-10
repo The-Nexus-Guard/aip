@@ -20,7 +20,16 @@ class PlatformLink(BaseModel):
     platform: str
     username: str
     proof_post_id: Optional[str]
+    verified: bool = False
     registered_at: str
+
+
+class KeyHistoryEntry(BaseModel):
+    """A historical key record for a DID."""
+    public_key: str
+    valid_from: str
+    valid_until: Optional[str] = None
+    is_current: bool
 
 
 class VerifyResponse(BaseModel):
@@ -28,6 +37,8 @@ class VerifyResponse(BaseModel):
     verified: bool
     did: Optional[str] = None
     public_key: Optional[str] = None
+    key_rotated: bool = False
+    key_history: Optional[List[KeyHistoryEntry]] = None
     platforms: Optional[List[PlatformLink]] = None
     message: str
 
@@ -74,23 +85,36 @@ async def verify(
             message=f"DID {did} is not registered"
         )
 
-    # Get platform links
+    # Get platform links and key history
     links = database.get_platform_links(did)
+    key_history = database.get_key_history(did)
+    key_rotated = len(key_history) > 1
 
     return VerifyResponse(
         verified=True,
         did=did,
         public_key=registration["public_key"],
+        key_rotated=key_rotated,
+        key_history=[
+            KeyHistoryEntry(
+                public_key=kh["public_key"],
+                valid_from=str(kh["valid_from"]),
+                valid_until=str(kh["valid_until"]) if kh["valid_until"] else None,
+                is_current=bool(kh["is_current"])
+            )
+            for kh in key_history
+        ] if key_rotated else None,
         platforms=[
             PlatformLink(
                 platform=link["platform"],
                 username=link["username"],
                 proof_post_id=link["proof_post_id"],
+                verified=bool(link.get("verified")),
                 registered_at=str(link["registered_at"])
             )
             for link in links
         ],
-        message="DID is registered and verified"
+        message="DID is registered and verified" + (" (key has been rotated)" if key_rotated else "")
     )
 
 
@@ -117,23 +141,36 @@ async def lookup_by_platform(platform: str, username: str):
             message=f"DID {did} is not registered"
         )
 
-    # Get platform links
+    # Get platform links and key history
     links = database.get_platform_links(did)
+    key_history = database.get_key_history(did)
+    key_rotated = len(key_history) > 1
 
     return VerifyResponse(
         verified=True,
         did=did,
         public_key=registration["public_key"],
+        key_rotated=key_rotated,
+        key_history=[
+            KeyHistoryEntry(
+                public_key=kh["public_key"],
+                valid_from=str(kh["valid_from"]),
+                valid_until=str(kh["valid_until"]) if kh["valid_until"] else None,
+                is_current=bool(kh["is_current"])
+            )
+            for kh in key_history
+        ] if key_rotated else None,
         platforms=[
             PlatformLink(
                 platform=link["platform"],
                 username=link["username"],
                 proof_post_id=link["proof_post_id"],
+                verified=bool(link.get("verified")),
                 registered_at=str(link["registered_at"])
             )
             for link in links
         ],
-        message="DID is registered and verified"
+        message="DID is registered and verified" + (" (key has been rotated)" if key_rotated else "")
     )
 
 

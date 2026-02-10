@@ -79,6 +79,12 @@ def init_database():
         except sqlite3.OperationalError:
             pass  # Column already exists
 
+        # Migration: add verified column to platform_links (default False)
+        try:
+            cursor.execute("ALTER TABLE platform_links ADD COLUMN verified BOOLEAN DEFAULT 0")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+
         # Challenges - for live verification
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS challenges (
@@ -105,6 +111,28 @@ def init_database():
             )
         """)
 
+        # Key history table - tracks all keys ever associated with a DID
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS key_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                did TEXT NOT NULL,
+                public_key TEXT NOT NULL,
+                valid_from TEXT NOT NULL,
+                valid_until TEXT,
+                is_current BOOLEAN NOT NULL DEFAULT 1,
+                FOREIGN KEY (did) REFERENCES registrations(did)
+            )
+        """)
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_key_history_did ON key_history(did)")
+
+        # Backfill key_history for existing registrations that have no history entry
+        cursor.execute("""
+            INSERT INTO key_history (did, public_key, valid_from, is_current)
+            SELECT r.did, r.public_key, r.created_at, 1
+            FROM registrations r
+            WHERE NOT EXISTS (SELECT 1 FROM key_history kh WHERE kh.did = r.did)
+        """)
+
         # Create indexes
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_platform_links_did ON platform_links(did)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_vouches_voucher ON vouches(voucher_did)")
@@ -125,6 +153,12 @@ def register_did(did: str, public_key: str) -> bool:
             cursor.execute(
                 "INSERT INTO registrations (did, public_key) VALUES (?, ?)",
                 (did, public_key)
+            )
+            # Record initial key in key history
+            cursor.execute(
+                """INSERT INTO key_history (did, public_key, valid_from, is_current)
+                   VALUES (?, ?, ?, 1)""",
+                (did, public_key, datetime.utcnow().isoformat())
             )
             conn.commit()
             return True
@@ -149,6 +183,10 @@ def get_registration(did: str) -> Optional[Dict[str, Any]]:
 def rotate_key(did: str, new_public_key: str) -> bool:
     """Rotate the public key for a DID.
 
+    Preserves key history: the old key is marked as no longer current,
+    and the new key is recorded. The DID remains bound to the original key
+    (it was derived from the first key at registration time).
+
     Args:
         did: The DID to rotate keys for
         new_public_key: The new base64-encoded public key
@@ -156,14 +194,46 @@ def rotate_key(did: str, new_public_key: str) -> bool:
     Returns:
         True if rotation succeeded
     """
+    now = datetime.utcnow().isoformat()
     with get_connection() as conn:
         cursor = conn.cursor()
+
+        # Mark all current keys as no longer current
+        cursor.execute(
+            "UPDATE key_history SET is_current = 0, valid_until = ? WHERE did = ? AND is_current = 1",
+            (now, did)
+        )
+
+        # Insert new key into history
+        cursor.execute(
+            "INSERT INTO key_history (did, public_key, valid_from, is_current) VALUES (?, ?, ?, 1)",
+            (did, new_public_key, now)
+        )
+
+        # Update the current key in registrations
         cursor.execute(
             "UPDATE registrations SET public_key = ? WHERE did = ?",
             (new_public_key, did)
         )
+        success = cursor.rowcount > 0
         conn.commit()
-        return cursor.rowcount > 0
+        return success
+
+
+def get_key_history(did: str) -> List[Dict[str, Any]]:
+    """Get the full key history for a DID.
+
+    Returns:
+        List of key records ordered by valid_from, newest first
+    """
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            """SELECT public_key, valid_from, valid_until, is_current
+               FROM key_history WHERE did = ? ORDER BY valid_from DESC""",
+            (did,)
+        )
+        return [dict(row) for row in cursor.fetchall()]
 
 
 def mark_key_compromised(did: str) -> int:
@@ -188,15 +258,15 @@ def mark_key_compromised(did: str) -> int:
         return count
 
 
-def add_platform_link(did: str, platform: str, username: str, proof_post_id: Optional[str] = None) -> bool:
+def add_platform_link(did: str, platform: str, username: str, proof_post_id: Optional[str] = None, verified: bool = False) -> bool:
     """Link a DID to a platform identity."""
     with get_connection() as conn:
         cursor = conn.cursor()
         try:
             cursor.execute(
-                """INSERT INTO platform_links (did, platform, username, proof_post_id)
-                   VALUES (?, ?, ?, ?)""",
-                (did, platform, username, proof_post_id)
+                """INSERT INTO platform_links (did, platform, username, proof_post_id, verified)
+                   VALUES (?, ?, ?, ?, ?)""",
+                (did, platform, username, proof_post_id, 1 if verified else 0)
             )
             conn.commit()
             return True
@@ -209,11 +279,31 @@ def get_platform_links(did: str) -> List[Dict[str, Any]]:
     with get_connection() as conn:
         cursor = conn.cursor()
         cursor.execute(
-            """SELECT platform, username, proof_post_id, registered_at
+            """SELECT platform, username, proof_post_id, registered_at, verified
                FROM platform_links WHERE did = ?""",
             (did,)
         )
         return [dict(row) for row in cursor.fetchall()]
+
+
+def set_platform_verified(did: str, platform: str, username: str, proof_post_id: Optional[str] = None) -> bool:
+    """Mark a platform link as verified."""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        if proof_post_id:
+            cursor.execute(
+                """UPDATE platform_links SET verified = 1, proof_post_id = ?
+                   WHERE did = ? AND platform = ? AND username = ?""",
+                (proof_post_id, did, platform, username)
+            )
+        else:
+            cursor.execute(
+                """UPDATE platform_links SET verified = 1
+                   WHERE did = ? AND platform = ? AND username = ?""",
+                (did, platform, username)
+            )
+        conn.commit()
+        return cursor.rowcount > 0
 
 
 def get_did_by_platform(platform: str, username: str) -> Optional[str]:
