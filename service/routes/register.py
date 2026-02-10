@@ -3,6 +3,7 @@ Registration endpoint - Link DIDs to platform identities.
 """
 
 from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from typing import Optional
 import sys
@@ -55,6 +56,7 @@ class EasyRegistrationResponse(BaseModel):
     username: str
     message: str
     warning: str
+    security_warning: str
 
 
 class KeyRotationRequest(BaseModel):
@@ -258,7 +260,7 @@ async def register_easy(request: EasyRegistrationRequest, req: Request):
             detail="Failed to add platform link"
         )
 
-    return EasyRegistrationResponse(
+    response_data = EasyRegistrationResponse(
         success=True,
         did=did,
         public_key=public_key_b64,
@@ -266,7 +268,13 @@ async def register_easy(request: EasyRegistrationRequest, req: Request):
         platform=request.platform,
         username=request.username,
         message="Registration successful! SAVE YOUR PRIVATE KEY!",
-        warning="Store your private_key securely. If you lose it, you lose this identity forever."
+        warning="Store your private_key securely. If you lose it, you lose this identity forever.",
+        security_warning="This endpoint generates keys server-side. For production use, generate your own Ed25519 keypair and use POST /register instead."
+    )
+
+    return JSONResponse(
+        content=response_data.model_dump(),
+        headers={"Deprecation": "true"}
     )
 
 
