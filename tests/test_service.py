@@ -326,6 +326,71 @@ class TestSkillSigning:
         assert data["verified"] is False
 
 
+class TestVouchCertificateForgery:
+    """Test that forged vouch certificates are rejected."""
+
+    def test_forged_certificate_rejected(self):
+        """A certificate with a substituted public key must be rejected."""
+        client = get_test_client()
+        import base64
+
+        # Register voucher and target (unique names to avoid collisions)
+        import uuid
+        r1 = client.post("/register/easy", json={"platform": "test", "username": f"voucher_{uuid.uuid4().hex[:8]}"})
+        assert r1.status_code == 200, f"Registration failed: {r1.json()}"
+        voucher_did = r1.json()["did"]
+
+        r2 = client.post("/register/easy", json={"platform": "test", "username": f"target_{uuid.uuid4().hex[:8]}"})
+        assert r2.status_code == 200, f"Registration failed: {r2.json()}"
+        target_did = r2.json()["did"]
+
+        # Generate attacker keypair and forge a certificate
+        try:
+            from pure25519 import eddsa as ed
+            from pure25519.basic import bytes_to_clamped, Base
+            import hashlib
+            # Generate a random attacker keypair
+            import secrets
+            seed = secrets.token_bytes(32)
+            # Use pure25519 to create a signing key
+            _, vk_bytes = ed.create_keypair(seed)
+            attacker_public = base64.b64encode(vk_bytes).decode()
+            # Sign a payload with attacker key
+            payload = f"{voucher_did}|{target_did}|GENERAL|forged"
+            sig = ed.sign(seed, payload.encode('utf-8'))
+            attacker_sig = base64.b64encode(sig).decode()
+        except (ImportError, Exception):
+            import nacl.signing
+            attacker_key = nacl.signing.SigningKey.generate()
+            attacker_public = base64.b64encode(attacker_key.verify_key.encode()).decode()
+            payload = f"{voucher_did}|{target_did}|GENERAL|forged"
+            signed = attacker_key.sign(payload.encode('utf-8'))
+            attacker_sig = base64.b64encode(signed.signature).decode()
+
+        # Submit forged certificate — signature is valid for attacker's key,
+        # but the key doesn't match voucher_did's registered key
+        from datetime import datetime
+        cert = {
+            "version": "1.0",
+            "vouch_id": "fake-vouch-id",
+            "voucher_did": voucher_did,
+            "voucher_public_key": attacker_public,
+            "target_did": target_did,
+            "scope": "GENERAL",
+            "statement": "forged",
+            "created_at": datetime.utcnow().isoformat(),
+            "expires_at": None,
+            "signature": attacker_sig,
+            "certificate_issued_at": datetime.utcnow().isoformat()
+        }
+
+        response = client.post("/vouch/verify-certificate", json=cert)
+        assert response.status_code == 200
+        data = response.json()
+        assert data["valid"] is False
+        assert "does not match registered key" in data["reason"]
+
+
 def run_tests():
     """Run all tests manually."""
     import traceback
@@ -336,7 +401,8 @@ def run_tests():
         TestVerification,
         TestLookup,
         TestChallenge,
-        TestSkillSigning
+        TestSkillSigning,
+        TestVouchCertificateForgery
     ]
     passed = 0
     failed = 0

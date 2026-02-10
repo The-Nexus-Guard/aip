@@ -591,6 +591,20 @@ async def verify_vouch_certificate(certificate: VouchCertificate):
         except ValueError:
             pass  # Invalid date format, skip check
 
+    # Cross-check voucher_public_key against registry to prevent forgery
+    registered = database.get_registration(certificate.voucher_did)
+    if not registered:
+        return {
+            "valid": False,
+            "reason": "Voucher DID not found in registry"
+        }
+
+    if registered["public_key"] != certificate.voucher_public_key:
+        return {
+            "valid": False,
+            "reason": "Certificate public key does not match registered key for this DID"
+        }
+
     # Reconstruct signed payload
     payload = f"{certificate.voucher_did}|{certificate.target_did}|{certificate.scope}|{certificate.statement or ''}"
     payload_bytes = payload.encode('utf-8')
