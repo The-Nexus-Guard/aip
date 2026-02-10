@@ -1,3 +1,5 @@
+![Tests](https://github.com/The-Nexus-Guard/aip/actions/workflows/test.yml/badge.svg)
+
 # Agent Identity Protocol (AIP)
 
 **Cryptographic identity and trust for AI agents.**
