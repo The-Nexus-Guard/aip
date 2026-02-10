@@ -8,6 +8,7 @@ Run with: python3 tests/test_service.py
 
 import sys
 import os
+import uuid
 from pathlib import Path
 
 # Add paths
@@ -426,9 +427,8 @@ class TestMessageReplayProtection:
         import nacl.signing
         client = get_test_client()
         resp = client.post("/register/easy", json={
-            "name": f"replay-test-{name}",
             "platform": "test",
-            "platform_username": f"replay_{name}_{uuid.uuid4().hex[:6]}"
+            "username": f"replay_{name}_{uuid.uuid4().hex[:6]}"
         })
         assert resp.status_code == 200, f"Registration failed: {resp.text}"
         data = resp.json()

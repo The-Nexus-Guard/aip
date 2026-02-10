@@ -130,12 +130,22 @@ async def verify(
 
 
 @router.get("/lookup/{platform}/{username}", response_model=VerifyResponse)
-async def lookup_by_platform(platform: str, username: str):
+async def lookup_by_platform(platform: str, username: str, req: Request = None):
     """
     Shorthand lookup by platform and username.
 
     Example: GET /lookup/moltbook/The_Nexus_Guard_001
     """
+    # Rate limit
+    client_ip = req.client.host if req and req.client else "unknown"
+    allowed, retry_after = default_limiter.is_allowed(client_ip)
+    if not allowed:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Rate limit exceeded. Try again in {retry_after} seconds.",
+            headers={"Retry-After": str(retry_after)}
+        )
+
     # Look up the DID for this platform/username
     did = database.get_did_by_platform(platform, username)
     if not did:
@@ -202,6 +212,7 @@ class ListRegistrationsResponse(BaseModel):
 
 @router.get("/registrations", response_model=ListRegistrationsResponse)
 async def list_registrations(
+    req: Request,
     limit: int = Query(50, ge=1, le=100, description="Max results (1-100)"),
     offset: int = Query(0, ge=0, description="Offset for pagination")
 ):
@@ -213,6 +224,16 @@ async def list_registrations(
 
     Example: GET /registrations?limit=20&offset=0
     """
+    # Rate limit
+    client_ip = req.client.host if req.client else "unknown"
+    allowed, retry_after = default_limiter.is_allowed(client_ip)
+    if not allowed:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Rate limit exceeded. Try again in {retry_after} seconds.",
+            headers={"Retry-After": str(retry_after)}
+        )
+
     registrations = database.list_registrations(limit=limit, offset=offset)
 
     # Get total count from stats
@@ -249,7 +270,7 @@ class GenerateProofResponse(BaseModel):
 
 
 @router.post("/generate-proof", response_model=GenerateProofResponse)
-async def generate_proof(request: GenerateProofRequest):
+async def generate_proof(request: GenerateProofRequest, req: Request = None):
     """
     Generate a proof claim template that an agent can sign and post.
 
@@ -260,6 +281,16 @@ async def generate_proof(request: GenerateProofRequest):
 
     This ensures only the private key holder can claim the identity.
     """
+    # Rate limit
+    client_ip = req.client.host if req and req.client else "unknown"
+    allowed, retry_after = default_limiter.is_allowed(client_ip)
+    if not allowed:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Rate limit exceeded. Try again in {retry_after} seconds.",
+            headers={"Retry-After": str(retry_after)}
+        )
+
     import time
 
     claim = {
