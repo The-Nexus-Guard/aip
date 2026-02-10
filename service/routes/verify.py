@@ -2,7 +2,7 @@
 Verification endpoint - Check if a DID is registered.
 """
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel
 from typing import Optional, List
 import sys
@@ -11,6 +11,7 @@ import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 import database
+from rate_limit import default_limiter
 
 router = APIRouter()
 
@@ -45,6 +46,7 @@ class VerifyResponse(BaseModel):
 
 @router.get("/verify", response_model=VerifyResponse)
 async def verify(
+    req: Request,
     did: Optional[str] = Query(None, description="DID to verify"),
     platform: Optional[str] = Query(None, description="Platform name"),
     username: Optional[str] = Query(None, description="Username on platform")
@@ -60,6 +62,15 @@ async def verify(
     - GET /verify?did=did:aip:abc123
     - GET /verify?platform=moltbook&username=The_Nexus_Guard_001
     """
+    # Rate limit
+    client_ip = req.client.host if req.client else "unknown"
+    allowed, retry_after = default_limiter.is_allowed(client_ip)
+    if not allowed:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Rate limit exceeded. Try again in {retry_after} seconds.",
+            headers={"Retry-After": str(retry_after)}
+        )
 
     # Must provide either DID or (platform + username)
     if not did and not (platform and username):

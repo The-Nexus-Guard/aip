@@ -2,7 +2,7 @@
 Challenge-Response endpoints for live verification.
 """
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 from typing import Optional
 import sys
@@ -15,6 +15,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'src'))
 
 import database
+from rate_limit import challenge_limiter
 
 router = APIRouter()
 
@@ -51,13 +52,21 @@ class VerifyChallengeResponse(BaseModel):
 
 
 @router.post("/challenge", response_model=ChallengeResponse)
-async def create_challenge(request: ChallengeRequest):
+async def create_challenge(request: ChallengeRequest, req: Request):
     """
     Create a challenge for live identity verification.
 
     The returned challenge should be signed by the DID's private key
     and submitted to /verify-challenge within the expiration window.
     """
+    # Rate limit by DID
+    allowed, retry_after = challenge_limiter.is_allowed(f"challenge:{request.did}")
+    if not allowed:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Rate limit exceeded. Try again in {retry_after} seconds.",
+            headers={"Retry-After": str(retry_after)}
+        )
 
     # Check if DID is registered
     registration = database.get_registration(request.did)
@@ -86,13 +95,21 @@ async def create_challenge(request: ChallengeRequest):
 
 
 @router.post("/verify-challenge", response_model=VerifyChallengeResponse)
-async def verify_challenge(request: VerifyChallengeRequest):
+async def verify_challenge(request: VerifyChallengeRequest, req: Request):
     """
     Verify a signed challenge to prove identity.
 
     The signature must be created by the private key corresponding
     to the DID's public key.
     """
+    # Rate limit by DID
+    allowed, retry_after = challenge_limiter.is_allowed(f"verify-challenge:{request.did}")
+    if not allowed:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Rate limit exceeded. Try again in {retry_after} seconds.",
+            headers={"Retry-After": str(retry_after)}
+        )
 
     # Get the challenge
     challenge_record = database.get_challenge(request.challenge)

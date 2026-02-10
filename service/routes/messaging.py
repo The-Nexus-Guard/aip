@@ -3,23 +3,53 @@ Messaging endpoints - Encrypted agent-to-agent communication.
 
 Both sender and recipient must have registered DIDs.
 Messages are end-to-end encrypted - AIP service cannot read content.
+
+BREAKING CHANGE (2026-02-10): Message signing payload changed from just
+encrypted_content to: sender_did|recipient_did|timestamp|encrypted_content
+Clients MUST include a timestamp field. Old format accepted with deprecation warning.
 """
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 from typing import Optional, List
 import sys
 import os
 import uuid
 import base64
+import hashlib
+import time
 import nacl.signing
 import nacl.exceptions
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 import database
+from rate_limit import message_send_limiter, message_read_limiter, default_limiter
 
 router = APIRouter()
+
+# Replay protection: store recent signature hashes with their expiry time
+# Format: {sig_hash: expiry_timestamp}
+_recent_signatures: dict[str, float] = {}
+_REPLAY_WINDOW_SECONDS = 300  # 5 minutes
+
+
+def _cleanup_expired_signatures():
+    """Remove expired entries from the replay cache."""
+    now = time.time()
+    expired = [k for k, v in _recent_signatures.items() if v < now]
+    for k in expired:
+        del _recent_signatures[k]
+
+
+def _check_replay(signature: str) -> bool:
+    """Check if signature was recently seen. Returns True if it's a replay."""
+    _cleanup_expired_signatures()
+    sig_hash = hashlib.sha256(signature.encode()).hexdigest()
+    if sig_hash in _recent_signatures:
+        return True
+    _recent_signatures[sig_hash] = time.time() + _REPLAY_WINDOW_SECONDS
+    return False
 
 
 class SendMessageRequest(BaseModel):
@@ -27,7 +57,9 @@ class SendMessageRequest(BaseModel):
     sender_did: str = Field(..., description="Sender's DID")
     recipient_did: str = Field(..., description="Recipient's DID")
     encrypted_content: str = Field(..., description="Base64-encoded encrypted message")
-    signature: str = Field(..., description="Sender's signature of the encrypted content")
+    # BREAKING CHANGE: signature payload is now sender_did|recipient_did|timestamp|encrypted_content
+    signature: str = Field(..., description="Base64 Ed25519 signature of: sender_did|recipient_did|timestamp|encrypted_content (UTF-8 encoded)")
+    timestamp: Optional[str] = Field(None, description="ISO 8601 timestamp of message creation (required for new format)")
 
 
 class SendMessageResponse(BaseModel):
@@ -35,6 +67,7 @@ class SendMessageResponse(BaseModel):
     success: bool
     message_id: str
     sent_at: str
+    deprecation_warning: Optional[str] = None
 
 
 class GetMessagesRequest(BaseModel):
@@ -86,7 +119,7 @@ def verify_signature(did: str, message: str, signature_b64: str) -> bool:
 
 
 @router.post("/message", response_model=SendMessageResponse)
-async def send_message(request: SendMessageRequest):
+async def send_message(request: SendMessageRequest, req: Request):
     """
     Send an encrypted message to another agent.
 
@@ -96,6 +129,14 @@ async def send_message(request: SendMessageRequest):
     - Message must be encrypted with recipient's public key
     - Signature must be valid for sender's DID
     """
+    # Rate limit by sender DID
+    allowed, retry_after = message_send_limiter.is_allowed(f"msg-send:{request.sender_did}")
+    if not allowed:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Rate limit exceeded. Try again in {retry_after} seconds.",
+            headers={"Retry-After": str(retry_after)}
+        )
 
     # Verify sender exists
     sender = database.get_registration(request.sender_did)
@@ -113,11 +154,42 @@ async def send_message(request: SendMessageRequest):
             detail="Recipient DID not registered. They must register at /register/easy first."
         )
 
-    # Verify signature
-    if not verify_signature(request.sender_did, request.encrypted_content, request.signature):
+    # Check for replay attacks
+    if _check_replay(request.signature):
         raise HTTPException(
-            status_code=401,
-            detail="Invalid signature"
+            status_code=409,
+            detail="Duplicate message detected (replay). Each message must have a unique signature."
+        )
+
+    # Verify signature — new format includes sender, recipient, and timestamp
+    deprecation_warning = None
+    if request.timestamp:
+        # New format: sender_did|recipient_did|timestamp|encrypted_content
+        from datetime import datetime, timezone
+        try:
+            msg_time = datetime.fromisoformat(request.timestamp.replace("Z", "+00:00"))
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid timestamp format. Use ISO 8601.")
+
+        now = datetime.now(timezone.utc)
+        diff = abs((now - msg_time).total_seconds())
+        if diff > _REPLAY_WINDOW_SECONDS:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Timestamp too far from server time ({int(diff)}s drift, max {_REPLAY_WINDOW_SECONDS}s). Check your clock."
+            )
+
+        sign_payload = f"{request.sender_did}|{request.recipient_did}|{request.timestamp}|{request.encrypted_content}"
+        if not verify_signature(request.sender_did, sign_payload, request.signature):
+            raise HTTPException(status_code=401, detail="Invalid signature")
+    else:
+        # Legacy format: just encrypted_content — accept with deprecation warning
+        if not verify_signature(request.sender_did, request.encrypted_content, request.signature):
+            raise HTTPException(status_code=401, detail="Invalid signature")
+        deprecation_warning = (
+            "DEPRECATED: Message signed with legacy format (encrypted_content only). "
+            "Please sign: sender_did|recipient_did|timestamp|encrypted_content and include a timestamp field. "
+            "Legacy format will be removed in a future version."
         )
 
     # Store message
@@ -135,15 +207,18 @@ async def send_message(request: SendMessageRequest):
         )
 
     from datetime import datetime
-    return SendMessageResponse(
+    response = SendMessageResponse(
         success=True,
         message_id=message_id,
         sent_at=datetime.utcnow().isoformat()
     )
+    if deprecation_warning:
+        response.deprecation_warning = deprecation_warning
+    return response
 
 
 @router.post("/messages", response_model=GetMessagesResponse)
-async def get_messages(request: GetMessagesRequest):
+async def get_messages(request: GetMessagesRequest, req: Request):
     """
     Get your messages. Requires challenge-response proof.
 
@@ -152,6 +227,14 @@ async def get_messages(request: GetMessagesRequest):
     2. Sign the challenge with your private key
     3. Call this endpoint with the challenge and signature
     """
+    # Rate limit by DID
+    allowed, retry_after = message_read_limiter.is_allowed(f"msg-read:{request.did}")
+    if not allowed:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Rate limit exceeded. Try again in {retry_after} seconds.",
+            headers={"Retry-After": str(retry_after)}
+        )
 
     # Verify the challenge exists and is valid
     challenge_data = database.get_challenge(request.challenge)
@@ -203,7 +286,7 @@ async def get_messages(request: GetMessagesRequest):
 
 
 @router.delete("/message/{message_id}")
-async def delete_message(message_id: str, did: str, signature: str):
+async def delete_message(message_id: str, did: str, signature: str, req: Request = None):
     """
     Delete a message. Only the recipient can delete.
 
@@ -211,6 +294,14 @@ async def delete_message(message_id: str, did: str, signature: str):
     - did: Your DID (must be the recipient)
     - signature: Your signature of the message_id
     """
+    # Rate limit
+    allowed, retry_after = default_limiter.is_allowed(f"msg-del:{did}")
+    if not allowed:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Rate limit exceeded. Try again in {retry_after} seconds.",
+            headers={"Retry-After": str(retry_after)}
+        )
 
     # Verify signature
     if not verify_signature(did, message_id, signature):
@@ -230,10 +321,19 @@ async def delete_message(message_id: str, did: str, signature: str):
 
 
 @router.get("/messages/count")
-async def message_count(did: str):
+async def message_count(did: str, req: Request = None):
     """
     Get message count for a DID. No auth required - just returns counts.
     """
+    # Rate limit
+    allowed, retry_after = default_limiter.is_allowed(f"msg-count:{did}")
+    if not allowed:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Rate limit exceeded. Try again in {retry_after} seconds.",
+            headers={"Retry-After": str(retry_after)}
+        )
+
     registration = database.get_registration(did)
     if not registration:
         raise HTTPException(
@@ -250,12 +350,22 @@ async def message_count(did: str):
 
 
 @router.get("/lookup/{did}")
-async def lookup_public_key(did: str):
+async def lookup_public_key(did: str, req: Request = None):
     """
     Look up a DID's public key for encryption.
 
     Use this to get the recipient's public key before sending them a message.
     """
+    # Rate limit
+    client_ip = req.client.host if req and req.client else "unknown"
+    allowed, retry_after = default_limiter.is_allowed(client_ip)
+    if not allowed:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Rate limit exceeded. Try again in {retry_after} seconds.",
+            headers={"Retry-After": str(retry_after)}
+        )
+
     registration = database.get_registration(did)
     if not registration:
         raise HTTPException(

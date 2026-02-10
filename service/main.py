@@ -9,6 +9,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 from typing import Optional, List
+import asyncio
+import logging
 import time
 import os
 
@@ -44,10 +46,36 @@ app.include_router(skill.router, tags=["Skills"])
 app.include_router(onboard.router, tags=["Onboarding"])
 
 
+logger = logging.getLogger("aip.cleanup")
+
+CLEANUP_INTERVAL_SECONDS = 300  # 5 minutes
+
+
 @app.on_event("startup")
 async def startup_event():
-    """Record service start time for uptime tracking."""
+    """Record service start time and start background cleanup."""
     app.state.start_time = int(time.time())
+    app.state.last_cleanup_stats = {}
+    asyncio.create_task(_periodic_cleanup())
+
+
+async def _periodic_cleanup():
+    """Background task that cleans up expired data every 5 minutes."""
+    import database
+
+    while True:
+        try:
+            await asyncio.sleep(CLEANUP_INTERVAL_SECONDS)
+            stats = database.run_all_cleanup()
+            app.state.last_cleanup_stats = {
+                **stats,
+                "last_run": int(time.time()),
+            }
+            total = sum(v for v in stats.values() if isinstance(v, int) and v > 0)
+            if total > 0:
+                logger.info(f"Cleanup completed: {stats}")
+        except Exception as e:
+            logger.error(f"Cleanup error: {e}")
 
 
 @app.get("/")
@@ -93,6 +121,8 @@ async def health():
 
     uptime_seconds = int(time.time()) - app.state.start_time if hasattr(app.state, 'start_time') else 0
 
+    cleanup_stats = getattr(app.state, 'last_cleanup_stats', {})
+
     return {
         "status": "healthy" if db_ok else "degraded",
         "timestamp": int(time.time()),
@@ -104,7 +134,8 @@ async def health():
             "registrations": db_stats.get("registrations", 0),
             "active_vouches": db_stats.get("active_vouches", 0),
             "uptime_seconds": uptime_seconds
-        }
+        },
+        "cleanup": cleanup_stats
     }
 
 

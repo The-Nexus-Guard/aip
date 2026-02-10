@@ -372,15 +372,21 @@ def mark_challenge_used(challenge: str) -> bool:
         return cursor.rowcount > 0
 
 
-def cleanup_expired_challenges():
-    """Remove expired challenges."""
+def cleanup_expired_challenges() -> int:
+    """Remove expired challenges.
+
+    Returns:
+        Number of challenges removed
+    """
     with get_connection() as conn:
         cursor = conn.cursor()
         cursor.execute(
             "DELETE FROM challenges WHERE expires_at < ?",
             (datetime.utcnow().isoformat(),)
         )
+        count = cursor.rowcount
         conn.commit()
+        return count
 
 
 # Vouch operations
@@ -744,6 +750,103 @@ def get_stats() -> Dict[str, Any]:
             "active_vouches": active_vouches,
             "verifications_completed": verifications
         }
+
+
+# Message cleanup operations
+
+MESSAGE_TTL_DAYS = 30
+MAX_INBOX_SIZE = 1000
+
+
+def cleanup_old_messages(ttl_days: int = MESSAGE_TTL_DAYS) -> int:
+    """Delete read messages older than ttl_days.
+
+    Returns:
+        Number of messages deleted
+    """
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cutoff = (datetime.utcnow() - timedelta(days=ttl_days)).isoformat()
+        cursor.execute(
+            "DELETE FROM messages WHERE read_at IS NOT NULL AND created_at < ?",
+            (cutoff,)
+        )
+        count = cursor.rowcount
+        conn.commit()
+        return count
+
+
+def enforce_inbox_limits(max_size: int = MAX_INBOX_SIZE) -> int:
+    """Trim inboxes that exceed max_size, deleting oldest read messages first,
+    then oldest unread messages.
+
+    Returns:
+        Total number of messages deleted across all inboxes
+    """
+    total_deleted = 0
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        # Find DIDs with oversized inboxes
+        cursor.execute(
+            """SELECT recipient_did, COUNT(*) as cnt
+               FROM messages GROUP BY recipient_did HAVING cnt > ?""",
+            (max_size,)
+        )
+        oversized = cursor.fetchall()
+
+        for row in oversized:
+            did = row["recipient_did"]
+            excess = row["cnt"] - max_size
+            # Delete oldest read messages first, then oldest unread
+            cursor.execute(
+                """DELETE FROM messages WHERE id IN (
+                    SELECT id FROM messages WHERE recipient_did = ?
+                    ORDER BY
+                        CASE WHEN read_at IS NOT NULL THEN 0 ELSE 1 END,
+                        created_at ASC
+                    LIMIT ?
+                )""",
+                (did, excess)
+            )
+            total_deleted += cursor.rowcount
+
+        conn.commit()
+    return total_deleted
+
+
+def run_all_cleanup() -> Dict[str, int]:
+    """Run all cleanup tasks and return stats."""
+    expired_challenges = 0
+    expired_vouches = 0
+    old_messages = 0
+    trimmed_messages = 0
+
+    try:
+        expired_challenges = cleanup_expired_challenges()
+    except Exception:
+        pass
+
+    try:
+        expired_vouches = cleanup_expired_vouches()
+    except Exception:
+        pass
+
+    try:
+        old_messages = cleanup_old_messages()
+    except Exception:
+        pass
+
+    try:
+        trimmed_messages = enforce_inbox_limits()
+    except Exception:
+        pass
+
+    return {
+        "expired_challenges_removed": expired_challenges,
+        "expired_vouches_removed": expired_vouches,
+        "old_messages_removed": old_messages,
+        "inbox_trimmed_messages": trimmed_messages,
+    }
 
 
 # Initialize on import

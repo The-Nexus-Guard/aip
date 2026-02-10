@@ -17,7 +17,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'src'))
 
 import database
 from moltbook import verify_proof_post
-from rate_limit import registration_limiter
+from rate_limit import registration_limiter, easy_registration_limiter, default_limiter
 
 router = APIRouter()
 
@@ -220,7 +220,7 @@ async def register_easy(request: EasyRegistrationRequest, req: Request):
     """
     # Rate limit check
     client_ip = req.client.host if req.client else "unknown"
-    allowed, retry_after = registration_limiter.is_allowed(client_ip)
+    allowed, retry_after = easy_registration_limiter.is_allowed(client_ip)
     if not allowed:
         raise HTTPException(
             status_code=429,
@@ -282,7 +282,7 @@ async def register_easy(request: EasyRegistrationRequest, req: Request):
 
 
 @router.post("/rotate-key", response_model=KeyRotationResponse)
-async def rotate_key(request: KeyRotationRequest):
+async def rotate_key(request: KeyRotationRequest, req: Request):
     """
     Rotate the public key for a DID.
 
@@ -297,6 +297,16 @@ async def rotate_key(request: KeyRotationRequest):
     If mark_compromised=true, all vouches made by this DID will be revoked.
     This signals to others that previous attestations may not be trustworthy.
     """
+    # Rate limit check
+    client_ip = req.client.host if req.client else "unknown"
+    allowed, retry_after = default_limiter.is_allowed(client_ip)
+    if not allowed:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Rate limit exceeded. Try again in {retry_after} seconds.",
+            headers={"Retry-After": str(retry_after)}
+        )
+
     import nacl.signing
     import nacl.exceptions
 
@@ -386,13 +396,23 @@ class VerifyPlatformResponse(BaseModel):
 
 
 @router.post("/verify-platform", response_model=VerifyPlatformResponse)
-async def verify_platform(request: VerifyPlatformRequest):
+async def verify_platform(request: VerifyPlatformRequest, req: Request):
     """
     Verify platform ownership after registration.
 
     Use this to upgrade an unverified registration to verified status
     by providing a proof post ID that can be validated.
     """
+    # Rate limit check
+    client_ip = req.client.host if req.client else "unknown"
+    allowed, retry_after = default_limiter.is_allowed(client_ip)
+    if not allowed:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Rate limit exceeded. Try again in {retry_after} seconds.",
+            headers={"Retry-After": str(retry_after)}
+        )
+
     # Check registration exists
     registration = database.get_registration(request.did)
     if not registration:

@@ -417,6 +417,194 @@ class TestVouchCertificateForgery:
         assert "does not match registered key" in data["reason"]
 
 
+class TestMessageReplayProtection:
+    """Test message replay vulnerability fix [MED-7]."""
+
+    def _register_agent(self, name):
+        """Register an agent via /register/easy and return (did, signing_key)."""
+        import base64
+        import nacl.signing
+        client = get_test_client()
+        resp = client.post("/register/easy", json={
+            "name": f"replay-test-{name}",
+            "platform": "test",
+            "platform_username": f"replay_{name}_{uuid.uuid4().hex[:6]}"
+        })
+        assert resp.status_code == 200, f"Registration failed: {resp.text}"
+        data = resp.json()
+        private_key_bytes = base64.b64decode(data["private_key"])
+        signing_key = nacl.signing.SigningKey(private_key_bytes[:32])
+        return data["did"], signing_key
+
+    def _sign(self, signing_key, message: str) -> str:
+        import base64
+        signed = signing_key.sign(message.encode('utf-8'))
+        return base64.b64encode(signed.signature).decode()
+
+    def test_new_format_with_timestamp(self):
+        """Message with new signing format succeeds."""
+        import base64 as b64
+        client = get_test_client()
+        sender_did, sender_key = self._register_agent("sender1")
+        recip_did, _ = self._register_agent("recip1")
+
+        from datetime import datetime, timezone
+        timestamp = datetime.now(timezone.utc).isoformat()
+        content = b64.b64encode(b"hello encrypted").decode()
+        payload = f"{sender_did}|{recip_did}|{timestamp}|{content}"
+        signature = self._sign(sender_key, payload)
+
+        resp = client.post("/message", json={
+            "sender_did": sender_did,
+            "recipient_did": recip_did,
+            "encrypted_content": content,
+            "signature": signature,
+            "timestamp": timestamp
+        })
+        assert resp.status_code == 200, f"Send failed: {resp.text}"
+        data = resp.json()
+        assert data["success"] is True
+
+    def test_legacy_format_with_deprecation_warning(self):
+        """Legacy signing format returns deprecation warning."""
+        import base64 as b64
+        client = get_test_client()
+        sender_did, sender_key = self._register_agent("sender2")
+        recip_did, _ = self._register_agent("recip2")
+
+        content = b64.b64encode(b"hello legacy").decode()
+        signature = self._sign(sender_key, content)
+
+        resp = client.post("/message", json={
+            "sender_did": sender_did,
+            "recipient_did": recip_did,
+            "encrypted_content": content,
+            "signature": signature
+        })
+        assert resp.status_code == 200, f"Send failed: {resp.text}"
+        data = resp.json()
+        assert data["success"] is True
+        assert data.get("deprecation_warning") is not None
+        assert "DEPRECATED" in data["deprecation_warning"]
+
+    def test_replay_rejected(self):
+        """Duplicate signed message is rejected."""
+        import base64 as b64
+        client = get_test_client()
+        sender_did, sender_key = self._register_agent("sender3")
+        recip_did, _ = self._register_agent("recip3")
+
+        from datetime import datetime, timezone
+        timestamp = datetime.now(timezone.utc).isoformat()
+        content = b64.b64encode(b"hello replay").decode()
+        payload = f"{sender_did}|{recip_did}|{timestamp}|{content}"
+        signature = self._sign(sender_key, payload)
+
+        msg = {
+            "sender_did": sender_did,
+            "recipient_did": recip_did,
+            "encrypted_content": content,
+            "signature": signature,
+            "timestamp": timestamp
+        }
+
+        resp1 = client.post("/message", json=msg)
+        assert resp1.status_code == 200
+
+        resp2 = client.post("/message", json=msg)
+        assert resp2.status_code == 409, f"Expected 409 for replay, got {resp2.status_code}"
+
+    def test_stale_timestamp_rejected(self):
+        """Message with timestamp >5min old is rejected."""
+        import base64 as b64
+        client = get_test_client()
+        sender_did, sender_key = self._register_agent("sender4")
+        recip_did, _ = self._register_agent("recip4")
+
+        from datetime import datetime, timezone, timedelta
+        old_time = (datetime.now(timezone.utc) - timedelta(minutes=10)).isoformat()
+        content = b64.b64encode(b"hello stale").decode()
+        payload = f"{sender_did}|{recip_did}|{old_time}|{content}"
+        signature = self._sign(sender_key, payload)
+
+        resp = client.post("/message", json={
+            "sender_did": sender_did,
+            "recipient_did": recip_did,
+            "encrypted_content": content,
+            "signature": signature,
+            "timestamp": old_time
+        })
+        assert resp.status_code == 400, f"Expected 400 for stale timestamp, got {resp.status_code}"
+
+
+class TestCleanup:
+    """Test database cleanup functions."""
+
+    def test_cleanup_old_messages(self):
+        """Test that old read messages are cleaned up."""
+        client = get_test_client()
+        import database
+        from datetime import datetime, timedelta
+
+        # Register two agents
+        resp1 = client.post("/register/easy", json={
+            "platform": "test", "username": "cleanup_sender", "display_name": "Sender"
+        })
+        resp2 = client.post("/register/easy", json={
+            "platform": "test", "username": "cleanup_recipient", "display_name": "Recipient"
+        })
+        sender_did = resp1.json()["did"]
+        recipient_did = resp2.json()["did"]
+
+        # Insert a message directly and backdate it
+        old_date = (datetime.utcnow() - timedelta(days=45)).isoformat()
+        with database.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "INSERT INTO messages (id, sender_did, recipient_did, encrypted_content, signature, created_at, read_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                ("old-msg-1", sender_did, recipient_did, "encrypted", "sig", old_date, old_date)
+            )
+            conn.commit()
+
+        # Cleanup should remove it (read + older than 30 days)
+        removed = database.cleanup_old_messages(ttl_days=30)
+        assert removed >= 1
+
+    def test_cleanup_expired_challenges(self):
+        """Test that expired challenges are removed."""
+        import database
+        from datetime import datetime, timedelta
+
+        with database.get_connection() as conn:
+            cursor = conn.cursor()
+            expired = (datetime.utcnow() - timedelta(hours=1)).isoformat()
+            cursor.execute(
+                "INSERT OR IGNORE INTO challenges (did, challenge, expires_at) VALUES (?, ?, ?)",
+                ("did:aip:test_cleanup", "old-challenge", expired)
+            )
+            conn.commit()
+
+        removed = database.cleanup_expired_challenges()
+        assert removed >= 1
+
+    def test_run_all_cleanup(self):
+        """Test the combined cleanup runner."""
+        import database
+        stats = database.run_all_cleanup()
+        assert "expired_challenges_removed" in stats
+        assert "expired_vouches_removed" in stats
+        assert "old_messages_removed" in stats
+        assert "inbox_trimmed_messages" in stats
+
+    def test_health_includes_cleanup(self):
+        """Test that /health endpoint includes cleanup info."""
+        client = get_test_client()
+        response = client.get("/health")
+        assert response.status_code == 200
+        data = response.json()
+        assert "cleanup" in data
+
+
 def run_tests():
     """Run all tests manually."""
     import traceback
@@ -428,7 +616,9 @@ def run_tests():
         TestLookup,
         TestChallenge,
         TestSkillSigning,
-        TestVouchCertificateForgery
+        TestVouchCertificateForgery,
+        TestMessageReplayProtection,
+        TestCleanup
     ]
     passed = 0
     failed = 0
