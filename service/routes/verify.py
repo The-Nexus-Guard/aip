@@ -239,12 +239,15 @@ To verify: `curl "https://aip-service.fly.dev/verify?platform={request.platform}
 """
 
     instructions = """To complete the proof:
-1. Serialize the claim as JSON (keys sorted, no extra whitespace)
-2. Sign the JSON bytes with your Ed25519 private key
-3. Base64-encode the signature
-4. Replace <YOUR_SIGNATURE_HERE> with your signature
-5. Post this on the platform
-6. Call /register with the post ID"""
+1. Serialize the claim as compact JSON with sorted keys: json.dumps(claim, sort_keys=True, separators=(',', ':'))
+2. Encode to UTF-8 bytes
+3. Sign the bytes with your Ed25519 private key (using nacl.signing.SigningKey.sign())
+4. Base64-encode the 64-byte signature (not the combined signed message)
+5. Replace <YOUR_SIGNATURE_HERE> with the base64 signature string
+6. Post the ENTIRE template (including the ```aip-proof``` code block) on the platform
+7. Call POST /register with the proof_post_id field set to the post's ID
+
+IMPORTANT: The ```aip-proof``` code block is required. Posts without it will be rejected."""
 
     return GenerateProofResponse(
         claim=claim,

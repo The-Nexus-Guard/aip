@@ -116,11 +116,11 @@ async def verify_proof_post(
             except Exception as e:
                 return {"valid": False, "error": f"Signature verification failed: {str(e)}"}
         else:
-            # No signed proof block - for MVP, DID presence + correct author is acceptable
-            # but flag it as unverified
             return {
-                "valid": True,
-                "warning": "No cryptographic proof found - verified by author match only"
+                "valid": False,
+                "error": "No cryptographic proof block found in post. "
+                         "Post must contain a signed DID claim in an ```aip-proof``` code block. "
+                         "Use the /generate-proof endpoint to create the required proof content."
             }
 
     except json.JSONDecodeError as e:
