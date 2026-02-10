@@ -31,6 +31,7 @@ def get_connection():
 def init_database():
     """Initialize the database schema."""
     with get_connection() as conn:
+        conn.execute("PRAGMA journal_mode=WAL")
         cursor = conn.cursor()
 
         # Registrations table - core DID records
