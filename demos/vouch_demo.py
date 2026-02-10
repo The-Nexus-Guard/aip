@@ -68,21 +68,18 @@ def demo_vouch_system():
     # Step 4: Agent A vouches for Agent B
     print_step(4, "Agent A vouches for Agent B (CODE_SIGNING scope)")
 
-    # First get a challenge
-    resp = requests.post(f"{AIP_BASE}/challenge", json={
-        "did": agent_a['did']
-    })
-    challenge_data = resp.json()
-    challenge = challenge_data['challenge']
-    print(f"Challenge received: {challenge[:20]}...")
-
-    # Sign the challenge
+    # Build the vouch payload: voucher_did|target_did|scope|statement
+    # This pipe-delimited format is what the /vouch endpoint verifies
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
     import base64
 
+    statement = "Trusted collaborator for code signing"
+    payload = f"{agent_a['did']}|{agent_b['did']}|CODE_SIGNING|{statement}"
+    print(f"Signing payload: {payload[:60]}...")
+
     key_bytes = bytes.fromhex(agent_a['private_key'])
     private_key = Ed25519PrivateKey.from_private_bytes(key_bytes)
-    signature = base64.b64encode(private_key.sign(challenge.encode())).decode()
+    signature = base64.b64encode(private_key.sign(payload.encode('utf-8'))).decode()
     print(f"Signature generated: {signature[:30]}...")
 
     # Submit the vouch
@@ -90,7 +87,7 @@ def demo_vouch_system():
         "voucher_did": agent_a['did'],
         "target_did": agent_b['did'],
         "scope": "CODE_SIGNING",
-        "challenge": challenge,
+        "statement": statement,
         "signature": signature,
         "ttl_days": 30
     })

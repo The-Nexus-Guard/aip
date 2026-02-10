@@ -30,7 +30,7 @@ class VouchRequest(BaseModel):
     target_did: str = Field(..., description="DID being vouched for")
     scope: str = Field(..., description="Trust scope (GENERAL, CODE_SIGNING, etc.)")
     statement: Optional[str] = Field(None, description="Optional trust statement")
-    signature: str = Field(..., description="Base64 signature of vouch payload")
+    signature: str = Field(..., description="Base64 Ed25519 signature of: `voucher_did|target_did|scope|statement` (UTF-8 encoded, pipe-delimited)")
     ttl_days: Optional[int] = Field(None, ge=1, le=365, description="Time-to-live in days (1-365, None=permanent)")
 
 
@@ -63,7 +63,7 @@ class RevokeRequest(BaseModel):
     """Request to revoke a vouch."""
     vouch_id: str = Field(..., description="ID of vouch to revoke")
     voucher_did: str = Field(..., description="DID of the voucher (must match)")
-    signature: str = Field(..., description="Signature proving voucher identity")
+    signature: str = Field(..., description="Base64 Ed25519 signature of the `vouch_id` UUID string (UTF-8 encoded)")
 
 
 class TrustPathResponse(BaseModel):

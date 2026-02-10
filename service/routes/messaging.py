@@ -74,7 +74,7 @@ class GetMessagesRequest(BaseModel):
     """Request to get messages - requires proof of ownership."""
     did: str = Field(..., description="Your DID")
     challenge: str = Field(..., description="Challenge from /challenge endpoint")
-    signature: str = Field(..., description="Your signature of the challenge")
+    signature: str = Field(..., description="Base64 Ed25519 signature of the challenge string (UTF-8 encoded)")
     unread_only: bool = Field(False, description="Only return unread messages")
 
 
@@ -99,7 +99,7 @@ class DeleteMessageRequest(BaseModel):
     """Request to delete a message."""
     did: str = Field(..., description="Your DID (must be recipient)")
     message_id: str = Field(..., description="Message ID to delete")
-    signature: str = Field(..., description="Your signature of message_id")
+    signature: str = Field(..., description="Base64 Ed25519 signature of the `message_id` string (UTF-8 encoded)")
 
 
 def verify_signature(did: str, message: str, signature_b64: str) -> bool:

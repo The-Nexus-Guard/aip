@@ -40,7 +40,7 @@ class VerifyChallengeRequest(BaseModel):
     """Request to verify a signed challenge."""
     did: str = Field(..., description="DID that signed the challenge")
     challenge: str = Field(..., description="The challenge that was signed")
-    signature: str = Field(..., description="Base64-encoded signature")
+    signature: str = Field(..., description="Base64 Ed25519 signature of the challenge hex string (UTF-8 encoded)")
 
 
 class VerifyChallengeResponse(BaseModel):

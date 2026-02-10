@@ -63,7 +63,7 @@ class KeyRotationRequest(BaseModel):
     """Request to rotate a DID's public key."""
     did: str = Field(..., description="The DID to rotate keys for")
     new_public_key: str = Field(..., description="New base64-encoded Ed25519 public key")
-    signature: str = Field(..., description="Signature of 'rotate:<new_public_key>' with OLD private key")
+    signature: str = Field(..., description="Base64 Ed25519 signature of `rotate:{new_public_key}` with the OLD private key")
     mark_compromised: bool = Field(False, description="If true, revoke all vouches made with old key")
 
 
