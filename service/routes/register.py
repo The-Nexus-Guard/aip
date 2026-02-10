@@ -161,6 +161,7 @@ async def register(request: RegistrationRequest, req: Request):
         )
 
     # Verify proof post if provided
+    proof_verified = False
     if request.proof_post_id and request.platform == "moltbook":
         verification = await verify_proof_post(
             post_id=request.proof_post_id,
@@ -173,6 +174,7 @@ async def register(request: RegistrationRequest, req: Request):
                 status_code=400,
                 detail=f"Proof verification failed: {verification['error']}"
             )
+        proof_verified = True
 
     # Register the DID if new
     if not existing:
@@ -187,7 +189,8 @@ async def register(request: RegistrationRequest, req: Request):
         request.did,
         request.platform,
         request.username,
-        request.proof_post_id
+        request.proof_post_id,
+        verified=proof_verified
     ):
         raise HTTPException(
             status_code=500,
@@ -361,4 +364,72 @@ async def rotate_key(request: KeyRotationRequest):
         new_public_key=request.new_public_key,
         vouches_revoked=vouches_revoked,
         message=message
+    )
+
+
+class VerifyPlatformRequest(BaseModel):
+    """Request to verify platform ownership after registration."""
+    did: str = Field(..., description="The DID to verify")
+    platform: str = Field(..., description="Platform name")
+    username: str = Field(..., description="Username on the platform")
+    proof_post_id: str = Field(..., description="ID of post containing proof")
+
+
+class VerifyPlatformResponse(BaseModel):
+    """Response from platform verification."""
+    success: bool
+    did: str
+    platform: str
+    username: str
+    verified: bool
+    message: str
+
+
+@router.post("/verify-platform", response_model=VerifyPlatformResponse)
+async def verify_platform(request: VerifyPlatformRequest):
+    """
+    Verify platform ownership after registration.
+
+    Use this to upgrade an unverified registration to verified status
+    by providing a proof post ID that can be validated.
+    """
+    # Check registration exists
+    registration = database.get_registration(request.did)
+    if not registration:
+        raise HTTPException(status_code=404, detail=f"DID {request.did} is not registered")
+
+    # Check platform link exists
+    links = database.get_platform_links(request.did)
+    link = next((l for l in links if l["platform"] == request.platform and l["username"] == request.username), None)
+    if not link:
+        raise HTTPException(status_code=404, detail=f"No platform link found for {request.username} on {request.platform}")
+
+    if link.get("verified"):
+        return VerifyPlatformResponse(
+            success=True, did=request.did, platform=request.platform,
+            username=request.username, verified=True,
+            message="Already verified"
+        )
+
+    # Verify proof post
+    if request.platform == "moltbook":
+        verification = await verify_proof_post(
+            post_id=request.proof_post_id,
+            expected_did=request.did,
+            expected_username=request.username,
+            public_key_b64=registration["public_key"]
+        )
+        if not verification["valid"]:
+            raise HTTPException(status_code=400, detail=f"Proof verification failed: {verification['error']}")
+    else:
+        raise HTTPException(status_code=400, detail=f"Platform '{request.platform}' proof verification not yet supported")
+
+    # Mark as verified
+    if not database.set_platform_verified(request.did, request.platform, request.username, request.proof_post_id):
+        raise HTTPException(status_code=500, detail="Failed to update verification status")
+
+    return VerifyPlatformResponse(
+        success=True, did=request.did, platform=request.platform,
+        username=request.username, verified=True,
+        message="Platform identity verified successfully"
     )
