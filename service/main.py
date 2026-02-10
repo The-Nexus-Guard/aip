@@ -172,7 +172,7 @@ async def get_badge(did: str, req: Request, size: str = "medium"):
         size: Badge size - "small" (80x20), "medium" (120x28), or "large" (160x36)
 
     Returns:
-        SVG badge showing: "Not Found", "Registered", "Vouched", or "Verified"
+        SVG badge showing: "Not Found", "Registered", "Verified", "Vouched (N)", or "Trusted"
     """
     # Rate limit
     client_ip = req.client.host if req.client else "unknown"
@@ -208,9 +208,18 @@ async def get_badge(did: str, req: Request, size: str = "medium"):
         # Check for CODE_SIGNING scope
         has_code_signing = any(v.get('scope') == 'CODE_SIGNING' for v in vouches)
 
+        # Check platform verification status
+        platform_links = database.get_platform_links(did)
+        is_platform_verified = any(pl.get('verified') for pl in platform_links)
+
         if vouch_count >= 3 and has_code_signing:
-            # Verified - green
+            # Trusted - green (vouched + code signing)
             color = "#00d4aa"
+            text = "Trusted"
+            icon = "✓"
+        elif is_platform_verified:
+            # Verified - blue (platform identity proven)
+            color = "#4a9eff"
             text = "Verified"
             icon = "✓"
         elif vouch_count >= 1:
@@ -219,7 +228,7 @@ async def get_badge(did: str, req: Request, size: str = "medium"):
             text = f"Vouched ({vouch_count})"
             icon = "+"
         else:
-            # Registered but no vouches - gray
+            # Registered but no vouches and not verified - gray
             color = "#888"
             text = "Registered"
             icon = "○"
