@@ -21,13 +21,17 @@ app = FastAPI(
     version="0.2.0",
 )
 
-# CORS - allow all origins for now (agents calling from anywhere)
+# CORS - restricted to known origins
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=[
+        "https://the-nexus-guard.github.io",
+        "https://aip-service.fly.dev",
+        "https://www.moltbook.com",
+    ],
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "DELETE"],
+    allow_headers=["Content-Type", "Authorization"],
 )
 
 # Include routers

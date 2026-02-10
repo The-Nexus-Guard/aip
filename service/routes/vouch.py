@@ -188,6 +188,13 @@ async def create_vouch(request: VouchRequest, req: Request):
             detail=f"Signature verification error: {str(e)}"
         )
 
+    # Check for duplicate active vouch
+    if database.has_active_vouch(request.voucher_did, request.target_did, request.scope):
+        raise HTTPException(
+            status_code=409,
+            detail="Active vouch already exists for this target and scope"
+        )
+
     # Create vouch
     vouch_id = str(uuid.uuid4())
     success = database.create_vouch(

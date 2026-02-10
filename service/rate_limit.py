@@ -1,40 +1,32 @@
 """
-Simple in-memory rate limiter for AIP endpoints.
+Database-backed rate limiter for AIP endpoints.
 
-Provides sliding window rate limiting per IP address.
+Uses a `rate_limits` table in SQLite for persistence across restarts.
 """
 
 import os
 import time
-from collections import defaultdict
-from typing import Dict, List, Tuple
-import threading
+from typing import Tuple
 
 TESTING = os.environ.get("AIP_TESTING") == "1"
 
 
+def _get_connection():
+    """Get a database connection for rate limiting."""
+    from database import get_connection
+    return get_connection()
+
+
 class RateLimiter:
-    """Thread-safe sliding window rate limiter."""
+    """Database-backed sliding window rate limiter."""
 
     def __init__(self, max_requests: int = 10, window_seconds: int = 60):
-        """
-        Initialize rate limiter.
-
-        Args:
-            max_requests: Maximum requests allowed per window
-            window_seconds: Window size in seconds
-        """
         self.max_requests = max_requests
         self.window_seconds = window_seconds
-        self.requests: Dict[str, List[float]] = defaultdict(list)
-        self.lock = threading.Lock()
 
     def is_allowed(self, key: str) -> Tuple[bool, int]:
         """
         Check if request is allowed for given key.
-
-        Args:
-            key: Identifier (usually IP address)
 
         Returns:
             Tuple of (allowed: bool, retry_after_seconds: int)
@@ -42,49 +34,66 @@ class RateLimiter:
         if TESTING:
             return True, 0
 
-        now = time.time()
-        cutoff = now - self.window_seconds
+        now = int(time.time())
+        window_start = now - (now % self.window_seconds)
 
-        with self.lock:
-            # Clean old requests
-            self.requests[key] = [t for t in self.requests[key] if t > cutoff]
+        with _get_connection() as conn:
+            cursor = conn.cursor()
 
-            # Check limit
-            if len(self.requests[key]) >= self.max_requests:
-                # Calculate when oldest request expires
-                oldest = min(self.requests[key])
-                retry_after = int(oldest + self.window_seconds - now) + 1
+            # Clean old windows
+            cutoff = now - self.window_seconds * 2
+            cursor.execute(
+                "DELETE FROM rate_limits WHERE window_start < ?",
+                (cutoff,)
+            )
+
+            # Get current count for this key in the current window
+            cursor.execute(
+                "SELECT count FROM rate_limits WHERE key = ? AND window_start = ?",
+                (key, window_start)
+            )
+            row = cursor.fetchone()
+            current_count = row["count"] if row else 0
+
+            if current_count >= self.max_requests:
+                retry_after = self.window_seconds - (now - window_start)
+                conn.commit()
                 return False, max(1, retry_after)
 
-            # Allow and record
-            self.requests[key].append(now)
+            # Upsert the count
+            cursor.execute(
+                """INSERT INTO rate_limits (key, window_start, count) VALUES (?, ?, 1)
+                   ON CONFLICT(key, window_start) DO UPDATE SET count = count + 1""",
+                (key, window_start)
+            )
+            conn.commit()
             return True, 0
 
     def get_remaining(self, key: str) -> int:
         """Get remaining requests for key in current window."""
-        now = time.time()
-        cutoff = now - self.window_seconds
+        if TESTING:
+            return self.max_requests
 
-        with self.lock:
-            current = len([t for t in self.requests[key] if t > cutoff])
+        now = int(time.time())
+        window_start = now - (now % self.window_seconds)
+
+        with _get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT count FROM rate_limits WHERE key = ? AND window_start = ?",
+                (key, window_start)
+            )
+            row = cursor.fetchone()
+            current = row["count"] if row else 0
             return max(0, self.max_requests - current)
 
-    def cleanup(self):
-        """Remove stale entries to prevent memory growth."""
-        now = time.time()
-        cutoff = now - self.window_seconds
 
-        with self.lock:
-            # Remove keys with no recent requests
-            stale_keys = [
-                k for k, v in self.requests.items()
-                if not any(t > cutoff for t in v)
-            ]
-            for k in stale_keys:
-                del self.requests[k]
-
-
-# Default rate limiters for different endpoints
-registration_limiter = RateLimiter(max_requests=5, window_seconds=60)  # 5 per minute
-verification_limiter = RateLimiter(max_requests=60, window_seconds=60)  # 60 per minute
-vouch_limiter = RateLimiter(max_requests=10, window_seconds=60)  # 10 per minute
+# Rate limiters for different endpoints
+registration_limiter = RateLimiter(max_requests=10, window_seconds=3600)      # 10/hour
+easy_registration_limiter = RateLimiter(max_requests=5, window_seconds=3600)  # 5/hour
+challenge_limiter = RateLimiter(max_requests=30, window_seconds=60)           # 30/min
+vouch_limiter = RateLimiter(max_requests=20, window_seconds=3600)             # 20/hour
+message_send_limiter = RateLimiter(max_requests=60, window_seconds=3600)      # 60/hour
+message_read_limiter = RateLimiter(max_requests=30, window_seconds=60)        # 30/min
+default_limiter = RateLimiter(max_requests=120, window_seconds=60)            # 120/min
+verification_limiter = RateLimiter(max_requests=60, window_seconds=60)        # 60/min (kept for compat)

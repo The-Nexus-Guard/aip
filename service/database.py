@@ -133,6 +133,16 @@ def init_database():
             WHERE NOT EXISTS (SELECT 1 FROM key_history kh WHERE kh.did = r.did)
         """)
 
+        # Rate limits table - database-backed rate limiting
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS rate_limits (
+                key TEXT NOT NULL,
+                window_start INTEGER NOT NULL,
+                count INTEGER DEFAULT 1,
+                PRIMARY KEY (key, window_start)
+            )
+        """)
+
         # Create indexes
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_platform_links_did ON platform_links(did)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_vouches_voucher ON vouches(voucher_did)")
@@ -374,6 +384,22 @@ def cleanup_expired_challenges():
 
 
 # Vouch operations
+
+def has_active_vouch(voucher_did: str, target_did: str, scope: str) -> bool:
+    """Check if an active (non-revoked, non-expired) vouch exists for the given triple."""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        now = datetime.utcnow().isoformat()
+        cursor.execute(
+            """SELECT 1 FROM vouches
+               WHERE voucher_did = ? AND target_did = ? AND scope = ?
+               AND revoked_at IS NULL
+               AND (expires_at IS NULL OR expires_at > ?)
+               LIMIT 1""",
+            (voucher_did, target_did, scope, now)
+        )
+        return cursor.fetchone() is not None
+
 
 def create_vouch(vouch_id: str, voucher_did: str, target_did: str,
                  scope: str, statement: str, signature: str,
