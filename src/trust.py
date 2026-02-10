@@ -36,12 +36,48 @@ class TrustLevel(IntEnum):
 
 
 class TrustScope:
-    """Common trust scopes. Agents can define custom scopes too."""
-    GENERAL = "general"           # General trustworthiness
-    CODE_SIGNING = "code-signing" # Trust to sign/deploy code
-    FINANCIAL = "financial"       # Trust for financial operations
-    INFORMATION = "information"   # Trust as information source
-    IDENTITY = "identity"         # Trust to vouch for others' identity
+    """
+    Common trust scopes. Agents can define custom scopes too.
+
+    Canonical values are UPPERCASE. Lowercase/hyphenated forms are
+    accepted for backwards compatibility but deprecated.
+    """
+    GENERAL = "GENERAL"               # General trustworthiness
+    CODE_SIGNING = "CODE_SIGNING"     # Trust to sign/deploy code
+    FINANCIAL = "FINANCIAL"           # Trust for financial operations
+    INFORMATION = "INFORMATION"       # Trust as information source
+    IDENTITY = "IDENTITY"             # Trust to vouch for others' identity
+
+    # Mapping from legacy lowercase/hyphenated to canonical UPPERCASE
+    _LEGACY_MAP = {
+        "general": "GENERAL",
+        "code-signing": "CODE_SIGNING",
+        "code_signing": "CODE_SIGNING",
+        "financial": "FINANCIAL",
+        "information": "INFORMATION",
+        "identity": "IDENTITY",
+    }
+
+    @classmethod
+    def normalize(cls, scope: str) -> str:
+        """
+        Normalize a scope value to canonical UPPERCASE form.
+
+        Accepts legacy lowercase/hyphenated values and logs a deprecation warning.
+        Returns the scope unchanged if it's already canonical or custom.
+        """
+        import logging
+        logger = logging.getLogger("aip.trust")
+
+        if scope in cls._LEGACY_MAP:
+            canonical = cls._LEGACY_MAP[scope]
+            logger.warning(
+                "Deprecated trust scope '%s' used. Use '%s' instead. "
+                "Legacy scope names will be removed in a future version.",
+                scope, canonical
+            )
+            return canonical
+        return scope
 
 
 @dataclass

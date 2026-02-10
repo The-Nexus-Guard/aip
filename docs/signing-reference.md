@@ -18,6 +18,20 @@ Complete reference for every signed operation in AIP. All signatures use **Ed255
 | `POST /skill/sign` | Sign a skill | `author_did\|sha256:<hash>\|timestamp` | Skill author | Timestamp generated server-side |
 | `GET /skill/verify` | Verify skill | _(verified server-side)_ | — | Pass signature as query param |
 
+## Trust Scope Values
+
+All scope parameters use **UPPERCASE** canonical names:
+
+| Scope | Description |
+|-------|-------------|
+| `GENERAL` | General trustworthiness |
+| `CODE_SIGNING` | Trust to sign/deploy code |
+| `FINANCIAL` | Trust for financial operations |
+| `INFORMATION` | Trust as information source |
+| `IDENTITY` | Trust to vouch for others' identity |
+
+> **Backwards compatibility:** Legacy lowercase/hyphenated forms (`general`, `code-signing`, etc.) are accepted by the SDK's `TrustScope.normalize()` method but deprecated and will be removed in a future version.
+
 ## Setup
 
 ```python

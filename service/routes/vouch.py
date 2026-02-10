@@ -500,29 +500,39 @@ async def revoke_vouch(request: RevokeRequest, req: Request = None):
             detail="Voucher DID is not registered"
         )
 
-    # Verify signature (sign the vouch_id to prove identity)
+    # Verify signature with domain separation (sign "revoke:{vouch_id}")
     try:
-        payload_bytes = request.vouch_id.encode('utf-8')
+        domain_payload = f"revoke:{request.vouch_id}".encode('utf-8')
+        legacy_payload = request.vouch_id.encode('utf-8')
         public_key_bytes = base64.b64decode(voucher["public_key"])
         signature_bytes = base64.b64decode(request.signature)
 
-        try:
-            from pure25519.eddsa import verify as ed_verify
-            from pure25519.eddsa import BadSignature
+        deprecation_warning = None
 
+        def _verify_payload(payload_bytes):
             try:
-                ed_verify(public_key_bytes, payload_bytes, signature_bytes)
-                signature_valid = True
-            except BadSignature:
-                signature_valid = False
-        except ImportError:
-            import nacl.signing
-            verify_key = nacl.signing.VerifyKey(public_key_bytes)
-            try:
-                verify_key.verify(payload_bytes, signature_bytes)
-                signature_valid = True
-            except nacl.exceptions.BadSignatureError:
-                signature_valid = False
+                from pure25519.eddsa import verify as ed_verify
+                from pure25519.eddsa import BadSignature
+                try:
+                    ed_verify(public_key_bytes, payload_bytes, signature_bytes)
+                    return True
+                except BadSignature:
+                    return False
+            except ImportError:
+                import nacl.signing
+                verify_key = nacl.signing.VerifyKey(public_key_bytes)
+                try:
+                    verify_key.verify(payload_bytes, signature_bytes)
+                    return True
+                except nacl.exceptions.BadSignatureError:
+                    return False
+
+        # Try domain-separated format first, fall back to legacy
+        signature_valid = _verify_payload(domain_payload)
+        if not signature_valid:
+            signature_valid = _verify_payload(legacy_payload)
+            if signature_valid:
+                deprecation_warning = "Revocation signature without domain prefix is deprecated. Please sign 'revoke:{vouch_id}' instead of just the vouch_id."
 
         if not signature_valid:
             raise HTTPException(
@@ -546,10 +556,14 @@ async def revoke_vouch(request: RevokeRequest, req: Request = None):
             detail="Vouch not found or already revoked"
         )
 
+    message = "Vouch revoked successfully"
+    if deprecation_warning:
+        message += f" (WARNING: {deprecation_warning})"
+
     return VouchResponse(
         success=True,
         vouch_id=request.vouch_id,
-        message="Vouch revoked successfully"
+        message=message
     )
 
 
