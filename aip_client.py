@@ -56,6 +56,8 @@ class AIPClient:
         """
         Register a new agent with AIP.
 
+        Generates an Ed25519 keypair client-side and registers the DID.
+
         Args:
             platform: Platform name (e.g., "moltbook", "github")
             platform_id: Your username on that platform
@@ -67,19 +69,39 @@ class AIPClient:
         Raises:
             AIPError: If registration fails
         """
+        try:
+            from nacl.signing import SigningKey
+        except ImportError:
+            raise AIPError("PyNaCl required for registration: pip install pynacl")
+
+        # Generate Ed25519 keypair client-side
+        signing_key = SigningKey.generate()
+        verify_key = signing_key.verify_key
+
+        private_key_b64 = base64.b64encode(signing_key.encode()).decode()
+        public_key_b64 = base64.b64encode(verify_key.encode()).decode()
+
+        # Derive DID from public key (sha256 of pubkey bytes, first 32 hex chars)
+        key_hash = hashlib.sha256(verify_key.encode()).hexdigest()[:32]
+        did = f"did:aip:{key_hash}"
+
         response = requests.post(
             f"{service_url}/register",
-            json={"platform": platform, "platform_id": platform_id}
+            json={
+                "did": did,
+                "public_key": public_key_b64,
+                "platform": platform,
+                "username": platform_id,
+            }
         )
 
         if response.status_code != 200:
             raise AIPError(f"Registration failed: {response.text}")
 
-        data = response.json()
         return cls(
-            did=data["did"],
-            public_key=data["public_key"],
-            private_key=data["private_key"],
+            did=did,
+            public_key=public_key_b64,
+            private_key=private_key_b64,
             service_url=service_url
         )
 

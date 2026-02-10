@@ -176,7 +176,7 @@ class TestAIPClientTrustPath:
         assert result["trust_score"] == 1.0
 
     def test_trust_path_no_connection(self):
-        """Test trust path when no path exists."""
+        """Test trust path when target DID is not registered."""
         client = AIPClient(
             did="did:aip:c1965a89866ecbfaad49803e6ced70fb",
             public_key="",
@@ -184,11 +184,10 @@ class TestAIPClientTrustPath:
             service_url=SERVICE_URL
         )
 
-        # Pick a DID we know has no path
-        result = client.get_trust_path("did:aip:some_random_unconnected_did")
-
-        # Either not registered or no path
-        assert result.get("path_exists") == False or result.get("trust_score", 0) == 0
+        # Unregistered DID should raise AIPError
+        import pytest
+        with pytest.raises(AIPError):
+            client.get_trust_path("did:aip:some_random_unconnected_did")
 
 
 if __name__ == "__main__":
