@@ -7,7 +7,7 @@ Provides cryptographic provenance for skills:
 - Get signing info for a skill hash
 """
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 from typing import Optional, List
 import sys
@@ -21,6 +21,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'src'))
 
 import database
+from rate_limit import default_limiter
 
 router = APIRouter()
 
@@ -78,7 +79,7 @@ class SkillInfoResponse(BaseModel):
 
 
 @router.post("/skill/sign", response_model=SkillSignResponse, tags=["Skills"])
-async def sign_skill(request: SkillSignRequest):
+async def sign_skill(request: SkillSignRequest, req: Request = None):
     """
     Generate a signature block for a skill.
 
@@ -88,6 +89,16 @@ async def sign_skill(request: SkillSignRequest):
 
     Returns a signature block that can be embedded at the top of skill.md.
     """
+    # Rate limit
+    client_ip = req.client.host if req and req.client else "unknown"
+    allowed, retry_after = default_limiter.is_allowed(client_ip)
+    if not allowed:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Rate limit exceeded. Try again in {retry_after} seconds.",
+            headers={"Retry-After": str(retry_after)}
+        )
+
 
     # Verify author is registered
     author = database.get_registration(request.author_did)
@@ -180,6 +191,7 @@ async def sign_skill(request: SkillSignRequest):
 
 @router.get("/skill/verify", response_model=SkillVerifyResponse, tags=["Skills"])
 async def verify_skill(
+    req: Request,
     content_hash: str = Query(..., description="SHA-256 hash of skill content"),
     author_did: str = Query(..., description="Claimed author DID"),
     signature: str = Query(..., description="Base64 signature"),
@@ -193,6 +205,15 @@ async def verify_skill(
     2. Signature is valid for the claimed content hash
     3. Returns any CODE_SIGNING vouches for the author
     """
+    # Rate limit
+    client_ip = req.client.host if req.client else "unknown"
+    allowed, retry_after = default_limiter.is_allowed(client_ip)
+    if not allowed:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Rate limit exceeded. Try again in {retry_after} seconds.",
+            headers={"Retry-After": str(retry_after)}
+        )
 
     # Get author registration
     author = database.get_registration(author_did)
@@ -282,13 +303,23 @@ async def verify_skill(
 
 
 @router.post("/skill/hash", tags=["Skills"])
-async def hash_skill(skill_content: str = Query(..., description="Skill content to hash")):
+async def hash_skill(skill_content: str = Query(..., description="Skill content to hash"), req: Request = None):
     """
     Calculate the SHA-256 hash of skill content.
 
     Utility endpoint for authors who want to calculate the hash
     before signing.
     """
+    # Rate limit
+    client_ip = req.client.host if req and req.client else "unknown"
+    allowed, retry_after = default_limiter.is_allowed(client_ip)
+    if not allowed:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Rate limit exceeded. Try again in {retry_after} seconds.",
+            headers={"Retry-After": str(retry_after)}
+        )
+
     content_hash = hashlib.sha256(skill_content.encode('utf-8')).hexdigest()
     return {
         "content_hash": f"sha256:{content_hash}",

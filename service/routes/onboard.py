@@ -3,7 +3,7 @@ Onboard endpoint - Interactive walkthrough for new agents.
 Returns step-by-step instructions and can complete registration in one call.
 """
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 from typing import Optional, List
 import sys
@@ -15,6 +15,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'src'))
 
 import database
+from rate_limit import default_limiter
 
 router = APIRouter()
 
@@ -44,7 +45,7 @@ class OnboardResponse(BaseModel):
 
 
 @router.post("/onboard", response_model=OnboardResponse, tags=["onboard"])
-async def onboard(req: OnboardRequest = OnboardRequest()):
+async def onboard(request: Request, req: OnboardRequest = OnboardRequest()):
     """
     Interactive onboarding guide for AIP.
     
@@ -52,6 +53,16 @@ async def onboard(req: OnboardRequest = OnboardRequest()):
     Include platform + username to check your current status.
     Include step to get detailed help on a specific action.
     """
+    # Rate limit
+    client_ip = request.client.host if request.client else "unknown"
+    allowed, retry_after = default_limiter.is_allowed(client_ip)
+    if not allowed:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Rate limit exceeded. Try again in {retry_after} seconds.",
+            headers={"Retry-After": str(retry_after)}
+        )
+
     
     base_url = "https://aip-service.fly.dev"
     
@@ -204,8 +215,18 @@ async def onboard(req: OnboardRequest = OnboardRequest()):
 
 
 @router.get("/onboard", tags=["onboard"])
-async def onboard_get():
+async def onboard_get(request: Request = None):
     """GET version - returns a quick-start guide."""
+    # Rate limit
+    client_ip = request.client.host if request and request.client else "unknown"
+    allowed, retry_after = default_limiter.is_allowed(client_ip)
+    if not allowed:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Rate limit exceeded. Try again in {retry_after} seconds.",
+            headers={"Retry-After": str(retry_after)}
+        )
+
     return {
         "welcome": "AIP — Agent Identity Protocol",
         "quickstart": "Register in 10 seconds:",

@@ -4,7 +4,7 @@ AIP Verification Service - Main FastAPI Application
 Provides identity verification and trust management for AI agents.
 """
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
@@ -16,6 +16,7 @@ import os
 
 # Import routes
 from routes import register, verify, challenge, vouch, messaging, skill, onboard
+from rate_limit import default_limiter
 
 app = FastAPI(
     title="AIP - Agent Identity Protocol",
@@ -140,8 +141,17 @@ async def health():
 
 
 @app.get("/stats")
-async def stats():
+async def stats(req: Request):
     """Service statistics."""
+    # Rate limit
+    client_ip = req.client.host if req.client else "unknown"
+    allowed, retry_after = default_limiter.is_allowed(client_ip)
+    if not allowed:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Rate limit exceeded. Try again in {retry_after} seconds.",
+            headers={"Retry-After": str(retry_after)}
+        )
     import database
     db_stats = database.get_stats()
     return {
@@ -153,7 +163,7 @@ async def stats():
 
 
 @app.get("/badge/{did}")
-async def get_badge(did: str, size: str = "medium"):
+async def get_badge(did: str, req: Request, size: str = "medium"):
     """
     Generate a dynamic SVG badge based on DID trust status.
 
@@ -164,6 +174,15 @@ async def get_badge(did: str, size: str = "medium"):
     Returns:
         SVG badge showing: "Not Found", "Registered", "Vouched", or "Verified"
     """
+    # Rate limit
+    client_ip = req.client.host if req.client else "unknown"
+    allowed, retry_after = default_limiter.is_allowed(client_ip)
+    if not allowed:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Rate limit exceeded. Try again in {retry_after} seconds.",
+            headers={"Retry-After": str(retry_after)}
+        )
     import database
 
     # Size presets

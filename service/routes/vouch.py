@@ -16,7 +16,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'src'))
 
 import database
-from rate_limit import vouch_limiter
+from rate_limit import vouch_limiter, default_limiter
 
 router = APIRouter()
 
@@ -226,6 +226,7 @@ async def create_vouch(request: VouchRequest, req: Request):
 
 @router.get("/trust/{did}")
 async def get_trust_status(
+    req: Request,
     did: str,
     scope: Optional[str] = Query(None, description="Filter by trust scope")
 ):
@@ -244,6 +245,16 @@ async def get_trust_status(
         - scopes: what scopes they're trusted for
         - vouch_count: total active vouches
     """
+    # Rate limit
+    client_ip = req.client.host if req.client else "unknown"
+    allowed, retry_after = default_limiter.is_allowed(client_ip)
+    if not allowed:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Rate limit exceeded. Try again in {retry_after} seconds.",
+            headers={"Retry-After": str(retry_after)}
+        )
+
     # Validate scope if provided
     if scope and scope not in VALID_SCOPES:
         raise HTTPException(
@@ -284,6 +295,7 @@ async def get_trust_status(
 
 @router.get("/trust-graph", response_model=TrustGraphResponse)
 async def get_trust_graph(
+    req: Request,
     did: str = Query(..., description="DID to get trust graph for")
 ):
     """
@@ -291,6 +303,15 @@ async def get_trust_graph(
 
     Returns vouches received (vouched_by) and vouches given (vouches_for).
     """
+    # Rate limit
+    client_ip = req.client.host if req.client else "unknown"
+    allowed, retry_after = default_limiter.is_allowed(client_ip)
+    if not allowed:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Rate limit exceeded. Try again in {retry_after} seconds.",
+            headers={"Retry-After": str(retry_after)}
+        )
 
     # Check DID is registered
     registration = database.get_registration(did)
@@ -335,6 +356,7 @@ async def get_trust_graph(
 
 @router.get("/trust-path", response_model=TrustPathResponse)
 async def get_trust_path(
+    req: Request,
     source_did: str = Query(..., description="DID that wants to verify trust"),
     target_did: str = Query(..., description="DID being verified"),
     scope: Optional[str] = Query(None, description="Filter by trust scope"),
@@ -359,6 +381,15 @@ async def get_trust_path(
     - Find how two agents are connected in the trust network
     - Implement "trust but verify more for distant connections"
     """
+    # Rate limit
+    client_ip = req.client.host if req.client else "unknown"
+    allowed, retry_after = default_limiter.is_allowed(client_ip)
+    if not allowed:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Rate limit exceeded. Try again in {retry_after} seconds.",
+            headers={"Retry-After": str(retry_after)}
+        )
 
     # Validate scope if provided
     if scope and scope not in VALID_SCOPES:
@@ -446,12 +477,20 @@ async def get_trust_path(
 
 
 @router.post("/revoke", response_model=VouchResponse)
-async def revoke_vouch(request: RevokeRequest):
+async def revoke_vouch(request: RevokeRequest, req: Request = None):
     """
     Revoke a vouch.
 
     Only the original voucher can revoke their vouch.
     """
+    # Rate limit
+    allowed, retry_after = default_limiter.is_allowed(f"revoke:{request.voucher_did}")
+    if not allowed:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Rate limit exceeded. Try again in {retry_after} seconds.",
+            headers={"Retry-After": str(retry_after)}
+        )
 
     # Get voucher registration
     voucher = database.get_registration(request.voucher_did)
@@ -515,7 +554,7 @@ async def revoke_vouch(request: RevokeRequest):
 
 
 @router.get("/vouch/certificate/{vouch_id}", response_model=VouchCertificate)
-async def get_vouch_certificate(vouch_id: str):
+async def get_vouch_certificate(vouch_id: str, req: Request = None):
     """
     Export a vouch as a portable certificate for offline verification.
 
@@ -528,9 +567,17 @@ async def get_vouch_certificate(vouch_id: str):
     1. Reconstructing the signed payload: voucher_did|target_did|scope|statement
     2. Verifying the signature against voucher_public_key
     3. Checking expires_at hasn't passed
-
-    This enables trust verification without querying AIP service.
     """
+    # Rate limit
+    client_ip = req.client.host if req and req.client else "unknown"
+    allowed, retry_after = default_limiter.is_allowed(client_ip)
+    if not allowed:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Rate limit exceeded. Try again in {retry_after} seconds.",
+            headers={"Retry-After": str(retry_after)}
+        )
+
     # Get vouch from database
     with database.get_connection() as conn:
         cursor = conn.cursor()
@@ -576,7 +623,7 @@ async def get_vouch_certificate(vouch_id: str):
 
 
 @router.post("/vouch/verify-certificate")
-async def verify_vouch_certificate(certificate: VouchCertificate):
+async def verify_vouch_certificate(certificate: VouchCertificate, req: Request = None):
     """
     Verify a vouch certificate offline (no database lookup).
 
@@ -585,6 +632,16 @@ async def verify_vouch_certificate(certificate: VouchCertificate):
 
     Returns whether the certificate is cryptographically valid and not expired.
     """
+    # Rate limit
+    client_ip = req.client.host if req and req.client else "unknown"
+    allowed, retry_after = default_limiter.is_allowed(client_ip)
+    if not allowed:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Rate limit exceeded. Try again in {retry_after} seconds.",
+            headers={"Retry-After": str(retry_after)}
+        )
+
     # Check expiration
     if certificate.expires_at:
         try:
