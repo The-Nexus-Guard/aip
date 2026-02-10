@@ -537,6 +537,156 @@ class TestMessageReplayProtection:
         assert resp.status_code == 400, f"Expected 400 for stale timestamp, got {resp.status_code}"
 
 
+class TestVouchCertificateValid:
+    """Test valid vouch certificate export and verification (Task 1.1 gap)."""
+
+    def test_valid_certificate_roundtrip(self):
+        """Register two agents, vouch, export certificate, verify it."""
+        import base64
+        import nacl.signing
+        client = get_test_client()
+
+        # Register voucher
+        r1 = client.post("/register/easy", json={
+            "platform": "test", "username": f"cert_voucher_{uuid.uuid4().hex[:8]}"
+        })
+        assert r1.status_code == 200
+        voucher_did = r1.json()["did"]
+        voucher_sk = nacl.signing.SigningKey(base64.b64decode(r1.json()["private_key"])[:32])
+
+        # Register target
+        r2 = client.post("/register/easy", json={
+            "platform": "test", "username": f"cert_target_{uuid.uuid4().hex[:8]}"
+        })
+        assert r2.status_code == 200
+        target_did = r2.json()["did"]
+
+        # Create vouch with proper signature
+        scope = "GENERAL"
+        statement = "I trust this agent"
+        payload = f"{voucher_did}|{target_did}|{scope}|{statement}"
+        signed = voucher_sk.sign(payload.encode('utf-8'))
+        signature = base64.b64encode(signed.signature).decode()
+
+        vouch_resp = client.post("/vouch", json={
+            "voucher_did": voucher_did,
+            "target_did": target_did,
+            "scope": scope,
+            "statement": statement,
+            "signature": signature
+        })
+        assert vouch_resp.status_code == 200, f"Vouch failed: {vouch_resp.text}"
+        vouch_id = vouch_resp.json()["vouch_id"]
+
+        # Export certificate
+        cert_resp = client.get(f"/vouch/certificate/{vouch_id}")
+        assert cert_resp.status_code == 200, f"Certificate export failed: {cert_resp.text}"
+        cert = cert_resp.json()
+
+        # Verify certificate
+        verify_resp = client.post("/vouch/verify-certificate", json=cert)
+        assert verify_resp.status_code == 200, f"Certificate verify failed: {verify_resp.text}"
+        data = verify_resp.json()
+        assert data["valid"] is True, f"Certificate not valid: {data}"
+
+
+class TestKeyRotation:
+    """Test key rotation flow (Task 1.4 gap)."""
+
+    def test_rotate_key_and_verify(self):
+        """Register, rotate key, verify new key is returned."""
+        import base64
+        import nacl.signing
+        client = get_test_client()
+
+        # Register agent
+        reg = client.post("/register/easy", json={
+            "platform": "test", "username": f"rotate_{uuid.uuid4().hex[:8]}"
+        })
+        assert reg.status_code == 200
+        did = reg.json()["did"]
+        old_sk = nacl.signing.SigningKey(base64.b64decode(reg.json()["private_key"])[:32])
+
+        # Generate new keypair
+        new_sk = nacl.signing.SigningKey.generate()
+        new_public_b64 = base64.b64encode(new_sk.verify_key.encode()).decode()
+
+        # Sign rotation request with OLD key
+        rotation_payload = f"rotate:{new_public_b64}"
+        signed = old_sk.sign(rotation_payload.encode('utf-8'))
+        signature = base64.b64encode(signed.signature).decode()
+
+        # Rotate key
+        rotate_resp = client.post("/rotate-key", json={
+            "did": did,
+            "new_public_key": new_public_b64,
+            "signature": signature
+        })
+        assert rotate_resp.status_code == 200, f"Rotation failed: {rotate_resp.text}"
+
+        # Verify new key is returned
+        verify_resp = client.get("/verify", params={"did": did})
+        assert verify_resp.status_code == 200, f"Verify failed: {verify_resp.text}"
+        data = verify_resp.json()
+        assert data["public_key"] == new_public_b64
+        assert data["key_rotated"] is True
+
+
+class TestRevouchAfterRevocation:
+    """Test re-vouch after revocation (Task 2.3 gap)."""
+
+    def test_revouch_same_scope_succeeds(self):
+        """After revoking a vouch, vouching again with same scope should succeed."""
+        import base64
+        import nacl.signing
+        client = get_test_client()
+
+        # Register two agents
+        r1 = client.post("/register/easy", json={
+            "platform": "test", "username": f"revouch_a_{uuid.uuid4().hex[:8]}"
+        })
+        assert r1.status_code == 200
+        a_did = r1.json()["did"]
+        a_sk = nacl.signing.SigningKey(base64.b64decode(r1.json()["private_key"])[:32])
+
+        r2 = client.post("/register/easy", json={
+            "platform": "test", "username": f"revouch_b_{uuid.uuid4().hex[:8]}"
+        })
+        assert r2.status_code == 200
+        b_did = r2.json()["did"]
+
+        scope = "GENERAL"
+        statement = "trust"
+
+        # Vouch A→B
+        payload = f"{a_did}|{b_did}|{scope}|{statement}"
+        sig = base64.b64encode(a_sk.sign(payload.encode('utf-8')).signature).decode()
+        vouch_resp = client.post("/vouch", json={
+            "voucher_did": a_did, "target_did": b_did,
+            "scope": scope, "statement": statement, "signature": sig
+        })
+        assert vouch_resp.status_code == 200, f"First vouch failed: {vouch_resp.text}"
+        vouch_id = vouch_resp.json()["vouch_id"]
+
+        # Revoke (sign the vouch_id)
+        revoke_sig = base64.b64encode(a_sk.sign(vouch_id.encode('utf-8')).signature).decode()
+        revoke_resp = client.post("/revoke", json={
+            "vouch_id": vouch_id,
+            "voucher_did": a_did,
+            "signature": revoke_sig
+        })
+        assert revoke_resp.status_code == 200, f"Revoke failed: {revoke_resp.text}"
+
+        # Re-vouch A→B with same scope — should succeed (not 409)
+        payload2 = f"{a_did}|{b_did}|{scope}|{statement}"
+        sig2 = base64.b64encode(a_sk.sign(payload2.encode('utf-8')).signature).decode()
+        revouch_resp = client.post("/vouch", json={
+            "voucher_did": a_did, "target_did": b_did,
+            "scope": scope, "statement": statement, "signature": sig2
+        })
+        assert revouch_resp.status_code == 200, f"Re-vouch failed (got {revouch_resp.status_code}): {revouch_resp.text}"
+
+
 class TestCleanup:
     """Test database cleanup functions."""
 
