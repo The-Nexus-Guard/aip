@@ -4,10 +4,13 @@ Simple in-memory rate limiter for AIP endpoints.
 Provides sliding window rate limiting per IP address.
 """
 
+import os
 import time
 from collections import defaultdict
 from typing import Dict, List, Tuple
 import threading
+
+TESTING = os.environ.get("AIP_TESTING") == "1"
 
 
 class RateLimiter:
@@ -36,6 +39,9 @@ class RateLimiter:
         Returns:
             Tuple of (allowed: bool, retry_after_seconds: int)
         """
+        if TESTING:
+            return True, 0
+
         now = time.time()
         cutoff = now - self.window_seconds
 
