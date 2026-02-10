@@ -1,0 +1,91 @@
+#!/usr/bin/env bash
+# aip-register-secure — Generate Ed25519 keypair locally, register only the public key.
+# Usage: aip-register-secure <platform> <username> [service_url]
+#
+# Private key never leaves your machine.
+
+set -euo pipefail
+
+PLATFORM="${1:?Usage: aip-register-secure <platform> <username> [service_url]}"
+USERNAME="${2:?Usage: aip-register-secure <platform> <username> [service_url]}"
+SERVICE="${3:-https://aip-service.fly.dev}"
+
+AIP_DIR="$HOME/.aip"
+mkdir -p "$AIP_DIR"
+
+echo "🔑 Generating Ed25519 keypair locally..."
+
+# Generate keypair using Python (works with PyNaCl or falls back to cryptography or pure Python)
+KEYS=$(python3 -c "
+import json, base64, hashlib
+try:
+    from nacl.signing import SigningKey
+    sk = SigningKey.generate()
+    priv = bytes(sk)
+    pub = bytes(sk.verify_key)
+except ImportError:
+    try:
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+        from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat, PrivateFormat, NoEncryption
+        key = Ed25519PrivateKey.generate()
+        priv = key.private_bytes(Encoding.Raw, PrivateFormat.Raw, NoEncryption())
+        pub = key.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
+    except ImportError:
+        import subprocess, tempfile, os
+        with tempfile.TemporaryDirectory() as td:
+            subprocess.run(['openssl', 'genpkey', '-algorithm', 'Ed25519', '-outform', 'DER', '-out', f'{td}/key.der'], check=True, capture_output=True)
+            der = open(f'{td}/key.der', 'rb').read()
+            # Ed25519 DER private key: last 32 bytes are private, extract public via openssl
+            subprocess.run(['openssl', 'pkey', '-in', f'{td}/key.der', '-inform', 'DER', '-pubout', '-outform', 'DER', '-out', f'{td}/pub.der'], check=True, capture_output=True)
+            pub_der = open(f'{td}/pub.der', 'rb').read()
+            priv = der[-32:]
+            pub = pub_der[-32:]
+
+pub_hex = pub.hex()
+priv_hex = priv.hex()
+did = 'did:aip:' + hashlib.sha256(pub).hexdigest()[:32]
+print(json.dumps({'public_key': pub_hex, 'private_key': priv_hex, 'did': did}))
+")
+
+PUB_KEY=$(echo "$KEYS" | python3 -c "import sys,json; print(json.load(sys.stdin)['public_key'])")
+PRIV_KEY=$(echo "$KEYS" | python3 -c "import sys,json; print(json.load(sys.stdin)['private_key'])")
+DID=$(echo "$KEYS" | python3 -c "import sys,json; print(json.load(sys.stdin)['did'])")
+
+echo "📡 Registering public key with AIP service..."
+
+RESPONSE=$(curl -sf -X POST "${SERVICE}/register" \
+  -H "Content-Type: application/json" \
+  -d "{\"public_key\": \"${PUB_KEY}\", \"platform\": \"${PLATFORM}\", \"username\": \"${USERNAME}\"}")
+
+# Save identity locally
+IDENTITY_FILE="$AIP_DIR/identity.json"
+python3 -c "
+import json
+identity = {
+    'did': '${DID}',
+    'public_key': '${PUB_KEY}',
+    'private_key': '${PRIV_KEY}',
+    'platform': '${PLATFORM}',
+    'username': '${USERNAME}',
+    'service': '${SERVICE}'
+}
+# Merge any extra fields from server response
+try:
+    resp = json.loads('''${RESPONSE}''')
+    if 'did' in resp:
+        identity['did'] = resp['did']
+except: pass
+with open('${IDENTITY_FILE}', 'w') as f:
+    json.dump(identity, f, indent=2)
+"
+
+chmod 600 "$IDENTITY_FILE"
+
+echo ""
+echo "✅ Registered successfully!"
+echo "   DID:      ${DID}"
+echo "   Platform: ${PLATFORM}/${USERNAME}"
+echo "   Saved:    ${IDENTITY_FILE}"
+echo ""
+echo "⚠️  Your private key is stored in ${IDENTITY_FILE} (chmod 600)."
+echo "   It never left your machine."
