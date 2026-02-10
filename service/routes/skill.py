@@ -135,7 +135,7 @@ async def sign_skill(request: SkillSignRequest):
             try:
                 verify_key.verify(payload_bytes, signature_bytes)
                 signature_valid = True
-            except nacl.exceptions.BadSignature:
+            except nacl.exceptions.BadSignatureError:
                 signature_valid = False
 
         if not signature_valid:
@@ -230,7 +230,7 @@ async def verify_skill(
             try:
                 verify_key.verify(payload_bytes, signature_bytes)
                 signature_valid = True
-            except nacl.exceptions.BadSignature:
+            except nacl.exceptions.BadSignatureError:
                 signature_valid = False
 
     except Exception as e:

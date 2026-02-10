@@ -157,7 +157,7 @@ async def verify_challenge(request: VerifyChallengeRequest):
             try:
                 verify_key.verify(challenge_bytes, signature_bytes)
                 signature_valid = True
-            except nacl.exceptions.BadSignature:
+            except nacl.exceptions.BadSignatureError:
                 signature_valid = False
 
     except Exception as e:

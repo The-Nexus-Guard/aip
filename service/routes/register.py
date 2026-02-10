@@ -309,7 +309,7 @@ async def rotate_key(request: KeyRotationRequest):
         verify_key = nacl.signing.VerifyKey(old_public_key_bytes)
         verify_key.verify(message, signature_bytes)
 
-    except nacl.exceptions.BadSignature:
+    except nacl.exceptions.BadSignatureError:
         raise HTTPException(
             status_code=400,
             detail="Invalid signature - must sign 'rotate:<new_public_key>' with OLD private key"

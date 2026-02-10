@@ -171,7 +171,7 @@ async def create_vouch(request: VouchRequest, req: Request):
             try:
                 verify_key.verify(payload_bytes, signature_bytes)
                 signature_valid = True
-            except nacl.exceptions.BadSignature:
+            except nacl.exceptions.BadSignatureError:
                 signature_valid = False
 
         if not signature_valid:
@@ -475,7 +475,7 @@ async def revoke_vouch(request: RevokeRequest):
             try:
                 verify_key.verify(payload_bytes, signature_bytes)
                 signature_valid = True
-            except nacl.exceptions.BadSignature:
+            except nacl.exceptions.BadSignatureError:
                 signature_valid = False
 
         if not signature_valid:
@@ -615,7 +615,7 @@ async def verify_vouch_certificate(certificate: VouchCertificate):
             try:
                 verify_key.verify(payload_bytes, signature_bytes)
                 signature_valid = True
-            except nacl.exceptions.BadSignature:
+            except nacl.exceptions.BadSignatureError:
                 signature_valid = False
 
         if not signature_valid:

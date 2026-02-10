@@ -111,7 +111,7 @@ async def verify_proof_post(
 
                 return {"valid": True, "verified_claim": claim}
 
-            except nacl.exceptions.BadSignature:
+            except nacl.exceptions.BadSignatureError:
                 return {"valid": False, "error": "Invalid signature - does not match public key"}
             except Exception as e:
                 return {"valid": False, "error": f"Signature verification failed: {str(e)}"}
