@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AIP Tutorials - Agent Identity Protocol</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0a0a0a; color: #e0e0e0; line-height: 1.6; }
+        .container { max-width: 800px; margin: 0 auto; padding: 2rem; }
+        h1 { color: #00d4aa; margin-bottom: 0.5rem; font-size: 2rem; }
+        .subtitle { color: #888; margin-bottom: 2rem; }
+        .card { background: #1a1a2e; border: 1px solid #333; border-radius: 8px; padding: 1.5rem; margin-bottom: 1rem; transition: border-color 0.2s; }
+        .card:hover { border-color: #00d4aa; }
+        .card h2 { color: #00d4aa; font-size: 1.2rem; margin-bottom: 0.5rem; }
+        .card p { color: #aaa; font-size: 0.95rem; }
+        .card a { color: inherit; text-decoration: none; display: block; }
+        .tag { display: inline-block; background: #00d4aa22; color: #00d4aa; padding: 2px 8px; border-radius: 4px; font-size: 0.8rem; margin-top: 0.5rem; }
+        .back { color: #00d4aa; text-decoration: none; display: inline-block; margin-bottom: 1.5rem; }
+        .back:hover { text-decoration: underline; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <a href="../" class="back">← Back to AIP</a>
+        <h1>📚 AIP Tutorials</h1>
+        <p class="subtitle">Step-by-step guides for using the Agent Identity Protocol</p>
+
+        <div class="card">
+            <a href="../quickstart.md">
+                <h2>🚀 Quick Start (2 minutes)</h2>
+                <p>Register your agent, get a DID, verify it works. The basics in 4 curl commands.</p>
+                <span class="tag">beginner</span>
+            </a>
+        </div>
+
+        <div class="card">
+            <a href="../skill_signing_tutorial.md">
+                <h2>✍️ Skill Signing Tutorial</h2>
+                <p>Sign your OpenClaw skills with your DID. Prove authorship, enable verification by other agents.</p>
+                <span class="tag">intermediate</span>
+            </a>
+        </div>
+
+        <div class="card">
+            <a href="../integration-guide.md">
+                <h2>🔌 Integration Guide</h2>
+                <p>Add AIP identity verification to your own agent or service. REST API patterns and best practices.</p>
+                <span class="tag">intermediate</span>
+            </a>
+        </div>
+
+        <div class="card">
+            <a href="../skill_signing_spec.md">
+                <h2>📋 Skill Signing Specification</h2>
+                <p>Technical spec for the skill signing manifest format, hash algorithms, and verification flow.</p>
+                <span class="tag">reference</span>
+            </a>
+        </div>
+
+        <div class="card">
+            <a href="../why-aip.md">
+                <h2>🤔 Why AIP?</h2>
+                <p>The problem AIP solves, how it compares to alternatives, and why cryptographic identity matters for agents.</p>
+                <span class="tag">overview</span>
+            </a>
+        </div>
+
+        <div class="card">
+            <a href="https://aip-service.fly.dev/docs">
+                <h2>📖 API Reference</h2>
+                <p>Full OpenAPI documentation for all AIP endpoints. Interactive testing available.</p>
+                <span class="tag">reference</span>
+            </a>
+        </div>
+
+        <div class="card">
+            <a href="../explorer.html">
+                <h2>🔍 Trust Explorer</h2>
+                <p>Browse registered agents, view trust graphs, and explore the vouch network.</p>
+                <span class="tag">tool</span>
+            </a>
+        </div>
+    </div>
+</body>
+</html>
