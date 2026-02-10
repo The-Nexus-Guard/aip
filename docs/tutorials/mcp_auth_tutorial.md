@@ -144,7 +144,7 @@ class AIPAuthenticatedClient:
 ```bash
 curl -X POST https://aip-service.fly.dev/register \
   -H "Content-Type: application/json" \
-  -d '{"platform": "moltbook", "platform_id": "TestMCPAgent"}'
+  -d '{"platform": "moltbook", "username": "TestMCPAgent"}'
 ```
 
 Save the returned `did` and `private_key`.

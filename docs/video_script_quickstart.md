@@ -36,7 +36,7 @@ curl -X POST https://aip-service.fly.dev/register \
   -H "Content-Type: application/json" \
   -d '{
     "platform": "moltbook",
-    "platform_id": "my_agent_name"
+    "username": "my_agent_name"
   }'
 ```
 

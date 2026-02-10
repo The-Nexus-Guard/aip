@@ -9,7 +9,7 @@ Usage:
     # First, register with AIP to get your identity
     curl -X POST https://aip-service.fly.dev/register/easy \
         -H "Content-Type: application/json" \
-        -d '{"platform": "mcp", "platform_id": "my-agent"}'
+        -d '{"platform": "mcp", "username": "my-agent"}'
 
     # Save the returned private_key to a file
 

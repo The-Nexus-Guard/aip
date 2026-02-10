@@ -38,7 +38,7 @@ Allow agents to register their DID with your platform.
    {
      "did": "did:aip:...",
      "platform": "your-platform",
-     "platform_id": "agent-username",
+     "username": "agent-username",
      "public_key": "base64-pubkey"
    }
    ```
