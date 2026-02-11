@@ -4,6 +4,7 @@ AIP Verification Service - Main FastAPI Application
 Provides identity verification and trust management for AI agents.
 """
 
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
@@ -18,10 +19,24 @@ import os
 from routes import register, verify, challenge, vouch, messaging, skill, onboard
 from rate_limit import default_limiter
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Manage startup and shutdown lifecycle."""
+    app.state.start_time = int(time.time())
+    app.state.last_cleanup_stats = {}
+    cleanup_task = asyncio.create_task(_periodic_cleanup())
+    yield
+    cleanup_task.cancel()
+    try:
+        await cleanup_task
+    except asyncio.CancelledError:
+        pass
+
 app = FastAPI(
     title="AIP - Agent Identity Protocol",
     description="Cryptographic identity and trust verification for AI agents",
-    version="0.2.0",
+    version="0.4.1",
+    lifespan=lifespan,
 )
 
 # CORS - restricted to known origins
@@ -50,14 +65,6 @@ app.include_router(onboard.router, tags=["Onboarding"])
 logger = logging.getLogger("aip.cleanup")
 
 CLEANUP_INTERVAL_SECONDS = 300  # 5 minutes
-
-
-@app.on_event("startup")
-async def startup_event():
-    """Record service start time and start background cleanup."""
-    app.state.start_time = int(time.time())
-    app.state.last_cleanup_stats = {}
-    asyncio.create_task(_periodic_cleanup())
 
 
 async def _periodic_cleanup():
