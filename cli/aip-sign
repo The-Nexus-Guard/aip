@@ -1,0 +1,406 @@
+#!/usr/bin/env python3
+"""
+aip-sign — Sign skills and artifacts with your AIP identity.
+
+Usage:
+  aip-sign <path>                  Sign a skill directory or single file
+  aip-sign <path> --verify         Verify an existing signature
+  aip-sign --register              Register a new DID (interactive)
+  aip-sign --whoami                Show your current identity
+
+Examples:
+  aip-sign my-skill/               # Signs all files, creates .aip-signature.json
+  aip-sign my-skill/ --verify      # Verifies existing signature
+  aip-sign artifact.py             # Signs a single file
+
+The signature manifest (.aip-signature.json) contains:
+  - Your DID and public key
+  - SHA-256 hashes of all signed files  
+  - Ed25519 signature over the manifest
+  - Timestamp and version info
+
+Anyone can verify without contacting the AIP service.
+Trust context (vouches, trust score) available via the service.
+"""
+
+import argparse
+import hashlib
+import json
+import os
+import sys
+import time
+from pathlib import Path
+
+try:
+    import nacl.signing
+    import nacl.encoding
+    HAS_NACL = True
+except ImportError:
+    HAS_NACL = False
+
+try:
+    import requests
+    HAS_REQUESTS = True
+except ImportError:
+    HAS_REQUESTS = False
+
+AIP_SERVICE = os.environ.get("AIP_SERVICE_URL", "https://aip-service.fly.dev")
+CREDENTIALS_PATHS = [
+    Path.home() / ".aip" / "credentials.json",
+    Path.home() / ".openclaw" / "workspace" / "credentials" / "aip_credentials.json",
+]
+SIGNATURE_FILE = ".aip-signature.json"
+IGNORE_PATTERNS = {
+    ".git", "__pycache__", ".aip-signature.json", ".DS_Store",
+    "node_modules", ".env", "*.pyc", "*.pyo",
+}
+
+
+def find_credentials():
+    """Find AIP credentials from known locations."""
+    for path in CREDENTIALS_PATHS:
+        if path.exists():
+            try:
+                with open(path) as f:
+                    creds = json.load(f)
+                if "did" in creds and "private_key" in creds:
+                    return creds
+            except (json.JSONDecodeError, KeyError):
+                continue
+    return None
+
+
+def save_credentials(creds, path=None):
+    """Save credentials to disk."""
+    if path is None:
+        path = CREDENTIALS_PATHS[0]
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w") as f:
+        json.dump(creds, f, indent=2)
+    os.chmod(path, 0o600)
+    print(f"Credentials saved to {path}")
+
+
+def hash_file(filepath):
+    """SHA-256 hash of a file."""
+    h = hashlib.sha256()
+    with open(filepath, "rb") as f:
+        for chunk in iter(lambda: f.read(8192), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def should_ignore(path, base):
+    """Check if a path should be ignored."""
+    rel = os.path.relpath(path, base)
+    parts = Path(rel).parts
+    for part in parts:
+        if part in IGNORE_PATTERNS:
+            return True
+        for pattern in IGNORE_PATTERNS:
+            if pattern.startswith("*") and part.endswith(pattern[1:]):
+                return True
+    return True if os.path.basename(path) == SIGNATURE_FILE else False
+
+
+def collect_files(target_path):
+    """Collect all files to sign, sorted for deterministic output."""
+    target = Path(target_path)
+    if target.is_file():
+        return {str(target.name): str(target)}
+
+    files = {}
+    for root, dirs, filenames in os.walk(target):
+        dirs[:] = [d for d in dirs if d not in IGNORE_PATTERNS]
+        for fname in sorted(filenames):
+            fpath = os.path.join(root, fname)
+            if not should_ignore(fpath, target):
+                rel_path = os.path.relpath(fpath, target)
+                files[rel_path] = fpath
+    return dict(sorted(files.items()))
+
+
+def build_manifest(files, did, public_key):
+    """Build the signing manifest (without signature)."""
+    file_hashes = {}
+    for rel_path, abs_path in files.items():
+        file_hashes[rel_path] = hash_file(abs_path)
+
+    manifest = {
+        "version": "1.0",
+        "did": did,
+        "public_key": public_key,
+        "timestamp": int(time.time()),
+        "files": file_hashes,
+    }
+    return manifest
+
+
+def decode_key(key_str):
+    """Decode a key from hex or base64."""
+    import base64
+    try:
+        return bytes.fromhex(key_str)
+    except ValueError:
+        return base64.b64decode(key_str)
+
+
+def sign_manifest(manifest, private_key_str):
+    """Sign the manifest with Ed25519."""
+    if not HAS_NACL:
+        print("Error: PyNaCl required for signing. Install with: pip install pynacl")
+        sys.exit(1)
+
+    signing_key = nacl.signing.SigningKey(decode_key(private_key_str))
+    # Canonical JSON for deterministic signing
+    payload = json.dumps(manifest, sort_keys=True, separators=(",", ":")).encode()
+    signed = signing_key.sign(payload)
+    return signed.signature.hex()
+
+
+def verify_signature(manifest, signature_hex, public_key_hex):
+    """Verify an Ed25519 signature."""
+    if not HAS_NACL:
+        print("Error: PyNaCl required for verification. Install with: pip install pynacl")
+        sys.exit(1)
+
+    verify_key = nacl.signing.VerifyKey(decode_key(public_key_hex))
+    payload = json.dumps(manifest, sort_keys=True, separators=(",", ":")).encode()
+    try:
+        verify_key.verify(payload, bytes.fromhex(signature_hex))
+        return True
+    except nacl.exceptions.BadSignatureError:
+        return False
+
+
+def cmd_sign(target_path):
+    """Sign a skill directory or file."""
+    creds = find_credentials()
+    if not creds:
+        print("No AIP credentials found. Run: aip-sign --register")
+        sys.exit(1)
+
+    files = collect_files(target_path)
+    if not files:
+        print(f"No files found in {target_path}")
+        sys.exit(1)
+
+    print(f"Signing {len(files)} file(s) as {creds['did']}...")
+
+    manifest = build_manifest(files, creds["did"], creds["public_key"])
+    signature = sign_manifest(manifest, creds["private_key"])
+
+    output = {**manifest, "signature": signature}
+
+    # Write signature file
+    target = Path(target_path)
+    if target.is_file():
+        sig_path = target.parent / SIGNATURE_FILE
+    else:
+        sig_path = target / SIGNATURE_FILE
+
+    with open(sig_path, "w") as f:
+        json.dump(output, f, indent=2)
+
+    print(f"✅ Signed! Manifest written to {sig_path}")
+    print(f"   DID: {creds['did']}")
+    print(f"   Files: {len(files)}")
+    print(f"   Verify: aip-sign {target_path} --verify")
+
+    # Optionally register with AIP service
+    if HAS_REQUESTS:
+        try:
+            content_hash = hashlib.sha256(
+                json.dumps(manifest["files"], sort_keys=True).encode()
+            ).hexdigest()
+            resp = requests.post(
+                f"{AIP_SERVICE}/skill/sign",
+                json={
+                    "did": creds["did"],
+                    "skill_name": target.name,
+                    "version": "1.0.0",
+                    "content_hash": content_hash,
+                    "signature": signature,
+                },
+                timeout=10,
+            )
+            if resp.ok:
+                print(f"   📡 Registered with AIP service")
+            else:
+                print(f"   ⚠️  Service registration failed (local signature still valid)")
+        except Exception:
+            print(f"   ⚠️  Could not reach AIP service (local signature still valid)")
+
+
+def cmd_verify(target_path):
+    """Verify an existing signature."""
+    target = Path(target_path)
+    if target.is_file():
+        sig_path = target.parent / SIGNATURE_FILE
+    else:
+        sig_path = target / SIGNATURE_FILE
+
+    if not sig_path.exists():
+        print(f"No signature found at {sig_path}")
+        sys.exit(1)
+
+    with open(sig_path) as f:
+        signed = json.load(f)
+
+    signature = signed.pop("signature")
+    manifest = signed
+
+    # Verify cryptographic signature
+    if not verify_signature(manifest, signature, manifest["public_key"]):
+        print("❌ SIGNATURE INVALID — files may have been tampered with!")
+        sys.exit(1)
+
+    # Verify file hashes
+    files = collect_files(target_path)
+    mismatches = []
+    missing = []
+
+    for rel_path, expected_hash in manifest["files"].items():
+        if rel_path not in files:
+            missing.append(rel_path)
+        elif hash_file(files[rel_path]) != expected_hash:
+            mismatches.append(rel_path)
+
+    new_files = [f for f in files if f not in manifest["files"]]
+
+    if mismatches or missing:
+        print("❌ VERIFICATION FAILED")
+        for f in mismatches:
+            print(f"   Modified: {f}")
+        for f in missing:
+            print(f"   Missing: {f}")
+        sys.exit(1)
+
+    print(f"✅ Signature valid!")
+    print(f"   Signer: {manifest['did']}")
+    print(f"   Signed: {time.strftime('%Y-%m-%d %H:%M UTC', time.gmtime(manifest['timestamp']))}")
+    print(f"   Files: {len(manifest['files'])} verified")
+    if new_files:
+        print(f"   ⚠️  {len(new_files)} new file(s) not in original signature")
+
+    # Check trust context from service
+    if HAS_REQUESTS:
+        try:
+            resp = requests.get(f"{AIP_SERVICE}/identity/{manifest['did']}", timeout=5)
+            if resp.ok:
+                identity = resp.json()
+                vouches = identity.get("vouches_received", 0)
+                score = identity.get("trust_score", 0)
+                print(f"   Trust: {vouches} vouch(es), score {score:.2f}")
+        except Exception:
+            pass
+
+
+def cmd_register():
+    """Interactive DID registration."""
+    if not HAS_NACL:
+        print("Error: PyNaCl required. Install with: pip install pynacl")
+        sys.exit(1)
+    if not HAS_REQUESTS:
+        print("Error: requests required. Install with: pip install requests")
+        sys.exit(1)
+
+    existing = find_credentials()
+    if existing:
+        print(f"You already have a DID: {existing['did']}")
+        resp = input("Register a new one? (y/N) ")
+        if resp.lower() != "y":
+            return
+
+    platform = input("Platform (e.g., moltbook, github): ").strip()
+    platform_id = input("Your username on that platform: ").strip()
+
+    # Generate keypair
+    signing_key = nacl.signing.SigningKey.generate()
+    private_key = signing_key.encode().hex()
+    public_key = signing_key.verify_key.encode().hex()
+
+    # Register with service
+    resp = requests.post(
+        f"{AIP_SERVICE}/register",
+        json={
+            "platform": platform,
+            "platform_id": platform_id,
+            "public_key": public_key,
+        },
+        timeout=10,
+    )
+
+    if not resp.ok:
+        print(f"Registration failed: {resp.text}")
+        sys.exit(1)
+
+    data = resp.json()
+    did = data["did"]
+
+    creds = {
+        "did": did,
+        "public_key": public_key,
+        "private_key": private_key,
+        "platform": platform,
+        "platform_id": platform_id,
+        "registered_at": int(time.time()),
+    }
+    save_credentials(creds)
+
+    print(f"\n✅ Registered!")
+    print(f"   DID: {did}")
+    print(f"   Now sign your first artifact: aip-sign <path>")
+
+
+def cmd_whoami():
+    """Show current identity."""
+    creds = find_credentials()
+    if not creds:
+        print("No AIP identity found. Run: aip-sign --register")
+        sys.exit(1)
+
+    print(f"DID: {creds['did']}")
+    print(f"Platform: {creds.get('platform', 'unknown')}/{creds.get('platform_id', 'unknown')}")
+    print(f"Public key: {creds['public_key'][:16]}...")
+
+    if HAS_REQUESTS:
+        try:
+            resp = requests.get(f"{AIP_SERVICE}/identity/{creds['did']}", timeout=5)
+            if resp.ok:
+                identity = resp.json()
+                print(f"Vouches: {identity.get('vouches_received', 0)}")
+                print(f"Trust score: {identity.get('trust_score', 0):.2f}")
+                print(f"Skills signed: {identity.get('skills_signed', 0)}")
+        except Exception:
+            print("(Could not reach AIP service for trust info)")
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Sign and verify skills/artifacts with AIP identity",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=__doc__,
+    )
+    parser.add_argument("path", nargs="?", help="Path to sign or verify")
+    parser.add_argument("--verify", action="store_true", help="Verify existing signature")
+    parser.add_argument("--register", action="store_true", help="Register a new DID")
+    parser.add_argument("--whoami", action="store_true", help="Show current identity")
+
+    args = parser.parse_args()
+
+    if args.register:
+        cmd_register()
+    elif args.whoami:
+        cmd_whoami()
+    elif args.path:
+        if args.verify:
+            cmd_verify(args.path)
+        else:
+            cmd_sign(args.path)
+    else:
+        parser.print_help()
+
+
+if __name__ == "__main__":
+    main()
