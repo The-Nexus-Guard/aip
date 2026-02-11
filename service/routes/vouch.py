@@ -10,7 +10,7 @@ import os
 import uuid
 import base64
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'src'))
@@ -595,7 +595,7 @@ async def get_vouch_certificate(vouch_id: str, req: Request = None):
     # Get vouch from database
     with database.get_connection() as conn:
         cursor = conn.cursor()
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(tz=timezone.utc).isoformat()
         cursor.execute(
             """SELECT id, voucher_did, target_did, scope, statement, signature, created_at, expires_at
                FROM vouches
@@ -632,7 +632,7 @@ async def get_vouch_certificate(vouch_id: str, req: Request = None):
         created_at=str(vouch["created_at"]),
         expires_at=str(vouch["expires_at"]) if vouch.get("expires_at") else None,
         signature=vouch["signature"],
-        certificate_issued_at=datetime.utcnow().isoformat()
+        certificate_issued_at=datetime.now(tz=timezone.utc).isoformat()
     )
 
 
@@ -660,7 +660,9 @@ async def verify_vouch_certificate(certificate: VouchCertificate, req: Request =
     if certificate.expires_at:
         try:
             expires = datetime.fromisoformat(certificate.expires_at.replace('Z', '+00:00'))
-            if expires < datetime.utcnow():
+            if expires.tzinfo is None:
+                expires = expires.replace(tzinfo=timezone.utc)
+            if expires < datetime.now(tz=timezone.utc):
                 return {
                     "valid": False,
                     "reason": "Certificate expired",

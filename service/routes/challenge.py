@@ -9,7 +9,7 @@ import sys
 import os
 import secrets
 import base64
-from datetime import datetime
+from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'src'))
@@ -80,8 +80,8 @@ async def create_challenge(request: ChallengeRequest, req: Request):
     challenge = secrets.token_hex(32)
 
     # Calculate expiration
-    from datetime import datetime, timedelta
-    expires_at = datetime.utcnow() + timedelta(seconds=CHALLENGE_EXPIRY)
+    from datetime import datetime, timedelta, timezone
+    expires_at = datetime.now(tz=timezone.utc) + timedelta(seconds=CHALLENGE_EXPIRY)
 
     # Store challenge
     database.create_challenge(request.did, challenge, CHALLENGE_EXPIRY)
@@ -135,7 +135,7 @@ async def verify_challenge(request: VerifyChallengeRequest, req: Request):
 
     # Check expiration
     expires_at = datetime.fromisoformat(challenge_record["expires_at"])
-    if datetime.utcnow() > expires_at:
+    if datetime.now(tz=timezone.utc) > expires_at:
         return VerifyChallengeResponse(
             verified=False,
             message="Challenge has expired"
@@ -195,6 +195,6 @@ async def verify_challenge(request: VerifyChallengeRequest, req: Request):
     return VerifyChallengeResponse(
         verified=True,
         did=request.did,
-        timestamp=datetime.utcnow().isoformat() + "Z",
+        timestamp=datetime.now(tz=timezone.utc).isoformat() + "Z",
         message="Challenge verified - identity confirmed"
     )

@@ -6,7 +6,7 @@ Uses SQLite for simplicity and portability.
 
 import sqlite3
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, List, Dict, Any
 from contextlib import contextmanager
 
@@ -169,7 +169,7 @@ def register_did(did: str, public_key: str) -> bool:
             cursor.execute(
                 """INSERT INTO key_history (did, public_key, valid_from, is_current)
                    VALUES (?, ?, ?, 1)""",
-                (did, public_key, datetime.utcnow().isoformat())
+                (did, public_key, datetime.now(tz=timezone.utc).isoformat())
             )
             conn.commit()
             return True
@@ -205,7 +205,7 @@ def rotate_key(did: str, new_public_key: str) -> bool:
     Returns:
         True if rotation succeeded
     """
-    now = datetime.utcnow().isoformat()
+    now = datetime.now(tz=timezone.utc).isoformat()
     with get_connection() as conn:
         cursor = conn.cursor()
 
@@ -258,7 +258,7 @@ def mark_key_compromised(did: str) -> int:
     """
     with get_connection() as conn:
         cursor = conn.cursor()
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(tz=timezone.utc).isoformat()
         cursor.execute(
             """UPDATE vouches SET revoked_at = ?
                WHERE voucher_did = ? AND revoked_at IS NULL""",
@@ -335,7 +335,7 @@ def get_did_by_platform(platform: str, username: str) -> Optional[str]:
 
 def create_challenge(did: str, challenge: str, expires_in_seconds: int = 30) -> bool:
     """Create a new challenge for verification."""
-    expires_at = datetime.utcnow() + timedelta(seconds=expires_in_seconds)
+    expires_at = datetime.now(tz=timezone.utc) + timedelta(seconds=expires_in_seconds)
     with get_connection() as conn:
         cursor = conn.cursor()
         cursor.execute(
@@ -383,7 +383,7 @@ def cleanup_expired_challenges() -> int:
         cursor = conn.cursor()
         cursor.execute(
             "DELETE FROM challenges WHERE expires_at < ?",
-            (datetime.utcnow().isoformat(),)
+            (datetime.now(tz=timezone.utc).isoformat(),)
         )
         count = cursor.rowcount
         conn.commit()
@@ -396,7 +396,7 @@ def has_active_vouch(voucher_did: str, target_did: str, scope: str) -> bool:
     """Check if an active (non-revoked, non-expired) vouch exists for the given triple."""
     with get_connection() as conn:
         cursor = conn.cursor()
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(tz=timezone.utc).isoformat()
         cursor.execute(
             """SELECT 1 FROM vouches
                WHERE voucher_did = ? AND target_did = ? AND scope = ?
@@ -427,7 +427,7 @@ def create_vouch(vouch_id: str, voucher_did: str, target_did: str,
     """
     expires_at = None
     if ttl_days is not None and ttl_days > 0:
-        expires_at = (datetime.utcnow() + timedelta(days=ttl_days)).isoformat()
+        expires_at = (datetime.now(tz=timezone.utc) + timedelta(days=ttl_days)).isoformat()
 
     with get_connection() as conn:
         cursor = conn.cursor()
@@ -455,7 +455,7 @@ def get_vouches_for(did: str, include_expired: bool = False) -> List[Dict[str, A
     """
     with get_connection() as conn:
         cursor = conn.cursor()
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(tz=timezone.utc).isoformat()
         if include_expired:
             cursor.execute(
                 """SELECT id, voucher_did, scope, statement, created_at, expires_at
@@ -484,7 +484,7 @@ def get_vouches_by(did: str, include_expired: bool = False) -> List[Dict[str, An
     """
     with get_connection() as conn:
         cursor = conn.cursor()
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(tz=timezone.utc).isoformat()
         if include_expired:
             cursor.execute(
                 """SELECT id, target_did, scope, statement, created_at, expires_at
@@ -509,7 +509,7 @@ def cleanup_expired_vouches() -> int:
     """
     with get_connection() as conn:
         cursor = conn.cursor()
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(tz=timezone.utc).isoformat()
         cursor.execute(
             "DELETE FROM vouches WHERE expires_at IS NOT NULL AND expires_at < ?",
             (now,)
@@ -526,7 +526,7 @@ def revoke_vouch(vouch_id: str, voucher_did: str) -> bool:
         cursor.execute(
             """UPDATE vouches SET revoked_at = ?
                WHERE id = ? AND voucher_did = ? AND revoked_at IS NULL""",
-            (datetime.utcnow().isoformat(), vouch_id, voucher_did)
+            (datetime.now(tz=timezone.utc).isoformat(), vouch_id, voucher_did)
         )
         conn.commit()
         return cursor.rowcount > 0
@@ -579,7 +579,7 @@ def mark_message_read(message_id: str, recipient_did: str) -> bool:
         cursor.execute(
             """UPDATE messages SET read_at = ?
                WHERE id = ? AND recipient_did = ? AND read_at IS NULL""",
-            (datetime.utcnow().isoformat(), message_id, recipient_did)
+            (datetime.now(tz=timezone.utc).isoformat(), message_id, recipient_did)
         )
         conn.commit()
         return cursor.rowcount > 0
@@ -636,7 +636,7 @@ def find_trust_path(source_did: str, target_did: str, scope: Optional[str] = Non
 
     with get_connection() as conn:
         cursor = conn.cursor()
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(tz=timezone.utc).isoformat()
 
         # BFS state
         visited = {source_did}
@@ -767,7 +767,7 @@ def cleanup_old_messages(ttl_days: int = MESSAGE_TTL_DAYS) -> int:
     """
     with get_connection() as conn:
         cursor = conn.cursor()
-        cutoff = (datetime.utcnow() - timedelta(days=ttl_days)).isoformat()
+        cutoff = (datetime.now(tz=timezone.utc) - timedelta(days=ttl_days)).isoformat()
         cursor.execute(
             "DELETE FROM messages WHERE read_at IS NOT NULL AND created_at < ?",
             (cutoff,)

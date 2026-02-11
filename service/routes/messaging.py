@@ -206,11 +206,11 @@ async def send_message(request: SendMessageRequest, req: Request):
             detail="Failed to store message"
         )
 
-    from datetime import datetime
+    from datetime import datetime, timezone
     response = SendMessageResponse(
         success=True,
         message_id=message_id,
-        sent_at=datetime.utcnow().isoformat()
+        sent_at=datetime.now(tz=timezone.utc).isoformat()
     )
     if deprecation_warning:
         response.deprecation_warning = deprecation_warning
@@ -257,9 +257,9 @@ async def get_messages(request: GetMessagesRequest, req: Request):
         )
 
     # Check expiry
-    from datetime import datetime
+    from datetime import datetime, timezone
     expires_at = datetime.fromisoformat(challenge_data["expires_at"])
-    if datetime.utcnow() > expires_at:
+    if datetime.now(tz=timezone.utc) > expires_at:
         raise HTTPException(
             status_code=400,
             detail="Challenge expired. Get a new one from /challenge"
