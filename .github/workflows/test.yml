@@ -1,0 +1,15 @@
+name: Tests
+on: [push, pull_request]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      AIP_TESTING: "1"
+      AIP_DATABASE_PATH: ":memory:"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install pynacl requests httpx fastapi uvicorn pydantic pytest pytest-cov
+      - run: pytest tests/ -v --cov=service --cov-report=term-missing
