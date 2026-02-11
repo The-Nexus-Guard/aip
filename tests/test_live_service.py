@@ -13,59 +13,41 @@ import sys
 import requests
 import time
 import uuid
+import pytest
 
-AIP_SERVICE = "https://aip-service.fly.dev"
-
-# Shared test agent - created once, reused across tests to avoid rate limits
+# Shared test agent - created once per session, reused across tests
 _shared_agent = None
+_shared_agent_base = None
 
-def get_shared_agent():
-    """Get or create a shared test agent to avoid rate limiting."""
-    global _shared_agent
-    if _shared_agent is None:
+def get_shared_agent(base_url):
+    """Get or create a shared test agent."""
+    global _shared_agent, _shared_agent_base
+    if _shared_agent is None or _shared_agent_base != base_url:
+        _shared_agent_base = base_url
         unique_username = f"SharedTestAgent_{uuid.uuid4().hex[:8]}"
-
-        # Try up to 3 times with exponential backoff
-        for attempt in range(3):
-            response = requests.post(
-                f"{AIP_SERVICE}/register/easy",
-                json={"platform": "moltbook", "username": unique_username}
-            )
-            if response.status_code == 200:
-                _shared_agent = response.json()
-                return _shared_agent
-            elif response.status_code == 429:  # Rate limited
-                # Parse wait time from response if available
-                try:
-                    detail = response.json().get("detail", "")
-                    import re
-                    match = re.search(r"(\d+) seconds", detail)
-                    wait_time = int(match.group(1)) + 2 if match else 60
-                except:
-                    wait_time = 60
-                print(f"Rate limited, waiting {wait_time}s...")
-                time.sleep(wait_time)
-            else:
-                raise Exception(f"Could not create shared agent: {response.text}")
-
-        raise Exception("Failed to create shared agent after 3 attempts")
+        response = requests.post(
+            f"{base_url}/register/easy",
+            json={"platform": "moltbook", "username": unique_username}
+        )
+        assert response.status_code == 200, f"Could not create shared agent: {response.text}"
+        _shared_agent = response.json()
     return _shared_agent
 
 
 class TestHealthEndpoints:
     """Test health and info endpoints."""
 
-    def test_root(self):
+    def test_root(self, local_service):
         """Root endpoint returns service info."""
-        response = requests.get(f"{AIP_SERVICE}/")
+        response = requests.get(f"{local_service}/")
         assert response.status_code == 200, f"Got {response.status_code}: {response.text}"
         data = response.json()
         assert data["service"] == "AIP - Agent Identity Protocol"
         assert "version" in data
 
-    def test_stats(self):
+    def test_stats(self, local_service):
         """Stats endpoint returns registration counts."""
-        response = requests.get(f"{AIP_SERVICE}/stats")
+        response = requests.get(f"{local_service}/stats")
         assert response.status_code == 200, f"Got {response.status_code}: {response.text}"
         data = response.json()
         assert "stats" in data
@@ -75,13 +57,13 @@ class TestHealthEndpoints:
 class TestRegistration:
     """Test registration endpoints."""
 
-    def test_easy_register(self):
+    def test_easy_register(self, local_service):
         """Easy registration creates identity and returns keys."""
         # Use unique username to avoid conflicts
         unique_username = f"TestAgent_{uuid.uuid4().hex[:8]}"
 
         response = requests.post(
-            f"{AIP_SERVICE}/register/easy",
+            f"{local_service}/register/easy",
             json={"platform": "moltbook", "username": unique_username}
         )
         assert response.status_code == 200, f"Got {response.status_code}: {response.text}"
@@ -96,29 +78,29 @@ class TestRegistration:
         # Store for cleanup/other tests
         return data
 
-    def test_easy_register_duplicate_fails(self):
+    def test_easy_register_duplicate_fails(self, local_service):
         """Cannot register same platform+username twice."""
         # Use unique username for this test
         unique_username = f"DupeAgent_{uuid.uuid4().hex[:8]}"
 
         # First registration succeeds
         response1 = requests.post(
-            f"{AIP_SERVICE}/register/easy",
+            f"{local_service}/register/easy",
             json={"platform": "moltbook", "username": unique_username}
         )
         assert response1.status_code == 200, f"First reg failed: {response1.text}"
 
         # Second registration fails with 409 Conflict
         response2 = requests.post(
-            f"{AIP_SERVICE}/register/easy",
+            f"{local_service}/register/easy",
             json={"platform": "moltbook", "username": unique_username}
         )
         assert response2.status_code == 409, f"Expected 409 Conflict, got {response2.status_code}: {response2.text}"
 
-    def test_easy_register_missing_fields(self):
+    def test_easy_register_missing_fields(self, local_service):
         """Registration requires platform and username."""
         response = requests.post(
-            f"{AIP_SERVICE}/register/easy",
+            f"{local_service}/register/easy",
             json={"platform": "moltbook"}  # Missing username
         )
         assert response.status_code == 422, f"Expected 422, got {response.status_code}"
@@ -127,12 +109,12 @@ class TestRegistration:
 class TestVerification:
     """Test verification endpoints."""
 
-    def test_verify_registered_agent(self):
+    def test_verify_registered_agent(self, local_service):
         """Can verify a registered agent."""
         # Register first
         unique_username = f"VerifyMe_{uuid.uuid4().hex[:8]}"
         reg_response = requests.post(
-            f"{AIP_SERVICE}/register/easy",
+            f"{local_service}/register/easy",
             json={"platform": "moltbook", "username": unique_username}
         )
         assert reg_response.status_code == 200
@@ -140,7 +122,7 @@ class TestVerification:
 
         # Now verify - API uses 'username' not 'platform_id'
         verify_response = requests.get(
-            f"{AIP_SERVICE}/verify",
+            f"{local_service}/verify",
             params={"platform": "moltbook", "username": unique_username}
         )
         assert verify_response.status_code == 200
@@ -148,10 +130,10 @@ class TestVerification:
         assert data["verified"] is True
         assert data["did"] == did
 
-    def test_verify_unregistered_agent(self):
+    def test_verify_unregistered_agent(self, local_service):
         """Verifying unregistered agent returns false."""
         response = requests.get(
-            f"{AIP_SERVICE}/verify",
+            f"{local_service}/verify",
             params={"platform": "moltbook", "username": f"NotRegistered_{uuid.uuid4().hex[:8]}"}
         )
         assert response.status_code == 200
@@ -162,41 +144,41 @@ class TestVerification:
 class TestLookup:
     """Test lookup endpoints."""
 
-    def test_lookup_by_did(self):
+    def test_lookup_by_did(self, local_service):
         """Can look up agent by DID."""
         # Register first
         unique_username = f"LookupTest_{uuid.uuid4().hex[:8]}"
         reg_response = requests.post(
-            f"{AIP_SERVICE}/register/easy",
+            f"{local_service}/register/easy",
             json={"platform": "moltbook", "username": unique_username}
         )
         did = reg_response.json()["did"]
         public_key = reg_response.json()["public_key"]
 
         # Lookup by DID
-        lookup_response = requests.get(f"{AIP_SERVICE}/lookup/{did}")
+        lookup_response = requests.get(f"{local_service}/lookup/{did}")
         assert lookup_response.status_code == 200
         data = lookup_response.json()
         assert data["did"] == did
         assert data["public_key"] == public_key
 
-    def test_lookup_unknown_did(self):
+    def test_lookup_unknown_did(self, local_service):
         """Looking up unknown DID returns 404."""
-        response = requests.get(f"{AIP_SERVICE}/lookup/did:aip:nonexistent123456")
+        response = requests.get(f"{local_service}/lookup/did:aip:nonexistent123456")
         assert response.status_code == 404
 
 
 class TestChallenge:
     """Test challenge-response endpoints."""
 
-    def test_create_challenge(self):
+    def test_create_challenge(self, local_service):
         """Can create a challenge for a registered DID."""
         # Use shared agent to avoid rate limits
-        agent = get_shared_agent()
+        agent = get_shared_agent(local_service)
 
         # Create challenge for that DID
         response = requests.post(
-            f"{AIP_SERVICE}/challenge",
+            f"{local_service}/challenge",
             json={"did": agent["did"]}
         )
         assert response.status_code == 200, f"Got {response.status_code}: {response.text}"
@@ -205,10 +187,10 @@ class TestChallenge:
         assert data["did"] == agent["did"]
         assert "expires_at" in data
 
-    def test_create_challenge_unregistered_did_fails(self):
+    def test_create_challenge_unregistered_did_fails(self, local_service):
         """Creating challenge for unregistered DID fails."""
         response = requests.post(
-            f"{AIP_SERVICE}/challenge",
+            f"{local_service}/challenge",
             json={"did": "did:aip:nonexistent12345"}
         )
         assert response.status_code == 404
@@ -217,14 +199,14 @@ class TestChallenge:
 class TestTrustGraph:
     """Test trust/vouch endpoints."""
 
-    def test_get_trust_graph_empty(self):
+    def test_get_trust_graph_empty(self, local_service):
         """Can get trust graph for agent."""
         # Use shared agent to avoid rate limits
-        agent = get_shared_agent()
+        agent = get_shared_agent(local_service)
 
         # Get trust graph
         response = requests.get(
-            f"{AIP_SERVICE}/trust-graph",
+            f"{local_service}/trust-graph",
             params={"did": agent["did"]}
         )
         assert response.status_code == 200
@@ -234,22 +216,22 @@ class TestTrustGraph:
         assert "vouched_by" in data
         assert "vouches_for" in data
 
-    def test_get_trust_graph_unregistered_fails(self):
+    def test_get_trust_graph_unregistered_fails(self, local_service):
         """Getting trust graph for unregistered DID fails."""
         response = requests.get(
-            f"{AIP_SERVICE}/trust-graph",
+            f"{local_service}/trust-graph",
             params={"did": "did:aip:nonexistent12345"}
         )
         assert response.status_code == 404
 
-    def test_vouch_invalid_scope_fails(self):
+    def test_vouch_invalid_scope_fails(self, local_service):
         """Vouching with invalid scope fails."""
         # Use shared agent to avoid rate limits
-        agent = get_shared_agent()
+        agent = get_shared_agent(local_service)
 
         # Try to vouch with invalid scope (signature doesn't matter if scope check fails first)
         response = requests.post(
-            f"{AIP_SERVICE}/vouch",
+            f"{local_service}/vouch",
             json={
                 "voucher_did": agent["did"],
                 "target_did": "did:aip:someotherdid12345678",
@@ -260,13 +242,13 @@ class TestTrustGraph:
         assert response.status_code == 400
         assert "Invalid scope" in response.json()["detail"]
 
-    def test_vouch_self_fails(self):
+    def test_vouch_self_fails(self, local_service):
         """Cannot vouch for yourself."""
         # Use shared agent to avoid rate limits
-        agent = get_shared_agent()
+        agent = get_shared_agent(local_service)
 
         response = requests.post(
-            f"{AIP_SERVICE}/vouch",
+            f"{local_service}/vouch",
             json={
                 "voucher_did": agent["did"],
                 "target_did": agent["did"],
@@ -281,13 +263,13 @@ class TestTrustGraph:
 class TestTrustPath:
     """Test trust path query endpoint."""
 
-    def test_trust_path_same_did(self):
+    def test_trust_path_same_did(self, local_service):
         """Trust path to self returns length 0."""
         # Use shared agent to avoid rate limits
-        agent = get_shared_agent()
+        agent = get_shared_agent(local_service)
 
         response = requests.get(
-            f"{AIP_SERVICE}/trust-path",
+            f"{local_service}/trust-path",
             params={"source_did": agent["did"], "target_did": agent["did"]}
         )
         assert response.status_code == 200
@@ -295,41 +277,42 @@ class TestTrustPath:
         assert data["path_exists"] is True
         assert data["path_length"] == 0
 
-    def test_trust_path_unregistered_source(self):
+    def test_trust_path_unregistered_source(self, local_service):
         """Trust path with unregistered source fails."""
         # Use shared agent as target
-        agent = get_shared_agent()
+        agent = get_shared_agent(local_service)
 
         response = requests.get(
-            f"{AIP_SERVICE}/trust-path",
+            f"{local_service}/trust-path",
             params={"source_did": "did:aip:nonexistent123", "target_did": agent["did"]}
         )
         assert response.status_code == 404
         assert "Source DID" in response.json()["detail"]
 
-    def test_trust_path_no_path(self):
+    def test_trust_path_no_path(self, local_service):
         """Trust path returns false when no path exists."""
-        # Use shared agent as source, fake DID as target
-        agent = get_shared_agent()
+        agent = get_shared_agent(local_service)
 
-        # Query path to a known registered agent we don't have vouches with
-        # We use a fixed test DID that should exist in prod
+        # Register a second agent that has no vouch connection to the first
+        agent2 = requests.post(f"{local_service}/register/easy", json={
+            "platform": "moltbook", "username": f"isolated_{int(time.time())}"
+        }).json()
+
         response = requests.get(
-            f"{AIP_SERVICE}/trust-path",
-            params={"source_did": agent["did"], "target_did": "did:aip:c1965a89866ecbfaad49803e6ced70fb"}
+            f"{local_service}/trust-path",
+            params={"source_did": agent["did"], "target_did": agent2["did"]}
         )
         assert response.status_code == 200
         data = response.json()
-        # Either no path or path exists (depends on vouches) - just check it returns valid response
-        assert "path_exists" in data
+        assert data["path_exists"] == False
 
-    def test_trust_path_invalid_scope(self):
+    def test_trust_path_invalid_scope(self, local_service):
         """Trust path with invalid scope fails."""
         # Use shared agent to avoid rate limits
-        agent = get_shared_agent()
+        agent = get_shared_agent(local_service)
 
         response = requests.get(
-            f"{AIP_SERVICE}/trust-path",
+            f"{local_service}/trust-path",
             params={
                 "source_did": agent["did"],
                 "target_did": agent["did"],
@@ -342,10 +325,10 @@ class TestTrustPath:
 class TestKeyRotation:
     """Test key rotation endpoint."""
 
-    def test_rotate_key_unregistered_did_fails(self):
+    def test_rotate_key_unregistered_did_fails(self, local_service):
         """Key rotation fails for unregistered DID."""
         response = requests.post(
-            f"{AIP_SERVICE}/rotate-key",
+            f"{local_service}/rotate-key",
             json={
                 "did": "did:aip:nonexistent12345678",
                 "new_public_key": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
@@ -355,14 +338,14 @@ class TestKeyRotation:
         assert response.status_code == 404
         assert "not registered" in response.json()["detail"]
 
-    def test_rotate_key_invalid_signature_fails(self):
+    def test_rotate_key_invalid_signature_fails(self, local_service):
         """Key rotation with invalid signature fails."""
         # Use shared agent to avoid rate limits
-        agent = get_shared_agent()
+        agent = get_shared_agent(local_service)
 
         # Try to rotate with a fake signature
         response = requests.post(
-            f"{AIP_SERVICE}/rotate-key",
+            f"{local_service}/rotate-key",
             json={
                 "did": agent["did"],
                 "new_public_key": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
@@ -372,10 +355,10 @@ class TestKeyRotation:
         assert response.status_code == 400
         assert "Signature" in response.json()["detail"] or "signature" in response.json()["detail"].lower()
 
-    def test_rotate_key_missing_fields(self):
+    def test_rotate_key_missing_fields(self, local_service):
         """Key rotation requires all fields."""
         response = requests.post(
-            f"{AIP_SERVICE}/rotate-key",
+            f"{local_service}/rotate-key",
             json={
                 "did": "did:aip:test123"
                 # Missing new_public_key and signature
@@ -387,9 +370,9 @@ class TestKeyRotation:
 class TestExplorer:
     """Test explorer/stats endpoints."""
 
-    def test_stats_structure(self):
+    def test_stats_structure(self, local_service):
         """Stats endpoint returns expected structure."""
-        response = requests.get(f"{AIP_SERVICE}/stats")
+        response = requests.get(f"{local_service}/stats")
         assert response.status_code == 200
         data = response.json()
         assert "service" in data
@@ -398,9 +381,9 @@ class TestExplorer:
         assert "stats" in data
         assert "registrations" in data["stats"]
 
-    def test_health_endpoint(self):
+    def test_health_endpoint(self, local_service):
         """Health endpoint works."""
-        response = requests.get(f"{AIP_SERVICE}/health")
+        response = requests.get(f"{local_service}/health")
         assert response.status_code == 200
         data = response.json()
         assert data["status"] == "healthy"
@@ -410,10 +393,10 @@ class TestExplorer:
 class TestSkillSigning:
     """Test skill signing endpoints."""
 
-    def test_hash_content(self):
+    def test_hash_content(self, local_service):
         """Hash endpoint returns valid SHA256 hash."""
         response = requests.post(
-            f"{AIP_SERVICE}/skill/hash",
+            f"{local_service}/skill/hash",
             params={"skill_content": "# My Skill\n\nThis is a test skill."}
         )
         assert response.status_code == 200, f"Got {response.status_code}: {response.text}"
@@ -421,25 +404,25 @@ class TestSkillSigning:
         assert data["content_hash"].startswith("sha256:")
         assert len(data["content_hash"]) == 71  # sha256: + 64 hex chars
 
-    def test_hash_deterministic(self):
+    def test_hash_deterministic(self, local_service):
         """Same content always produces same hash."""
         content = "# Test Skill v1.0"
 
         response1 = requests.post(
-            f"{AIP_SERVICE}/skill/hash",
+            f"{local_service}/skill/hash",
             params={"skill_content": content}
         )
         response2 = requests.post(
-            f"{AIP_SERVICE}/skill/hash",
+            f"{local_service}/skill/hash",
             params={"skill_content": content}
         )
 
         assert response1.json()["content_hash"] == response2.json()["content_hash"]
 
-    def test_verify_unregistered_author_fails(self):
+    def test_verify_unregistered_author_fails(self, local_service):
         """Verify fails for unregistered author DID."""
         response = requests.get(
-            f"{AIP_SERVICE}/skill/verify",
+            f"{local_service}/skill/verify",
             params={
                 "content_hash": "sha256:abc123def456",
                 "author_did": "did:aip:nonexistent12345678",
@@ -452,7 +435,7 @@ class TestSkillSigning:
         assert data["verified"] is False
         assert "not registered" in data.get("message", "").lower()
 
-    def test_verify_with_valid_signature(self):
+    def test_verify_with_valid_signature(self, local_service):
         """Verify works with properly signed content."""
         import base64
         import hashlib
@@ -461,7 +444,7 @@ class TestSkillSigning:
         # Register a new agent for signing
         unique_username = f"SkillSigner_{uuid.uuid4().hex[:8]}"
         reg_response = requests.post(
-            f"{AIP_SERVICE}/register/easy",
+            f"{local_service}/register/easy",
             json={"platform": "moltbook", "username": unique_username}
         )
         assert reg_response.status_code == 200, f"Registration failed: {reg_response.text}"
@@ -490,7 +473,7 @@ class TestSkillSigning:
 
         # Verify via API
         response = requests.get(
-            f"{AIP_SERVICE}/skill/verify",
+            f"{local_service}/skill/verify",
             params={
                 "content_hash": content_hash,
                 "author_did": did,

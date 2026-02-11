@@ -17,21 +17,21 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from aip_client import AIPClient, AIPError
 
 
-# Test constants
-SERVICE_URL = "https://aip-service.fly.dev"
+# Use local test server via fixture
+pytestmark = pytest.mark.usefixtures("local_service")
 
 
 class TestAIPClientRegistration:
     """Test registration functionality."""
 
-    def test_register_new_agent(self):
+    def test_register_new_agent(self, local_service):
         """Test registering a new agent."""
         agent_name = f"test_client_{int(time.time())}"
 
         client = AIPClient.register(
             platform="moltbook",
             platform_id=agent_name,
-            service_url=SERVICE_URL
+            service_url=local_service
         )
 
         assert client.did.startswith("did:aip:")
@@ -39,7 +39,7 @@ class TestAIPClientRegistration:
         assert client.private_key is not None
         assert len(client.public_key) > 20  # Base64 encoded key
 
-    def test_save_and_load_credentials(self, tmp_path):
+    def test_save_and_load_credentials(self, local_service, tmp_path):
         """Test saving and loading credentials."""
         agent_name = f"test_save_{int(time.time())}"
 
@@ -47,7 +47,7 @@ class TestAIPClientRegistration:
         client = AIPClient.register(
             platform="moltbook",
             platform_id=agent_name,
-            service_url=SERVICE_URL
+            service_url=local_service
         )
 
         # Save
@@ -65,17 +65,22 @@ class TestAIPClientRegistration:
 class TestAIPClientTrust:
     """Test trust lookup functionality."""
 
-    def test_get_trust_registered_did(self):
+    def test_get_trust_registered_did(self, local_service):
         """Test getting trust info for a registered DID."""
-        # Use the known Nexus Guard DID
-        known_did = "did:aip:c1965a89866ecbfaad49803e6ced70fb"
+        # Register an agent first so it exists locally
+        registered = AIPClient.register(
+            platform="moltbook",
+            platform_id=f"trust_test_{int(time.time())}",
+            service_url=local_service
+        )
+        known_did = registered.did
 
-        # Create a minimal client (no keys needed for lookup)
+        # Create a minimal client for lookup
         client = AIPClient(
             did="did:aip:test",
             public_key="",
             private_key="",
-            service_url=SERVICE_URL
+            service_url=local_service
         )
 
         trust = client.get_trust(known_did)
@@ -86,7 +91,7 @@ class TestAIPClientTrust:
         assert "scopes" in trust
         assert "vouch_count" in trust
 
-    def test_get_trust_unregistered_did(self):
+    def test_get_trust_unregistered_did(self, local_service):
         """Test getting trust info for an unregistered DID."""
         fake_did = "did:aip:this_does_not_exist_12345"
 
@@ -94,7 +99,7 @@ class TestAIPClientTrust:
             did="did:aip:test",
             public_key="",
             private_key="",
-            service_url=SERVICE_URL
+            service_url=local_service
         )
 
         trust = client.get_trust(fake_did)
@@ -103,44 +108,49 @@ class TestAIPClientTrust:
         assert trust["registered"] == False
         assert trust["vouch_count"] == 0
 
-    def test_is_trusted_no_vouches(self):
+    def test_is_trusted_no_vouches(self, local_service):
         """Test is_trusted returns False when no vouches exist."""
-        # Most test DIDs have no vouches
-        known_did = "did:aip:c1965a89866ecbfaad49803e6ced70fb"
+        registered = AIPClient.register(
+            platform="moltbook",
+            platform_id=f"trusted_test_{int(time.time())}",
+            service_url=local_service
+        )
 
         client = AIPClient(
             did="did:aip:test",
             public_key="",
             private_key="",
-            service_url=SERVICE_URL
+            service_url=local_service
         )
 
-        # Currently no vouches exist, so should be False
-        result = client.is_trusted(known_did)
-        # Note: This will return True once vouches exist
+        result = client.is_trusted(registered.did)
         assert isinstance(result, bool)
 
 
 class TestAIPClientLookup:
     """Test DID lookup functionality."""
 
-    def test_lookup_registered_did(self):
+    def test_lookup_registered_did(self, local_service):
         """Test looking up a registered DID."""
-        known_did = "did:aip:c1965a89866ecbfaad49803e6ced70fb"
+        registered = AIPClient.register(
+            platform="moltbook",
+            platform_id=f"lookup_test_{int(time.time())}",
+            service_url=local_service
+        )
 
         client = AIPClient(
             did="did:aip:test",
             public_key="",
             private_key="",
-            service_url=SERVICE_URL
+            service_url=local_service
         )
 
-        result = client.lookup(known_did)
+        result = client.lookup(registered.did)
 
-        assert result["did"] == known_did
+        assert result["did"] == registered.did
         assert "public_key" in result
 
-    def test_lookup_unregistered_did_raises(self):
+    def test_lookup_unregistered_did_raises(self, local_service):
         """Test that looking up unregistered DID raises error."""
         fake_did = "did:aip:definitely_not_registered"
 
@@ -148,7 +158,7 @@ class TestAIPClientLookup:
             did="did:aip:test",
             public_key="",
             private_key="",
-            service_url=SERVICE_URL
+            service_url=local_service
         )
 
         with pytest.raises(AIPError):
@@ -158,36 +168,30 @@ class TestAIPClientLookup:
 class TestAIPClientTrustPath:
     """Test trust path functionality."""
 
-    def test_trust_path_same_did(self):
+    def test_trust_path_same_did(self, local_service):
         """Test trust path to self returns 1.0 score."""
-        known_did = "did:aip:c1965a89866ecbfaad49803e6ced70fb"
-
-        client = AIPClient(
-            did=known_did,
-            public_key="",
-            private_key="",
-            service_url=SERVICE_URL
+        registered = AIPClient.register(
+            platform="moltbook",
+            platform_id=f"path_test_{int(time.time())}",
+            service_url=local_service
         )
 
-        result = client.get_trust_path(known_did)
+        result = registered.get_trust_path(registered.did)
 
         assert result["path_exists"] == True
         assert result["path_length"] == 0
         assert result["trust_score"] == 1.0
 
-    def test_trust_path_no_connection(self):
+    def test_trust_path_no_connection(self, local_service):
         """Test trust path when target DID is not registered."""
-        client = AIPClient(
-            did="did:aip:c1965a89866ecbfaad49803e6ced70fb",
-            public_key="",
-            private_key="",
-            service_url=SERVICE_URL
+        registered = AIPClient.register(
+            platform="moltbook",
+            platform_id=f"path_test2_{int(time.time())}",
+            service_url=local_service
         )
 
-        # Unregistered DID should raise AIPError
-        import pytest
         with pytest.raises(AIPError):
-            client.get_trust_path("did:aip:some_random_unconnected_did")
+            registered.get_trust_path("did:aip:some_random_unconnected_did")
 
 
 if __name__ == "__main__":
