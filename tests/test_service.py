@@ -396,7 +396,7 @@ class TestVouchCertificateForgery:
 
         # Submit forged certificate — signature is valid for attacker's key,
         # but the key doesn't match voucher_did's registered key
-        from datetime import datetime
+        from datetime import datetime, timezone
         cert = {
             "version": "1.0",
             "vouch_id": "fake-vouch-id",
@@ -405,10 +405,10 @@ class TestVouchCertificateForgery:
             "target_did": target_did,
             "scope": "GENERAL",
             "statement": "forged",
-            "created_at": datetime.utcnow().isoformat(),
+            "created_at": datetime.now(timezone.utc).isoformat(),
             "expires_at": None,
             "signature": attacker_sig,
-            "certificate_issued_at": datetime.utcnow().isoformat()
+            "certificate_issued_at": datetime.now(timezone.utc).isoformat()
         }
 
         response = client.post("/vouch/verify-certificate", json=cert)
@@ -1202,7 +1202,7 @@ class TestCleanup:
         """Test that old read messages are cleaned up."""
         client = get_test_client()
         import database
-        from datetime import datetime, timedelta
+        from datetime import datetime, timedelta, timezone
 
         # Register two agents
         resp1 = client.post("/register/easy", json={
@@ -1215,7 +1215,7 @@ class TestCleanup:
         recipient_did = resp2.json()["did"]
 
         # Insert a message directly and backdate it
-        old_date = (datetime.utcnow() - timedelta(days=45)).isoformat()
+        old_date = (datetime.now(timezone.utc) - timedelta(days=45)).isoformat()
         with database.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
@@ -1231,11 +1231,11 @@ class TestCleanup:
     def test_cleanup_expired_challenges(self):
         """Test that expired challenges are removed."""
         import database
-        from datetime import datetime, timedelta
+        from datetime import datetime, timedelta, timezone
 
         with database.get_connection() as conn:
             cursor = conn.cursor()
-            expired = (datetime.utcnow() - timedelta(hours=1)).isoformat()
+            expired = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
             cursor.execute(
                 "INSERT OR IGNORE INTO challenges (did, challenge, expires_at) VALUES (?, ?, ?)",
                 ("did:aip:test_cleanup", "old-challenge", expired)
@@ -1649,14 +1649,14 @@ class TestVouchEdgeCases:
 
     def test_verify_certificate_unregistered_voucher(self):
         """POST /vouch/verify-certificate with unknown voucher DID."""
-        from datetime import datetime
+        from datetime import datetime, timezone
         client = get_test_client()
         cert = {
             "version": "1.0", "vouch_id": "fake",
             "voucher_did": "did:aip:nonexistent_cert_voucher",
             "voucher_public_key": "AAAA", "target_did": "did:aip:x",
-            "scope": "GENERAL", "created_at": datetime.utcnow().isoformat(),
-            "signature": "AAAA", "certificate_issued_at": datetime.utcnow().isoformat()
+            "scope": "GENERAL", "created_at": datetime.now(timezone.utc).isoformat(),
+            "signature": "AAAA", "certificate_issued_at": datetime.now(timezone.utc).isoformat()
         }
         resp = client.post("/vouch/verify-certificate", json=cert)
         assert resp.status_code == 200
