@@ -441,6 +441,75 @@ def cmd_messages(args):
         print(f"✅ Marked {marked}/{len(messages)} message(s) as read.")
 
 
+def cmd_reply(args):
+    """Reply to a received message by ID."""
+    creds = require_credentials()
+    service = args.service or creds.get("service", AIP_SERVICE)
+    client = get_client(creds, service)
+
+    import requests as req
+
+    # Step 1: Retrieve the original message to get sender DID
+    ch_resp = req.post(f"{service}/challenge", json={"did": creds["did"]}, timeout=10)
+    if not ch_resp.ok:
+        print(f"❌ Challenge failed: {ch_resp.text}")
+        sys.exit(1)
+    challenge = ch_resp.json().get("challenge")
+    signature = client.sign(challenge.encode())
+
+    msg_resp = req.post(
+        f"{service}/messages",
+        json={
+            "did": creds["did"],
+            "challenge": challenge,
+            "signature": signature,
+            "unread_only": False,
+        },
+        timeout=15,
+    )
+    if not msg_resp.ok:
+        print(f"❌ Failed to retrieve messages: {msg_resp.text}")
+        sys.exit(1)
+
+    messages = msg_resp.json().get("messages", [])
+    original = None
+    for msg in messages:
+        if msg.get("id") == args.message_id:
+            original = msg
+            break
+
+    if not original:
+        print(f"❌ Message {args.message_id} not found in your inbox.")
+        sys.exit(1)
+
+    recipient_did = original.get("sender_did")
+    if not recipient_did:
+        print("❌ Could not determine sender DID from original message.")
+        sys.exit(1)
+
+    # Step 2: Send the reply
+    content = args.content
+    reply_prefix = f"[Re: {args.message_id[:8]}] "
+    full_content = reply_prefix + content
+
+    resp = req.post(
+        f"{service}/messages/send",
+        json={
+            "sender_did": client.did,
+            "recipient_did": recipient_did,
+            "content": full_content,
+            "signature": client.sign(f"{client.did}|{recipient_did}|{full_content}".encode()),
+        },
+        timeout=10,
+    )
+    if resp.ok:
+        print(f"✅ Reply sent to {recipient_did}")
+        print(f"   In reply to: {args.message_id[:12]}...")
+    else:
+        print(f"❌ Failed: {resp.text}")
+        sys.exit(1)
+
+
 def cmd_rotate_key(args):
     """Rotate your signing key."""
     try:
@@ -593,6 +662,11 @@ def main():
     p_msgs.add_argument("--no-decrypt", dest="decrypt", action="store_false", help="Don't decrypt messages")
     p_msgs.add_argument("--mark-read", action="store_true", default=False, help="Mark retrieved messages as read")
 
+    # reply
+    p_reply = sub.add_parser("reply", help="Reply to a received message")
+    p_reply.add_argument("message_id", help="ID of the message to reply to")
+    p_reply.add_argument("content", help="Reply content")
+
     # rotate-key
     p_rot = sub.add_parser("rotate-key", help="Rotate your signing key")
 
@@ -617,6 +691,7 @@ def main():
         "sign": cmd_sign,
         "message": cmd_message,
         "messages": cmd_messages,
+        "reply": cmd_reply,
         "rotate-key": cmd_rotate_key,
         "badge": cmd_badge,
         "whoami": cmd_whoami,
