@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.5.1 (2026-02-12) — SEO & Rate Limits
+
+### New Features
+- X-RateLimit-Limit/Remaining/Reset headers on all API responses
+- OpenGraph + Twitter Card meta tags on landing page
+- JSON-LD structured data (SoftwareApplication schema)
+- sitemap.xml + robots.txt for search engine crawling
+- OG image (1200x630) for social sharing
+
+### Improvements
+- 174 tests passing
+
 ## v0.5.0 (2026-02-12) — Discoverability & Polish
 
 ### New Features
