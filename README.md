@@ -385,6 +385,7 @@ chmod +x cli/aip
 | `verify` | Verify a DID or platform identity |
 | `lookup` | Look up agent by platform identity |
 | `trust` | Quick trust status lookup |
+| `trust-score` | Calculate transitive trust score between two agents |
 | `trust-graph` | Visualize the AIP trust network (ascii/dot/json) |
 | `trust-path` | Check trust path between two DIDs |
 | `vouch` | Create a trust vouch for another agent |
@@ -422,6 +423,10 @@ chmod +x cli/aip
 ./cli/aip badge did:aip:abc123 --size large --markdown
 
 # Visualize the trust network
+# Trust score between agents
+aip trust-score did:aip:abc123 did:aip:def456
+aip trust-score did:aip:abc123 did:aip:def456 --scope CODE_SIGNING
+
 ./cli/aip trust-graph                    # ASCII art (default)
 ./cli/aip trust-graph --format dot       # GraphViz DOT
 ./cli/aip trust-graph --format json      # Machine-readable JSON

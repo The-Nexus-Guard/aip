@@ -569,6 +569,65 @@ def cmd_badge(args):
         sys.exit(1)
 
 
+def cmd_trust_score(args):
+    """Calculate transitive trust score between two agents."""
+    import requests
+    service = getattr(args, "service", None) or AIP_SERVICE
+
+    source = args.source
+    target = args.target
+    scope = getattr(args, "scope", None)
+
+    params = {"source_did": source, "target_did": target}
+    if scope:
+        params["scope"] = scope
+
+    try:
+        resp = requests.get(f"{service}/trust-path", params=params, timeout=15)
+        resp.raise_for_status()
+        data = resp.json()
+    except requests.RequestException as e:
+        print(f"❌ Error querying trust path: {e}")
+        sys.exit(1)
+
+    if not data.get("path_exists"):
+        print(f"❌ No trust path found between:")
+        print(f"   Source: {source}")
+        print(f"   Target: {target}")
+        print(f"   Trust score: 0.0")
+        return
+
+    score = data.get("trust_score", 0.0)
+    path = data.get("path", [])
+    chain = data.get("trust_chain", [])
+    length = data.get("path_length", 0)
+
+    # Score bar
+    bar_len = 20
+    filled = int(score * bar_len)
+    bar = "█" * filled + "░" * (bar_len - filled)
+
+    print(f"🔗 Trust Path Found")
+    print(f"   Score: {score:.4f} [{bar}]")
+    print(f"   Hops:  {length}")
+    print()
+
+    if path:
+        print("   Path:")
+        for i, did in enumerate(path):
+            prefix = "   → " if i > 0 else "     "
+            print(f"{prefix}{did}")
+
+    if chain:
+        print()
+        print("   Trust Chain:")
+        for v in chain:
+            voucher = v.get("voucher_did", "?")[:20]
+            target_d = v.get("target_did", "?")[:20]
+            vscope = v.get("scope", "GENERAL")
+            print(f"     {voucher}… → {target_d}… [{vscope}]")
+
+
 def cmd_trust_graph(args):
     """Visualize the AIP trust graph as ASCII art, DOT, or JSON."""
     import requests
@@ -776,6 +835,12 @@ def main():
     p_list.add_argument("--limit", type=int, default=50, help="Max results (default: 50)")
     p_list.add_argument("--offset", type=int, default=0, help="Pagination offset")
 
+    # trust-score
+    p_ts = sub.add_parser("trust-score", help="Calculate transitive trust score between two agents")
+    p_ts.add_argument("source", help="Source DID")
+    p_ts.add_argument("target", help="Target DID")
+    p_ts.add_argument("--scope", default=None, help="Trust scope filter (e.g. GENERAL, CODE_SIGNING)")
+
     # trust-graph
     p_tg = sub.add_parser("trust-graph", help="Visualize the AIP trust network")
     p_tg.add_argument("--format", choices=["ascii", "dot", "json"], default="ascii", help="Output format (default: ascii)")
@@ -797,6 +862,7 @@ def main():
         "badge": cmd_badge,
         "whoami": cmd_whoami,
         "list": cmd_list,
+        "trust-score": cmd_trust_score,
         "trust-graph": cmd_trust_graph,
     }
 
