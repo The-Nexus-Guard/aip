@@ -1,5 +1,36 @@
 # Changelog
 
+## v0.4.2 (2026-02-12) — Admin & Messaging Polish
+
+### New Features
+- `GET /admin/registrations` — list all registered agents with pagination
+- `GET /admin/registrations/<did>` — detailed agent view with vouches given/received
+- `PATCH /message/<id>/read` — mark messages as read without deleting
+- `aip list` CLI command — browse registered agents from the terminal
+- `aip messages --mark-read` — mark retrieved messages as read via CLI
+
+### Improvements
+- Production safety guard in CLI — blocks write operations when `AIP_TESTING=1` targets production
+- 9 new tests for prod safety, 2 new tests for mark-read endpoint
+
+## v0.4.1 (2026-02-11) — Architecture & PyPI
+
+### New Features
+- Published to PyPI as `aip-identity` — `pip install aip-identity` → `aip` CLI
+- `aip sign <directory>` — sign entire skill directories
+- `aip verify <directory>` — verify skill signatures
+- `aip messages` — retrieve and decrypt inbox (challenge-response auth + SealedBox)
+
+### Improvements
+- Refactored service into `service/` package (models, routes, middleware, config)
+- 154 tests passing, 84% coverage
+- Getting Started guide (`docs/getting-started.md`)
+- README with badges, quickstart, "Why AIP?" section, 18 PyPI keywords
+- Example script: `examples/verify_skill.py`
+- 14 GitHub topics for discoverability
+
+---
+
 ## v0.4.0 (2026-02-10) — Security Hardening
 
 Major security release based on independent audit findings (28/28 functional tests passed, 4 critical + 6 high + 9 medium vulnerabilities identified and fixed).
