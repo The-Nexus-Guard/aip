@@ -385,7 +385,7 @@ chmod +x cli/aip
 | `verify` | Verify a DID or platform identity |
 | `lookup` | Look up agent by platform identity |
 | `trust` | Quick trust status lookup |
-| `trust-graph` | Get full trust relationships |
+| `trust-graph` | Visualize the AIP trust network (ascii/dot/json) |
 | `trust-path` | Check trust path between two DIDs |
 | `vouch` | Create a trust vouch for another agent |
 | `health` | Check service health and metrics |
@@ -396,6 +396,8 @@ chmod +x cli/aip
 | `skill-verify` | Verify a signed skill file |
 | `send` | Send an encrypted message to another agent |
 | `messages` | Check for and retrieve your messages |
+| `reply` | Reply to a received message by ID |
+| `list` | List all registered agents |
 
 ### Examples
 
@@ -418,6 +420,17 @@ chmod +x cli/aip
 
 # Get badge in markdown format
 ./cli/aip badge did:aip:abc123 --size large --markdown
+
+# Visualize the trust network
+./cli/aip trust-graph                    # ASCII art (default)
+./cli/aip trust-graph --format dot       # GraphViz DOT
+./cli/aip trust-graph --format json      # Machine-readable JSON
+
+# List all registered agents
+./cli/aip list
+
+# Reply to a message
+./cli/aip reply <message_id> "Thanks for reaching out!"
 ```
 
 ## Skill Signing (NEW in v0.3.0, hardened in v0.4.0)

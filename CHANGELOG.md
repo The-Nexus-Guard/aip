@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.5.2 (2026-02-12) — Trust Graph CLI
+
+### New Features
+- `aip trust-graph` — visualize the AIP trust network as ASCII art, GraphViz DOT, or JSON
+- `aip list` — list all registered agents from the directory
+- Updated README with all new commands and examples
+
 ## v0.5.1 (2026-02-12) — SEO & Rate Limits
 
 ### New Features
