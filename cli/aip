@@ -20,6 +20,23 @@ import requests
 
 AIP_SERVICE = os.environ.get("AIP_SERVICE_URL", "https://aip-service.fly.dev")
 CREDS_PATH = os.path.expanduser("~/.aip/credentials.json")
+PROD_URL = "https://aip-service.fly.dev"
+
+# Write operations blocked in testing/CI environments
+WRITE_COMMANDS = {"register", "vouch", "revoke", "skill-sign", "message"}
+
+
+def check_prod_safety(command_name):
+    """Block write operations against production when AIP_TESTING or CI is set."""
+    if command_name not in WRITE_COMMANDS:
+        return  # read-only, always OK
+    is_testing = os.environ.get("AIP_TESTING") == "1" or os.environ.get("CI") == "1"
+    is_prod = AIP_SERVICE.rstrip("/") == PROD_URL
+    if is_testing and is_prod:
+        print(f"✗ BLOCKED: '{command_name}' write operation against production while AIP_TESTING=1")
+        print("  Set AIP_SERVICE_URL to a local/test server, or unset AIP_TESTING.")
+        sys.exit(99)
+
 
 # Global flag for JSON output
 JSON_OUTPUT = False
@@ -770,6 +787,10 @@ Examples:
     # Set global JSON output flag
     global JSON_OUTPUT
     JSON_OUTPUT = getattr(args, 'json', False)
+
+    # Safety check: block write ops against production in test/CI environments
+    if args.command:
+        check_prod_safety(args.command)
 
     if args.command == "register":
         cmd_register(args)
