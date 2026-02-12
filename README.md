@@ -510,6 +510,7 @@ Cryptographic identity is necessary but not sufficient. You need to know not jus
 - [📝 Signing Reference](docs/signing-reference.md) - Every signed endpoint, payload formats, and code examples
 - [Skill Signing Spec](docs/skill_signing_spec.md) - Full specification
 - [Skill Signing Tutorial](docs/skill_signing_tutorial.md) - Step-by-step guide
+- [**AIP for Skill Authors**](docs/tutorials/skill-signing.md) - Sign your skill in 3 commands
 - [MCP Integration Guide](docs/mcp_integration_guide.md) - Add AIP to MCP
 
 ## License
