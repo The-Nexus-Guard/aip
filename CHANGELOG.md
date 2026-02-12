@@ -1,5 +1,21 @@
 # Changelog
 
+## v0.5.0 (2026-02-12) — Discoverability & Polish
+
+### New Features
+- `aip reply <message_id> "content"` — reply to messages directly by ID
+- "How AIP Works" deep-dive page on GitHub Pages (SEO-optimized)
+- GitHub Actions workflow for automatic PyPI publishing on tagged releases
+- Agent Directory in explorer.html — browse all registered agents
+- `examples/encrypted_messaging.py` — send/inbox demo script
+
+### Improvements
+- ClawHub listing fixed — `isSuspicious` flag cleared, skill visible in search (v1.4.0)
+- CHANGELOG.md and CONTRIBUTING.md added
+- 170+ tests passing
+
+### Includes all v0.4.2 features:
+
 ## v0.4.2 (2026-02-12) — Admin & Messaging Polish
 
 ### New Features
