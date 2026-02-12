@@ -493,6 +493,7 @@ Cryptographic identity is necessary but not sufficient. You need to know not jus
 
 ## Documentation
 
+- [🚀 Getting Started](docs/getting-started.md) - Install, register, sign, message — step by step
 - [📝 Signing Reference](docs/signing-reference.md) - Every signed endpoint, payload formats, and code examples
 - [Skill Signing Spec](docs/skill_signing_spec.md) - Full specification
 - [Skill Signing Tutorial](docs/skill_signing_tutorial.md) - Step-by-step guide
