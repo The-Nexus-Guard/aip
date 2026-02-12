@@ -868,18 +868,60 @@
                 // Build nodes from registrations
                 const nodes = data.registrations.map(r => ({
                     id: r.did,
-                    username: r.platform_links?.moltbook || truncateDid(r.did),
-                    hasVouches: false // Will update if we have vouch data
+                    username: r.platforms?.[0]?.username || truncateDid(r.did),
+                    hasVouches: false
                 }));
 
-                // For now, no links (vouches would need to be fetched per agent)
+                // Fetch vouch links for each agent
                 const links = [];
+                const didSet = new Set(nodes.map(n => n.id));
+                for (const n of nodes) {
+                    try {
+                        const tRes = await fetch(`${API_BASE}/trust-graph?did=${encodeURIComponent(n.id)}`);
+                        if (tRes.ok) {
+                            const tData = await tRes.json();
+                            if (tData.vouched_by?.length || tData.vouches_for?.length) n.hasVouches = true;
+                            (tData.vouches_for || []).forEach(v => {
+                                const target = v.target_did || v.vouchee_did;
+                                if (didSet.has(target)) {
+                                    links.push({ source: n.id, target, scope: v.scope || 'general' });
+                                }
+                            });
+                        }
+                    } catch(e) {}
+                }
+
+                // Arrow marker for network graph
+                svg.append('defs').append('marker')
+                    .attr('id', 'net-arrow')
+                    .attr('viewBox', '0 -5 10 10')
+                    .attr('refX', 16)
+                    .attr('refY', 0)
+                    .attr('markerWidth', 5)
+                    .attr('markerHeight', 5)
+                    .attr('orient', 'auto')
+                    .append('path')
+                    .attr('fill', 'var(--accent)')
+                    .attr('d', 'M0,-5L10,0L0,5');
 
                 // Create force simulation
                 networkSimulation = d3.forceSimulation(nodes)
-                    .force('charge', d3.forceManyBody().strength(-50))
+                    .force('link', d3.forceLink(links).id(d => d.id).distance(100))
+                    .force('charge', d3.forceManyBody().strength(-120))
                     .force('center', d3.forceCenter(width / 2, height / 2))
-                    .force('collision', d3.forceCollide().radius(25));
+                    .force('collision', d3.forceCollide().radius(30));
+
+                // Draw links
+                const netLink = svg.append('g')
+                    .selectAll('line')
+                    .data(links)
+                    .enter().append('line')
+                    .attr('stroke', 'var(--accent)')
+                    .attr('stroke-opacity', 0.4)
+                    .attr('stroke-width', 1.5)
+                    .attr('marker-end', 'url(#net-arrow)');
+
+                netLink.append('title').text(d => d.scope);
 
                 // Draw nodes
                 const node = svg.append('g')
@@ -921,6 +963,11 @@
                 node.append('title').text(d => d.id);
 
                 networkSimulation.on('tick', () => {
+                    netLink
+                        .attr('x1', d => Math.max(20, Math.min(width - 20, d.source.x)))
+                        .attr('y1', d => Math.max(20, Math.min(height - 20, d.source.y)))
+                        .attr('x2', d => Math.max(20, Math.min(width - 20, d.target.x)))
+                        .attr('y2', d => Math.max(20, Math.min(height - 20, d.target.y)));
                     node.attr('transform', d => `translate(${Math.max(20, Math.min(width - 20, d.x))},${Math.max(20, Math.min(height - 20, d.y))})`);
                 });
 
