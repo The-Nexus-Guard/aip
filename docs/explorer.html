@@ -410,6 +410,46 @@
             </div>
         </div>
 
+        <!-- Interactive Try-It Section -->
+        <div class="results" style="margin-bottom: 1.5rem;">
+            <div class="section-title" style="margin-bottom: 1rem;">
+                <span>🧪 Try AIP — Interactive Demo</span>
+            </div>
+            <p style="color: var(--fg-secondary); font-size: 0.85rem; margin-bottom: 1rem;">
+                See what AIP commands look like in action. Pick an agent and run a simulated verification.
+            </p>
+
+            <!-- Verify Demo -->
+            <div style="margin-bottom: 1.5rem;">
+                <div style="font-weight: 600; margin-bottom: 0.5rem; font-size: 0.9rem;">$ aip verify &lt;did&gt;</div>
+                <div style="display: flex; gap: 0.75rem; margin-bottom: 0.75rem;">
+                    <select id="demo-agent" style="flex:1; padding:0.75rem; background:var(--bg-tertiary); border:1px solid var(--border); border-radius:8px; color:var(--fg-primary); font-family:monospace; font-size:0.85rem;">
+                        <option value="">Select an agent to verify...</option>
+                    </select>
+                    <button onclick="runDemoVerify()" id="demo-verify-btn" style="white-space:nowrap;">▶ Run</button>
+                </div>
+                <div id="demo-terminal" style="display:none; background:#0d1117; border:1px solid #21262d; border-radius:8px; padding:1rem; font-family:'Fira Code',monospace; font-size:0.8rem; line-height:1.6; overflow-x:auto; white-space:pre; color:#c9d1d9;">
+                </div>
+            </div>
+
+            <!-- Badge Demo -->
+            <div style="margin-bottom: 1rem;">
+                <div style="font-weight: 600; margin-bottom: 0.5rem; font-size: 0.9rem;">$ aip badge &lt;did&gt;</div>
+                <div style="display: flex; gap: 0.75rem; margin-bottom: 0.75rem;">
+                    <select id="badge-agent" style="flex:1; padding:0.75rem; background:var(--bg-tertiary); border:1px solid var(--border); border-radius:8px; color:var(--fg-primary); font-family:monospace; font-size:0.85rem;">
+                        <option value="">Select an agent...</option>
+                    </select>
+                    <button onclick="runDemoBadge()" id="demo-badge-btn" style="white-space:nowrap;">▶ Run</button>
+                </div>
+                <div id="badge-terminal" style="display:none; background:#0d1117; border:1px solid #21262d; border-radius:8px; padding:1rem; font-family:'Fira Code',monospace; font-size:0.8rem; line-height:1.6; overflow-x:auto; white-space:pre; color:#c9d1d9;">
+                </div>
+            </div>
+
+            <div style="font-size: 0.75rem; color: var(--fg-muted); border-top: 1px solid var(--border); padding-top: 0.75rem;">
+                💡 These demos query the live AIP API in real-time. Install <code style="background:var(--bg-tertiary); padding:0.15rem 0.4rem; border-radius:3px;">pip install aip-identity</code> to run these commands yourself.
+            </div>
+        </div>
+
         <!-- Trust Path Finder -->
         <div class="graph-container" style="margin-bottom: 1.5rem;">
             <div class="graph-title">
@@ -1045,9 +1085,146 @@
             }
         }
 
+        // Interactive Demo Functions
+        let demoAgents = [];
+
+        async function loadDemoAgents() {
+            try {
+                const res = await fetch(`${API_BASE}/registrations?limit=50`);
+                const data = await res.json();
+                demoAgents = data.registrations || [];
+                const selects = [document.getElementById('demo-agent'), document.getElementById('badge-agent')];
+                selects.forEach(sel => {
+                    demoAgents.forEach(a => {
+                        const name = a.platforms?.[0]?.username || a.did.replace('did:aip:', '').substring(0, 16);
+                        const opt = document.createElement('option');
+                        opt.value = a.did;
+                        opt.textContent = `${name} (${a.did.substring(0, 24)}...)`;
+                        sel.appendChild(opt);
+                    });
+                });
+            } catch(e) { console.error('Failed to load demo agents:', e); }
+        }
+
+        async function typeText(el, text, speed) {
+            speed = speed || 8;
+            el.style.display = 'block';
+            el.innerHTML = '';
+            for (let i = 0; i < text.length; i++) {
+                el.innerHTML += text[i] === '\n' ? '\n' : text[i];
+                if (i % 3 === 0) await new Promise(r => setTimeout(r, speed));
+            }
+        }
+
+        async function runDemoVerify() {
+            const did = document.getElementById('demo-agent').value;
+            const term = document.getElementById('demo-terminal');
+            const btn = document.getElementById('demo-verify-btn');
+            if (!did) { term.style.display = 'block'; term.innerHTML = '\x1b[31mPlease select an agent first.\x1b[0m'.replace(/\x1b\[[0-9;]*m/g, ''); term.innerHTML = '<span style="color:#f85149;">Please select an agent first.</span>'; return; }
+
+            btn.disabled = true;
+            term.style.display = 'block';
+            term.innerHTML = '<span style="color:#8b949e;">$ aip verify ' + did + '\n\nFetching identity...</span>';
+
+            try {
+                const [verifyRes, trustRes] = await Promise.all([
+                    fetch(`${API_BASE}/verify/${did}`),
+                    fetch(`${API_BASE}/trust-graph?did=${encodeURIComponent(did)}`)
+                ]);
+                const vData = await verifyRes.json();
+                const tData = trustRes.ok ? await trustRes.json() : {};
+
+                const reg = demoAgents.find(a => a.did === did);
+                const name = reg?.platforms?.[0]?.username || 'unknown';
+                const platform = reg?.platforms?.[0]?.platform || 'unknown';
+                const vouchCount = tData.vouched_by?.length || 0;
+                const vouchesGiven = tData.vouches_for?.length || 0;
+                const isVerified = vData.verified || vData.valid;
+
+                const statusIcon = isVerified ? '✅' : '❌';
+                const statusColor = isVerified ? '#3fb950' : '#f85149';
+                const statusText = isVerified ? 'VERIFIED' : 'UNVERIFIED';
+
+                const scopes = (tData.vouched_by || []).map(v => v.scope || 'IDENTITY').filter((v,i,a) => a.indexOf(v) === i);
+
+                let output = `<span style="color:#8b949e;">$ aip verify ${did}</span>\n\n`;
+                output += `${statusIcon} <span style="color:${statusColor};font-weight:bold;">${statusText}</span>\n\n`;
+                output += `<span style="color:#8b949e;">Agent:</span>       <span style="color:#58a6ff;">${name}</span>\n`;
+                output += `<span style="color:#8b949e;">Platform:</span>    ${platform}\n`;
+                output += `<span style="color:#8b949e;">DID:</span>         <span style="color:#79c0ff;">${did}</span>\n`;
+                output += `<span style="color:#8b949e;">Public Key:</span>  ${vData.public_key ? vData.public_key.substring(0, 32) + '...' : 'N/A'}\n`;
+                output += `<span style="color:#8b949e;">Vouches:</span>     <span style="color:#3fb950;">${vouchCount} received</span>, ${vouchesGiven} given\n`;
+                if (scopes.length > 0) {
+                    output += `<span style="color:#8b949e;">Scopes:</span>      ${scopes.map(s => '<span style="color:#d2a8ff;">' + s + '</span>').join(', ')}\n`;
+                }
+                output += `\n<span style="color:#8b949e;">Trust Score:</span>  <span style="color:${vouchCount > 0 ? '#3fb950' : '#f0883e'};">${vouchCount > 0 ? (vouchCount >= 3 ? 'High' : 'Medium') : 'None'}</span> (${vouchCount} vouch${vouchCount !== 1 ? 'es' : ''})`;
+
+                term.innerHTML = output;
+            } catch(e) {
+                term.innerHTML = `<span style="color:#f85149;">Error: ${e.message}</span>`;
+            } finally {
+                btn.disabled = false;
+            }
+        }
+
+        async function runDemoBadge() {
+            const did = document.getElementById('badge-agent').value;
+            const term = document.getElementById('badge-terminal');
+            const btn = document.getElementById('demo-badge-btn');
+            if (!did) { term.style.display = 'block'; term.innerHTML = '<span style="color:#f85149;">Please select an agent first.</span>'; return; }
+
+            btn.disabled = true;
+            term.style.display = 'block';
+            term.innerHTML = '<span style="color:#8b949e;">$ aip badge ' + did + '\n\nGenerating badge...</span>';
+
+            try {
+                const [verifyRes, trustRes] = await Promise.all([
+                    fetch(`${API_BASE}/verify/${did}`),
+                    fetch(`${API_BASE}/trust-graph?did=${encodeURIComponent(did)}`)
+                ]);
+                const vData = await verifyRes.json();
+                const tData = trustRes.ok ? await trustRes.json() : {};
+
+                const reg = demoAgents.find(a => a.did === did);
+                const name = reg?.platforms?.[0]?.username || did.substring(0, 16);
+                const vouchCount = tData.vouched_by?.length || 0;
+                const isVerified = vData.verified || vData.valid;
+
+                const stars = vouchCount >= 3 ? '★★★' : vouchCount >= 2 ? '★★☆' : vouchCount >= 1 ? '★☆☆' : '☆☆☆';
+                const borderChar = isVerified ? '═' : '─';
+                const cornerTL = isVerified ? '╔' : '┌';
+                const cornerTR = isVerified ? '╗' : '┐';
+                const cornerBL = isVerified ? '╚' : '└';
+                const cornerBR = isVerified ? '╝' : '┘';
+                const sideChar = isVerified ? '║' : '│';
+
+                const padName = name.length > 28 ? name.substring(0, 25) + '...' : name;
+                const w = 36;
+                const pad = (s, len) => s + ' '.repeat(Math.max(0, len - s.length));
+
+                let badge = `<span style="color:#8b949e;">$ aip badge ${did}</span>\n\n`;
+                badge += `<span style="color:${isVerified ? '#3fb950' : '#8b949e'};">`;
+                badge += `${cornerTL}${borderChar.repeat(w)}${cornerTR}\n`;
+                badge += `${sideChar}  ${pad('🛡️  AIP VERIFIED AGENT', w - 2)}${sideChar}\n`;
+                badge += `${sideChar}${borderChar.repeat(w)}${sideChar}\n`;
+                badge += `${sideChar}  ${pad(padName, w - 2)}${sideChar}\n`;
+                badge += `${sideChar}  ${pad(did.substring(0, w - 4), w - 2)}${sideChar}\n`;
+                badge += `${sideChar}  ${pad('Trust: ' + stars + '  (' + vouchCount + ' vouches)', w - 2)}${sideChar}\n`;
+                badge += `${cornerBL}${borderChar.repeat(w)}${cornerBR}`;
+                badge += `</span>`;
+
+                term.innerHTML = badge;
+            } catch(e) {
+                term.innerHTML = `<span style="color:#f85149;">Error: ${e.message}</span>`;
+            } finally {
+                btn.disabled = false;
+            }
+        }
+
         // Load stats on page load
         loadStats();
         loadDirectory();
+        loadDemoAgents();
 
         // Check for DID in URL params
         const params = new URLSearchParams(window.location.search);
