@@ -569,6 +569,103 @@ def cmd_badge(args):
         sys.exit(1)
 
 
+def cmd_trust_graph(args):
+    """Visualize the AIP trust graph as ASCII art, DOT, or JSON."""
+    import requests
+    service = getattr(args, "service", None) or AIP_SERVICE
+
+    # Fetch all registrations
+    try:
+        resp = requests.get(f"{service}/admin/registrations", params={"limit": 100}, timeout=15)
+        resp.raise_for_status()
+        regs = resp.json().get("registrations", [])
+    except requests.RequestException as e:
+        print(f"Error fetching registrations: {e}")
+        sys.exit(1)
+
+    # Build DID→name map and collect all edges
+    did_name = {}
+    for r in regs:
+        platforms = r.get("platforms", [])
+        name = platforms[0].get("username", r["did"][:20]) if platforms else r["did"][:20]
+        did_name[r["did"]] = name
+
+    edges = []  # (voucher_name, target_name, scope)
+    for r in regs:
+        try:
+            g = requests.get(f"{service}/trust-graph", params={"did": r["did"]}, timeout=10)
+            if g.ok:
+                data = g.json()
+                for v in data.get("vouches_for", []):
+                    src = did_name.get(v["voucher_did"], v["voucher_did"][:16])
+                    tgt = did_name.get(v["target_did"], v["target_did"][:16])
+                    edges.append((src, tgt, v.get("scope", "GENERAL")))
+        except requests.RequestException:
+            continue
+
+    all_names = set(did_name.values())
+    fmt = getattr(args, "format", "ascii")
+
+    if fmt == "json":
+        out = {"nodes": sorted(all_names), "edges": [{"from": s, "to": t, "scope": sc} for s, t, sc in edges]}
+        print(json.dumps(out, indent=2))
+        return
+
+    if fmt == "dot":
+        print("digraph trust {")
+        print('  rankdir=LR;')
+        print('  node [shape=box, style=rounded];')
+        for s, t, sc in edges:
+            label = f' [label="{sc}"]' if sc != "GENERAL" else ""
+            print(f'  "{s}" -> "{t}"{label};')
+        for name in all_names:
+            if not any(name == s or name == t for s, t, _ in edges):
+                print(f'  "{name}";')
+        print("}")
+        return
+
+    # ASCII art (default)
+    if not edges and not all_names:
+        print("No agents registered yet.")
+        return
+
+    print("AIP Trust Graph")
+    print("=" * 50)
+    print()
+
+    # Group by voucher
+    from collections import defaultdict
+    voucher_targets = defaultdict(list)
+    received_vouches = defaultdict(list)
+    for s, t, sc in edges:
+        voucher_targets[s].append((t, sc))
+        received_vouches[t].append((s, sc))
+
+    if edges:
+        for voucher in sorted(voucher_targets):
+            targets = voucher_targets[voucher]
+            print(f"  {voucher}")
+            for i, (tgt, sc) in enumerate(targets):
+                prefix = "└──" if i == len(targets) - 1 else "├──"
+                scope_str = f" [{sc}]" if sc != "GENERAL" else ""
+                print(f"    {prefix} vouches for → {tgt}{scope_str}")
+            print()
+
+    # Show isolated nodes (no vouches given or received)
+    connected = set()
+    for s, t, _ in edges:
+        connected.add(s)
+        connected.add(t)
+    isolated = all_names - connected
+    if isolated:
+        print("  Unconnected agents:")
+        for name in sorted(isolated):
+            print(f"    ○ {name}")
+        print()
+
+    print(f"  Total: {len(all_names)} agents, {len(edges)} vouches")
+
+
 def cmd_list(args):
     """List all registered agents on the AIP service."""
     import requests
@@ -679,6 +776,10 @@ def main():
     p_list.add_argument("--limit", type=int, default=50, help="Max results (default: 50)")
     p_list.add_argument("--offset", type=int, default=0, help="Pagination offset")
 
+    # trust-graph
+    p_tg = sub.add_parser("trust-graph", help="Visualize the AIP trust network")
+    p_tg.add_argument("--format", choices=["ascii", "dot", "json"], default="ascii", help="Output format (default: ascii)")
+
     # whoami
     sub.add_parser("whoami", help="Show your current identity")
 
@@ -696,6 +797,7 @@ def main():
         "badge": cmd_badge,
         "whoami": cmd_whoami,
         "list": cmd_list,
+        "trust-graph": cmd_trust_graph,
     }
 
     if args.command in commands:
