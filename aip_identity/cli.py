@@ -493,6 +493,35 @@ def cmd_badge(args):
         sys.exit(1)
 
 
+def cmd_list(args):
+    """List all registered agents on the AIP service."""
+    import requests
+    service = getattr(args, "service", None) or AIP_SERVICE
+    url = f"{service}/admin/registrations"
+    params = {"limit": args.limit, "offset": args.offset}
+    try:
+        resp = requests.get(url, params=params, timeout=15)
+        resp.raise_for_status()
+        data = resp.json()
+        regs = data.get("registrations", [])
+        if not regs:
+            print("No registrations found.")
+            return
+        print(f"{'DID':<45} {'Platform':<12} {'Username':<25} {'Created'}")
+        print("-" * 100)
+        for r in regs:
+            platforms = r.get("platforms", [])
+            if platforms:
+                for p in platforms:
+                    print(f"{r['did']:<45} {p.get('platform','?'):<12} {p.get('username','?'):<25} {r.get('created_at','?')}")
+            else:
+                print(f"{r['did']:<45} {'—':<12} {'—':<25} {r.get('created_at','?')}")
+        print(f"\nShowing {data['count']} of {data['limit']} (offset {data['offset']})")
+    except requests.RequestException as e:
+        print(f"Error: {e}")
+        sys.exit(1)
+
+
 def cmd_whoami(args):
     """Show your current identity."""
     creds = require_credentials()
@@ -564,6 +593,11 @@ def main():
     p_badge = sub.add_parser("badge", help="Show trust badge for a DID")
     p_badge.add_argument("did", help="DID to look up")
 
+    # list
+    p_list = sub.add_parser("list", help="List registered agents on the AIP service")
+    p_list.add_argument("--limit", type=int, default=50, help="Max results (default: 50)")
+    p_list.add_argument("--offset", type=int, default=0, help="Pagination offset")
+
     # whoami
     sub.add_parser("whoami", help="Show your current identity")
 
@@ -579,6 +613,7 @@ def main():
         "rotate-key": cmd_rotate_key,
         "badge": cmd_badge,
         "whoami": cmd_whoami,
+        "list": cmd_list,
     }
 
     if args.command in commands:

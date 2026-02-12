@@ -16,7 +16,7 @@ import time
 import os
 
 # Import routes
-from routes import register, verify, challenge, vouch, messaging, skill, onboard
+from routes import register, verify, challenge, vouch, messaging, skill, onboard, admin
 from rate_limit import default_limiter
 
 @asynccontextmanager
@@ -60,6 +60,7 @@ app.include_router(vouch.router, tags=["Trust"])
 app.include_router(messaging.router, tags=["Messaging"])
 app.include_router(skill.router, tags=["Skills"])
 app.include_router(onboard.router, tags=["Onboarding"])
+app.include_router(admin.router, tags=["Admin"])
 
 
 logger = logging.getLogger("aip.cleanup")
