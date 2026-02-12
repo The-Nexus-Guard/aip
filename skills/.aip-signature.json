@@ -1,0 +1,14 @@
+{
+  "version": "1.0",
+  "did": "did:aip:c1965a89866ecbfaad49803e6ced70fb",
+  "public_key": "0p0YbBBzefDTm/tT6GPPGzVoPzCvBWONxomKYINw+kY=",
+  "timestamp": 1770824124,
+  "files": {
+    "aip-identity.skill": "cd8b67caa1f3b2c25601a8c164a2e5ac4ea3729f1ef2d56d9ff015b9963d3709",
+    "aip-identity/SKILL.md": "f2470efb428eb7d6f3ae2fefac292094a143a484154fbece2b292e6fe05155dc",
+    "aip-identity/references/api.md": "e7371990365c771f289b19bc7335c4808a73af1f7730798663f0cbae304aef96",
+    "aip-identity/scripts/aip.py": "2bebffa01dbcee573f3e5bfbb29347718cd588847d67a172b35468d84bc3c732",
+    "aip-verify/skill.md": "4f23e1bbb5ee99b9ac956aefdf4c7729014afbc0616f98fe732b03275abd5618"
+  },
+  "signature": "8f6821c319cf47bd20c425c1633cd447e4f7a513280b384751d71c306a2ad91f6b385c4c3370cdf5cb6701ad7aa8b1b83d71b71651397d42f67b1e4f2f23140a"
+}

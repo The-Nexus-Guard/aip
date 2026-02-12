@@ -14,7 +14,7 @@ import os
 # Add parent dir to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from aip_client import AIPClient, AIPError
+from aip_identity import AIPClient, AIPError
 
 
 # Use local test server via fixture

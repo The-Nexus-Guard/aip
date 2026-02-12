@@ -892,6 +892,109 @@ class TestMessagingFlow:
         assert any(m["sender_did"] == sender_did for m in data["messages"])
 
 
+class TestMarkMessageRead:
+    """Test PATCH /message/{id}/read endpoint."""
+
+    def _register(self, suffix):
+        import base64
+        import nacl.signing
+        client = get_test_client()
+        resp = client.post("/register/easy", json={
+            "platform": "test", "username": f"mark_{suffix}_{uuid.uuid4().hex[:6]}"
+        })
+        assert resp.status_code == 200
+        data = resp.json()
+        sk = nacl.signing.SigningKey(base64.b64decode(data["private_key"])[:32])
+        return data["did"], sk
+
+    def _sign(self, sk, msg):
+        import base64
+        return base64.b64encode(sk.sign(msg.encode('utf-8')).signature).decode()
+
+    def test_mark_read_reduces_unread(self):
+        """Mark message as read should reduce unread count."""
+        import base64
+        from datetime import datetime, timezone
+        client = get_test_client()
+
+        sender_did, sender_sk = self._register("s")
+        recip_did, recip_sk = self._register("r")
+
+        # Send message
+        timestamp = datetime.now(timezone.utc).isoformat()
+        content = base64.b64encode(b"hello").decode()
+        payload = f"{sender_did}|{recip_did}|{timestamp}|{content}"
+        sig = self._sign(sender_sk, payload)
+        send_resp = client.post("/message", json={
+            "sender_did": sender_did, "recipient_did": recip_did,
+            "encrypted_content": content, "signature": sig, "timestamp": timestamp
+        })
+        assert send_resp.status_code == 200
+
+        # Get unread count
+        count1 = client.get("/messages/count", params={"did": recip_did}).json()["unread"]
+        assert count1 >= 1
+
+        # Retrieve messages to get ID
+        ch_resp = client.post("/challenge", json={"did": recip_did})
+        challenge = ch_resp.json()["challenge"]
+        ch_sig = self._sign(recip_sk, challenge)
+        msgs = client.post("/messages", json={
+            "did": recip_did, "challenge": challenge, "signature": ch_sig
+        }).json()["messages"]
+        msg_id = msgs[0]["id"]
+
+        # Mark as read
+        mark_sig = self._sign(recip_sk, msg_id)
+        mark_resp = client.patch(
+            f"/message/{msg_id}/read",
+            params={"did": recip_did, "signature": mark_sig}
+        )
+        assert mark_resp.status_code == 200
+        assert mark_resp.json()["success"] is True
+
+        # Unread count should decrease
+        count2 = client.get("/messages/count", params={"did": recip_did}).json()["unread"]
+        assert count2 < count1
+
+    def test_mark_read_wrong_did(self):
+        """Cannot mark someone else's message as read."""
+        import base64
+        from datetime import datetime, timezone
+        client = get_test_client()
+
+        sender_did, sender_sk = self._register("s2")
+        recip_did, recip_sk = self._register("r2")
+        other_did, other_sk = self._register("o2")
+
+        # Send message to recip
+        timestamp = datetime.now(timezone.utc).isoformat()
+        content = base64.b64encode(b"secret").decode()
+        payload = f"{sender_did}|{recip_did}|{timestamp}|{content}"
+        sig = self._sign(sender_sk, payload)
+        client.post("/message", json={
+            "sender_did": sender_did, "recipient_did": recip_did,
+            "encrypted_content": content, "signature": sig, "timestamp": timestamp
+        })
+
+        # Get message ID
+        ch_resp = client.post("/challenge", json={"did": recip_did})
+        challenge = ch_resp.json()["challenge"]
+        ch_sig = self._sign(recip_sk, challenge)
+        msgs = client.post("/messages", json={
+            "did": recip_did, "challenge": challenge, "signature": ch_sig
+        }).json()["messages"]
+        msg_id = msgs[0]["id"]
+
+        # Try to mark as read with wrong DID
+        mark_sig = self._sign(other_sk, msg_id)
+        mark_resp = client.patch(
+            f"/message/{msg_id}/read",
+            params={"did": other_did, "signature": mark_sig}
+        )
+        assert mark_resp.status_code in (401, 404)
+
+
 class TestBadgeEndpoint:
     """Test badge SVG endpoint for various DID states."""
 

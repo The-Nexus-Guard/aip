@@ -3,9 +3,9 @@ requires = ["setuptools>=68.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "aip"
+name = "aip-identity"
 version = "0.4.1"
-description = "Agent Identity Protocol — cryptographic identity infrastructure for AI agents"
+description = "Agent Identity Protocol — cryptographic identity, trust, and encrypted messaging for AI agents"
 readme = "README.md"
 license = {text = "MIT"}
 requires-python = ">=3.8"
@@ -13,22 +13,21 @@ authors = [
     {name = "The_Nexus_Guard_001"}
 ]
 dependencies = [
-    "fastapi>=0.104.0",
-    "uvicorn>=0.24.0",
-    "pydantic>=2.5.0",
-    "httpx>=0.25.0",
     "pynacl>=1.5.0",
+    "requests>=2.28.0",
 ]
+
+[project.scripts]
+aip = "aip_identity.cli:main"
 
 [project.optional-dependencies]
 dev = [
     "pytest>=7.0",
     "pytest-cov>=4.0",
-    "requests>=2.31.0",
 ]
 
 [project.urls]
-Homepage = "https://aip-service.fly.dev"
+Homepage = "https://the-nexus-guard.github.io/aip/"
 Documentation = "https://aip-service.fly.dev/docs"
 Repository = "https://github.com/The-Nexus-Guard/aip"
 
@@ -36,4 +35,4 @@ Repository = "https://github.com/The-Nexus-Guard/aip"
 testpaths = ["tests"]
 
 [tool.setuptools.packages.find]
-include = ["service*", "aip_client*"]
+include = ["aip_identity*"]

@@ -285,6 +285,35 @@ async def get_messages(request: GetMessagesRequest, req: Request):
     )
 
 
+@router.patch("/message/{message_id}/read")
+async def mark_message_read(message_id: str, did: str, signature: str, req: Request = None):
+    """
+    Mark a message as read without deleting it.
+
+    Query params:
+    - did: Your DID (must be the recipient)
+    - signature: Your signature of the message_id
+    """
+    allowed, retry_after = default_limiter.is_allowed(f"msg-read-mark:{did}")
+    if not allowed:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Rate limit exceeded. Try again in {retry_after} seconds.",
+            headers={"Retry-After": str(retry_after)}
+        )
+
+    if not verify_signature(did, message_id, signature):
+        raise HTTPException(status_code=401, detail="Invalid signature")
+
+    if not database.mark_message_read(message_id, did):
+        raise HTTPException(
+            status_code=404,
+            detail="Message not found, already read, or you are not the recipient"
+        )
+
+    return {"success": True, "marked_read": message_id}
+
+
 @router.delete("/message/{message_id}")
 async def delete_message(message_id: str, did: str, signature: str, req: Request = None):
     """

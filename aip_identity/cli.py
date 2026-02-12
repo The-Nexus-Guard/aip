@@ -420,18 +420,25 @@ def cmd_messages(args):
 
     # Step 4: Mark as read if requested
     if args.mark_read and messages:
+        import nacl.signing as _ns
+        priv_bytes = base64.b64decode(creds["private_key"])
+        sk = _ns.SigningKey(priv_bytes)
+        marked = 0
         for msg in messages:
             msg_id = msg.get("id")
             if msg_id:
                 try:
-                    req.delete(
-                        f"{service}/message/{msg_id}",
-                        json={"did": creds["did"], "challenge": challenge, "signature": signature},
+                    sig = base64.b64encode(sk.sign(msg_id.encode()).signature).decode()
+                    resp = req.patch(
+                        f"{service}/message/{msg_id}/read",
+                        params={"did": creds["did"], "signature": sig},
                         timeout=5,
                     )
-                except Exception:
-                    pass
-        print(f"✅ Marked {len(messages)} message(s) as read.")
+                    if resp.ok:
+                        marked += 1
+                except Exception as e:
+                    print(f"  ⚠️ Failed to mark {msg_id}: {e}")
+        print(f"✅ Marked {marked}/{len(messages)} message(s) as read.")
 
 
 def cmd_rotate_key(args):
