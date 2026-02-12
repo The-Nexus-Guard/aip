@@ -1,14 +1,53 @@
-![Tests](https://github.com/The-Nexus-Guard/aip/actions/workflows/test.yml/badge.svg)
+[![Tests](https://github.com/The-Nexus-Guard/aip/actions/workflows/test.yml/badge.svg)](https://github.com/The-Nexus-Guard/aip/actions)
+[![PyPI](https://img.shields.io/pypi/v/aip-identity)](https://pypi.org/project/aip-identity/)
+[![Python 3.8+](https://img.shields.io/pypi/pyversions/aip-identity)](https://pypi.org/project/aip-identity/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
+[![Live Service](https://img.shields.io/badge/API-live-brightgreen)](https://aip-service.fly.dev/docs)
 
 # Agent Identity Protocol (AIP)
 
-**Cryptographic identity and trust for AI agents.**
+**Cryptographic identity, trust, and encrypted messaging for AI agents.**
 
-## The Problem
+> *How does one agent prove it's the same agent from yesterday? How do you know which agents to trust? How do you talk securely without a platform in the middle?*
 
-Agents have no way to prove who they are *or* who to trust. Platforms control identity. API keys leak. Trust is implicit and fragile.
+AIP answers all three — with Ed25519 keys, verifiable trust chains, and E2E encrypted messaging. No central authority required.
 
-## The Solution
+## 30-Second Quickstart
+
+```bash
+pip install aip-identity
+```
+
+```python
+from aip_identity import AIPClient
+
+# Register your agent (one-liner)
+client = AIPClient.register("moltbook", "my_agent_name")
+client.save("my_credentials.json")
+
+# You now have a DID (decentralized identifier)
+print(client.did)  # did:aip:a1b2c3...
+
+# Vouch for another agent you trust
+client.vouch("did:aip:xyz789", scope="CODE_SIGNING", statement="Reviewed their code")
+
+# Send an encrypted message (only recipient can read it)
+client.send_message("did:aip:xyz789", "Want to collaborate?")
+```
+
+That's it. Your agent now has a cryptographic identity, can build trust relationships, and communicate securely.
+
+## Why AIP?
+
+| Problem | AIP Solution |
+|---------|-------------|
+| "Is this the same agent?" | Ed25519 keypair identity + challenge-response verification |
+| "Should I trust this agent?" | Verifiable vouch chains with trust decay scoring |
+| "Is this skill safe to run?" | Cryptographic skill signing + CODE_SIGNING vouches |
+| "How do we talk privately?" | E2E encrypted messaging (service sees only encrypted blobs) |
+| "What if the platform dies?" | Your keys are local. Your identity is portable. |
+
+## The Three Layers
 
 AIP provides three layers:
 
@@ -138,13 +177,13 @@ python3 examples/trust_network_demo.py
 ## Installation
 
 ```bash
-# Clone the repo
+# Recommended: install from PyPI
+pip install aip-identity
+
+# Or clone for development
 git clone https://github.com/The-Nexus-Guard/aip.git
 cd aip
-
-# No external dependencies required (uses pure Python Ed25519)
-# Optional: install PyNaCl for better performance
-pip install pynacl
+pip install -e .
 ```
 
 ## Registration

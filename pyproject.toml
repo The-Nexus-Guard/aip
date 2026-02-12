@@ -26,6 +26,27 @@ dev = [
     "pytest-cov>=4.0",
 ]
 
+keywords = [
+    "ai", "agent", "identity", "trust", "cryptography", "did",
+    "decentralized", "ed25519", "verification", "mcp", "llm",
+    "multi-agent", "authentication", "digital-identity", "signing",
+    "encrypted-messaging", "vouch", "reputation"
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Security :: Cryptography",
+    "Topic :: Software Development :: Libraries",
+    "Topic :: System :: Distributed Computing",
+]
+
 [project.urls]
 Homepage = "https://the-nexus-guard.github.io/aip/"
 Documentation = "https://aip-service.fly.dev/docs"
