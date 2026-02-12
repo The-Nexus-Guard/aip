@@ -2,11 +2,14 @@
 Database-backed rate limiter for AIP endpoints.
 
 Uses a `rate_limits` table in SQLite for persistence across restarts.
+Provides standard X-RateLimit-* headers on all responses.
 """
 
 import os
 import time
-from typing import Tuple
+from typing import Dict, Tuple
+
+from fastapi import HTTPException
 
 TESTING = os.environ.get("AIP_TESTING") == "1"
 
@@ -97,3 +100,48 @@ message_send_limiter = RateLimiter(max_requests=60, window_seconds=3600)      # 
 message_read_limiter = RateLimiter(max_requests=30, window_seconds=60)        # 30/min
 default_limiter = RateLimiter(max_requests=120, window_seconds=60)            # 120/min
 verification_limiter = RateLimiter(max_requests=60, window_seconds=60)        # 60/min (kept for compat)
+
+
+def rate_limit_headers(limiter: RateLimiter, key: str) -> Dict[str, str]:
+    """
+    Generate standard X-RateLimit-* headers for a successful response.
+
+    Returns dict with:
+      - X-RateLimit-Limit: max requests per window
+      - X-RateLimit-Remaining: remaining requests in current window
+      - X-RateLimit-Reset: Unix timestamp when window resets
+    """
+    now = int(time.time())
+    window_start = now - (now % limiter.window_seconds)
+    reset_at = window_start + limiter.window_seconds
+    remaining = limiter.get_remaining(key)
+    return {
+        "X-RateLimit-Limit": str(limiter.max_requests),
+        "X-RateLimit-Remaining": str(remaining),
+        "X-RateLimit-Reset": str(reset_at),
+    }
+
+
+def check_rate_limit(limiter: RateLimiter, key: str) -> Dict[str, str]:
+    """
+    Check rate limit and raise HTTPException(429) if exceeded.
+
+    Returns X-RateLimit-* headers dict to attach to the successful response.
+    """
+    allowed, retry_after = limiter.is_allowed(key)
+    if not allowed:
+        now = int(time.time())
+        window_start = now - (now % limiter.window_seconds)
+        reset_at = window_start + limiter.window_seconds
+        raise HTTPException(
+            status_code=429,
+            detail=f"Rate limit exceeded. Try again in {retry_after} seconds.",
+            headers={
+                "Retry-After": str(retry_after),
+                "X-RateLimit-Limit": str(limiter.max_requests),
+                "X-RateLimit-Remaining": "0",
+                "X-RateLimit-Reset": str(reset_at),
+            },
+        )
+    # Return headers for successful responses
+    return rate_limit_headers(limiter, key)

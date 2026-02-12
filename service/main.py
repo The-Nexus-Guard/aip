@@ -17,7 +17,7 @@ import os
 
 # Import routes
 from routes import register, verify, challenge, vouch, messaging, skill, onboard, admin
-from rate_limit import default_limiter
+from rate_limit import default_limiter, check_rate_limit, rate_limit_headers
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -51,6 +51,28 @@ app.add_middleware(
     allow_methods=["GET", "POST", "DELETE"],
     allow_headers=["Content-Type", "Authorization"],
 )
+
+@app.middleware("http")
+async def add_rate_limit_headers(request: Request, call_next):
+    """Add X-RateLimit-* headers to all API responses."""
+    response = await call_next(request)
+    # Skip health/root endpoints (no rate limiting)
+    path = request.url.path
+    if path in ("/", "/health", "/docs", "/openapi.json", "/redoc"):
+        return response
+    # Add default rate limit info based on client IP
+    client_ip = request.client.host if request.client else "unknown"
+    remaining = default_limiter.get_remaining(client_ip)
+    now = int(time.time())
+    window_start = now - (now % default_limiter.window_seconds)
+    reset_at = window_start + default_limiter.window_seconds
+    # Only add headers if not already present (route-specific headers take priority)
+    if "X-RateLimit-Limit" not in response.headers:
+        response.headers["X-RateLimit-Limit"] = str(default_limiter.max_requests)
+        response.headers["X-RateLimit-Remaining"] = str(remaining)
+        response.headers["X-RateLimit-Reset"] = str(reset_at)
+    return response
+
 
 # Include routers
 app.include_router(register.router, tags=["Registration"])

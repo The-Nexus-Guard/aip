@@ -2261,3 +2261,39 @@ def run_tests():
 if __name__ == "__main__":
     success = run_tests()
     sys.exit(0 if success else 1)
+
+
+
+
+class TestRateLimitHeaders:
+    """Test X-RateLimit-* headers on API responses."""
+
+    def test_rate_limit_headers_on_verify(self):
+        """Verify endpoint returns rate limit headers."""
+        client = get_test_client()
+        resp = client.get("/verify?did=did:aip:nonexistent")
+        assert "X-RateLimit-Limit" in resp.headers
+        assert "X-RateLimit-Remaining" in resp.headers
+        assert "X-RateLimit-Reset" in resp.headers
+        assert int(resp.headers["X-RateLimit-Limit"]) > 0
+
+    def test_rate_limit_headers_on_stats(self):
+        """Stats endpoint returns rate limit headers."""
+        client = get_test_client()
+        resp = client.get("/stats")
+        assert resp.status_code == 200
+        assert "X-RateLimit-Limit" in resp.headers
+
+    def test_no_rate_limit_headers_on_health(self):
+        """Health endpoint should NOT have rate limit headers."""
+        client = get_test_client()
+        resp = client.get("/health")
+        assert resp.status_code == 200
+        assert "X-RateLimit-Limit" not in resp.headers
+
+    def test_no_rate_limit_headers_on_root(self):
+        """Root endpoint should NOT have rate limit headers."""
+        client = get_test_client()
+        resp = client.get("/")
+        assert resp.status_code == 200
+        assert "X-RateLimit-Limit" not in resp.headers
