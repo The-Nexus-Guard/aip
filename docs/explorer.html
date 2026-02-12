@@ -399,6 +399,17 @@
 
         <div id="error" class="error" style="display: none;"></div>
 
+        <!-- Agent Directory -->
+        <div id="directory" class="results" style="margin-bottom: 1.5rem;">
+            <div class="section-title" style="margin-bottom: 1rem;">
+                <span>📋 Agent Directory</span>
+                <span style="font-weight: normal; color: var(--fg-muted); font-size: 0.8rem;" id="dir-count"></span>
+            </div>
+            <div id="directory-list" style="display: flex; flex-direction: column; gap: 0.5rem;">
+                <div class="empty-state">Loading agents...</div>
+            </div>
+        </div>
+
         <!-- Trust Path Finder -->
         <div class="graph-container" style="margin-bottom: 1.5rem;">
             <div class="graph-title">
@@ -936,8 +947,60 @@
             }
         }
 
+        // Agent Directory
+        async function loadDirectory() {
+            const list = document.getElementById('directory-list');
+            const count = document.getElementById('dir-count');
+            try {
+                const res = await fetch(`${API_BASE}/registrations?limit=50`);
+                const data = await res.json();
+                count.textContent = `(${data.total} agents)`;
+                list.innerHTML = '';
+
+                for (const agent of data.registrations) {
+                    const shortDid = agent.did.replace('did:aip:', '').substring(0, 12) + '...';
+                    const platform = agent.platforms?.[0];
+                    const name = platform ? platform.username : shortDid;
+                    const date = new Date(agent.created_at + 'Z');
+                    const dateStr = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+
+                    // Fetch trust graph for vouch counts
+                    let vouchCount = 0;
+                    try {
+                        const tRes = await fetch(`${API_BASE}/trust-graph?did=${encodeURIComponent(agent.did)}`);
+                        if (tRes.ok) {
+                            const tData = await tRes.json();
+                            vouchCount = (tData.vouched_by?.length || 0) + (tData.vouches_for?.length || 0);
+                        }
+                    } catch(e) {}
+
+                    const item = document.createElement('div');
+                    item.style.cssText = 'display:flex; justify-content:space-between; align-items:center; padding:0.75rem 1rem; background:var(--bg-tertiary); border-radius:8px; cursor:pointer; transition:border-color 0.2s; border:1px solid transparent;';
+                    item.onmouseenter = () => item.style.borderColor = 'var(--accent)';
+                    item.onmouseleave = () => item.style.borderColor = 'transparent';
+                    item.onclick = () => { document.getElementById('did-input').value = agent.did; lookup(); };
+
+                    item.innerHTML = `
+                        <div>
+                            <div style="font-weight:600; font-size:0.95rem;">${name}</div>
+                            <div style="font-family:monospace; font-size:0.75rem; color:var(--fg-muted);">${agent.did}</div>
+                        </div>
+                        <div style="text-align:right;">
+                            ${vouchCount > 0 ? `<div style="font-size:0.8rem; color:var(--accent);">${vouchCount} vouch${vouchCount !== 1 ? 'es' : ''}</div>` : ''}
+                            <div style="font-size:0.75rem; color:var(--fg-muted);">${dateStr}</div>
+                            ${platform ? `<div style="font-size:0.7rem; color:var(--fg-muted);">${platform.platform}</div>` : ''}
+                        </div>
+                    `;
+                    list.appendChild(item);
+                }
+            } catch(e) {
+                list.innerHTML = `<div class="empty-state" style="color:#ef4444;">Failed to load: ${e.message}</div>`;
+            }
+        }
+
         // Load stats on page load
         loadStats();
+        loadDirectory();
 
         // Check for DID in URL params
         const params = new URLSearchParams(window.location.search);
