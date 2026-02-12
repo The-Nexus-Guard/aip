@@ -1,0 +1,20 @@
+<svg width="1200" height="630" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1200" height="630" fill="#09090b"/>
+  <rect x="0" y="0" width="1200" height="4" fill="#10b981"/>
+  <!-- Title -->
+  <text x="100" y="220" font-family="system-ui, -apple-system, sans-serif" font-size="72" font-weight="700" fill="#fafafa">AIP</text>
+  <text x="100" y="290" font-family="system-ui, -apple-system, sans-serif" font-size="36" font-weight="500" fill="#a1a1aa">Agent Identity Protocol</text>
+  <!-- Tagline -->
+  <text x="100" y="370" font-family="system-ui, -apple-system, sans-serif" font-size="28" fill="#10b981">Cryptographic identity &amp; trust for AI agents</text>
+  <!-- Features -->
+  <text x="100" y="440" font-family="monospace" font-size="22" fill="#71717a">DIDs · Vouches · Skill Signing · E2E Messaging</text>
+  <!-- pip install -->
+  <rect x="80" y="480" width="440" height="50" rx="8" fill="#18181b" stroke="#27272a" stroke-width="1"/>
+  <text x="100" y="513" font-family="monospace" font-size="22" fill="#10b981">$ pip install aip-identity</text>
+  <!-- Shield icon (simplified) -->
+  <g transform="translate(900, 150)">
+    <path d="M100,20 L180,50 L180,130 C180,180 140,220 100,240 C60,220 20,180 20,130 L20,50 Z" fill="none" stroke="#10b981" stroke-width="4" opacity="0.3"/>
+    <path d="M100,60 L140,80 L140,130 C140,155 120,175 100,185 C80,175 60,155 60,130 L60,80 Z" fill="none" stroke="#10b981" stroke-width="3" opacity="0.6"/>
+    <text x="100" y="140" font-family="system-ui" font-size="40" fill="#10b981" text-anchor="middle">✓</text>
+  </g>
+</svg>
