@@ -26,6 +26,18 @@ client = TestClient(app)
 
 class TestAdminEndpoints(unittest.TestCase):
 
+    def setUp(self):
+        """Reset database before each test."""
+        import sqlite3
+        conn = sqlite3.connect(_test_db_path)
+        for table in ["registrations", "vouches", "platform_links", "key_history", "messages", "skill_signatures"]:
+            try:
+                conn.execute(f"DELETE FROM {table}")
+            except sqlite3.OperationalError:
+                pass
+        conn.commit()
+        conn.close()
+
     def test_list_registrations_empty(self):
         resp = client.get("/admin/registrations")
         self.assertEqual(resp.status_code, 200)
