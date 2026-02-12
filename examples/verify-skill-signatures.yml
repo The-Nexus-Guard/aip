@@ -1,0 +1,66 @@
+# GitHub Actions workflow: Verify AIP skill signatures on PRs
+# Add this to .github/workflows/ in any repo with AIP-signed skills
+#
+# This workflow checks that all skill directories containing .aip-signature
+# files have valid, untampered signatures.
+
+name: Verify Skill Signatures
+
+on:
+  pull_request:
+    paths:
+      - 'skills/**'
+      - '**/.aip-signature'
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install AIP
+        run: pip install aip-identity
+
+      - name: Find and verify signed skills
+        run: |
+          set -e
+          FOUND=0
+          PASSED=0
+          FAILED=0
+
+          # Find all .aip-signature files
+          for sig in $(find . -name '.aip-signature' -type f); do
+            SKILL_DIR=$(dirname "$sig")
+            FOUND=$((FOUND + 1))
+            echo "🔍 Verifying: $SKILL_DIR"
+
+            if aip verify "$SKILL_DIR"; then
+              echo "  ✅ Valid signature"
+              PASSED=$((PASSED + 1))
+            else
+              echo "  ❌ INVALID or TAMPERED signature!"
+              FAILED=$((FAILED + 1))
+            fi
+            echo ""
+          done
+
+          echo "================================"
+          echo "Results: $FOUND found, $PASSED passed, $FAILED failed"
+          echo "================================"
+
+          if [ "$FOUND" -eq 0 ]; then
+            echo "ℹ️  No signed skills found in changed files"
+            exit 0
+          fi
+
+          if [ "$FAILED" -gt 0 ]; then
+            echo "❌ Signature verification failed!"
+            exit 1
+          fi
+
+          echo "✅ All signatures valid!"
