@@ -277,6 +277,17 @@ def cmd_vouch(args):
     print(f"   Scope: {args.scope or 'GENERAL'}")
 
 
+def cmd_revoke(args):
+    """Revoke a vouch you previously issued."""
+    creds = require_credentials()
+    client = get_client(creds, args.service)
+
+    result = client.revoke(vouch_id=args.vouch_id)
+    print(f"✅ Vouch revoked: {args.vouch_id}")
+    if result.get("message"):
+        print(f"   {result['message']}")
+
+
 def cmd_sign(args):
     """Sign a skill directory or file."""
     try:
@@ -846,6 +857,10 @@ def main():
     p_tg.add_argument("--format", choices=["ascii", "dot", "json"], default="ascii", help="Output format (default: ascii)")
 
     # whoami
+    p_revoke = sub.add_parser("revoke", help="Revoke a vouch you previously issued")
+    p_revoke.add_argument("vouch_id", help="ID of the vouch to revoke")
+    p_revoke.add_argument("--service", default=None, help="AIP service URL")
+
     sub.add_parser("whoami", help="Show your current identity")
 
     args = parser.parse_args()
@@ -854,6 +869,7 @@ def main():
         "register": cmd_register,
         "verify": cmd_verify,
         "vouch": cmd_vouch,
+        "revoke": cmd_revoke,
         "sign": cmd_sign,
         "message": cmd_message,
         "messages": cmd_messages,

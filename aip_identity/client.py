@@ -248,6 +248,33 @@ class AIPClient:
 
         return response.json()["vouch_id"]
 
+    def revoke(self, vouch_id: str) -> Dict[str, Any]:
+        """
+        Revoke a vouch you previously issued.
+
+        Args:
+            vouch_id: ID of the vouch to revoke
+
+        Returns:
+            Response dict with revocation confirmation
+        """
+        # Sign with domain separation: "revoke:{vouch_id}"
+        domain_payload = f"revoke:{vouch_id}".encode('utf-8')
+        signature = self.sign(domain_payload)
+
+        data = {
+            "voucher_did": self.did,
+            "vouch_id": vouch_id,
+            "signature": signature
+        }
+
+        response = requests.post(f"{self.service_url}/revoke", json=data)
+
+        if response.status_code != 200:
+            raise AIPError(f"Revoke failed: {response.text}")
+
+        return response.json()
+
     def get_trust_path(
         self,
         target_did: str,
