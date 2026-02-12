@@ -1937,6 +1937,7 @@ class TestProofPostVerification:
     def test_register_with_invalid_proof_post(self):
         """Registration with invalid proof_post_id fails (lines 166-177)."""
         import base64, hashlib, nacl.signing
+        from unittest.mock import AsyncMock, patch
         client = get_test_client()
 
         sk = nacl.signing.SigningKey.generate()
@@ -1945,14 +1946,16 @@ class TestProofPostVerification:
         key_hash = hashlib.sha256(pk_bytes).hexdigest()[:32]
         did = f"did:aip:{key_hash}"
 
-        # Register with proof_post_id that doesn't exist
-        resp = client.post("/register", json={
-            "did": did,
-            "public_key": pk_b64,
-            "platform": "moltbook",
-            "username": f"prooftest_{uuid.uuid4().hex[:8]}",
-            "proof_post_id": "nonexistent-post-id-12345"
-        })
+        # Mock the Moltbook API call to avoid hitting the real service
+        mock_result = {"verified": False, "error": "Post not found"}
+        with patch("routes.register.verify_proof_post", new_callable=AsyncMock, return_value=mock_result):
+            resp = client.post("/register", json={
+                "did": did,
+                "public_key": pk_b64,
+                "platform": "moltbook",
+                "username": f"prooftest_{uuid.uuid4().hex[:8]}",
+                "proof_post_id": "nonexistent-post-id-12345"
+            })
         # Should fail verification
         assert resp.status_code == 400
         assert "Proof verification failed" in resp.json()["detail"]

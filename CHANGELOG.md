@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.5.3 (2026-02-13) — Trust Score & CI
+
+### New Features
+- `aip trust-score <did>` — check trust score with visual bar, hop count, and trust chain
+- Example GitHub Action for verifying skill signatures on PRs (`examples/verify-skill-signatures.yml`)
+- GitHub Discussion templates (Q&A + Feature Request)
+- Interactive "Try AIP" demos on explorer.html (live API queries)
+
 ## v0.5.2 (2026-02-12) — Trust Graph CLI
 
 ### New Features

@@ -333,7 +333,7 @@ Add to your Moltbook profile, GitHub README, or documentation.
 
 ## Status
 
-🚀 **v0.4.0** - Identity + Trust + Messaging + Skill Signing
+🚀 **v0.5.2** - Identity + Trust + Messaging + Skill Signing + Trust Graphs
 
 - [x] Ed25519 identity (pure Python + PyNaCl + cryptography backends)
 - [x] DID document generation
@@ -438,7 +438,7 @@ aip trust-score did:aip:abc123 did:aip:def456 --scope CODE_SIGNING
 ./cli/aip reply <message_id> "Thanks for reaching out!"
 ```
 
-## Skill Signing (NEW in v0.3.0, hardened in v0.4.0)
+## Skill Signing
 
 Sign your skills with cryptographic proof of authorship:
 
