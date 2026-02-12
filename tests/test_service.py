@@ -1947,7 +1947,7 @@ class TestProofPostVerification:
         did = f"did:aip:{key_hash}"
 
         # Mock the Moltbook API call to avoid hitting the real service
-        mock_result = {"verified": False, "error": "Post not found"}
+        mock_result = {"valid": False, "error": "Post not found"}
         with patch("routes.register.verify_proof_post", new_callable=AsyncMock, return_value=mock_result):
             resp = client.post("/register", json={
                 "did": did,
@@ -2187,6 +2187,7 @@ class TestVerifyPlatformEndpoint:
     def test_verify_platform_invalid_proof(self):
         """Verify platform with invalid proof fails (lines 434-442)."""
         import base64, hashlib, nacl.signing
+        from unittest.mock import AsyncMock, patch
         client = get_test_client()
 
         sk = nacl.signing.SigningKey.generate()
@@ -2204,13 +2205,15 @@ class TestVerifyPlatformEndpoint:
         })
         assert reg_resp.status_code == 200
 
-        # Try to verify with nonexistent proof_post_id
-        resp = client.post("/verify-platform", json={
-            "did": did,
-            "platform": "moltbook",
-            "username": uname,
-            "proof_post_id": "nonexistent-proof-xyz"
-        })
+        # Mock the Moltbook API call to avoid hitting the real service
+        mock_result = {"valid": False, "error": "Post not found"}
+        with patch("routes.register.verify_proof_post", new_callable=AsyncMock, return_value=mock_result):
+            resp = client.post("/verify-platform", json={
+                "did": did,
+                "platform": "moltbook",
+                "username": uname,
+                "proof_post_id": "nonexistent-proof-xyz"
+            })
         assert resp.status_code == 400
         assert "Proof verification failed" in resp.json()["detail"]
 
