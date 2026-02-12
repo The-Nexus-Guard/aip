@@ -172,6 +172,9 @@ python3 examples/multi_agent_workflow.py
 
 # Full trust network demo
 python3 examples/trust_network_demo.py
+
+# Verify a signed skill (no account needed!)
+python3 examples/verify_skill.py ./my-skill/
 ```
 
 ## Installation
