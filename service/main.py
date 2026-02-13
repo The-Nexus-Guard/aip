@@ -116,7 +116,7 @@ async def root():
     """Service health check and info."""
     return {
         "service": "AIP - Agent Identity Protocol",
-        "version": "0.5.13",
+        "version": app.version,
         "status": "operational",
         "endpoints": {
             "register": "POST /register - Register a DID with platform identity",
@@ -159,7 +159,7 @@ async def health():
     return {
         "status": "healthy" if db_ok else "degraded",
         "timestamp": int(time.time()),
-        "version": "0.5.13",
+        "version": app.version,
         "checks": {
             "database": {"ok": db_ok, "error": db_error},
         },

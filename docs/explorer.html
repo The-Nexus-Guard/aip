@@ -1051,15 +1051,28 @@
                     const date = new Date(agent.created_at + 'Z');
                     const dateStr = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 
-                    // Fetch trust graph for vouch counts
+                    // Fetch trust graph + profile in parallel
                     let vouchCount = 0;
+                    let profile = null;
                     try {
-                        const tRes = await fetch(`${API_BASE}/trust-graph?did=${encodeURIComponent(agent.did)}`);
+                        const [tRes, pRes] = await Promise.all([
+                            fetch(`${API_BASE}/trust-graph?did=${encodeURIComponent(agent.did)}`),
+                            fetch(`${API_BASE}/agent/${encodeURIComponent(agent.did)}/profile`)
+                        ]);
                         if (tRes.ok) {
                             const tData = await tRes.json();
                             vouchCount = (tData.vouched_by?.length || 0) + (tData.vouches_for?.length || 0);
                         }
+                        if (pRes.ok) {
+                            profile = await pRes.json();
+                        }
                     } catch(e) {}
+
+                    const displayName = profile?.name || name;
+                    const bio = profile?.bio || '';
+                    const avatar = profile?.avatar || '';
+                    const website = profile?.website || '';
+                    const tags = profile?.tags || [];
 
                     const item = document.createElement('div');
                     item.style.cssText = 'display:flex; justify-content:space-between; align-items:center; padding:0.75rem 1rem; background:var(--bg-tertiary); border-radius:8px; cursor:pointer; transition:border-color 0.2s; border:1px solid transparent;';
@@ -1067,15 +1080,26 @@
                     item.onmouseleave = () => item.style.borderColor = 'transparent';
                     item.onclick = () => { document.getElementById('did-input').value = agent.did; lookup(); };
 
+                    const avatarHtml = avatar ? `<img src="${avatar}" alt="" style="width:32px;height:32px;border-radius:50%;margin-right:0.75rem;object-fit:cover;flex-shrink:0;" onerror="this.style.display='none'">` : '';
+                    const bioHtml = bio ? `<div style="font-size:0.8rem; color:var(--fg-muted); margin-top:2px; max-width:300px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${bio}</div>` : '';
+                    const tagsHtml = tags.length ? `<div style="margin-top:3px;">${tags.slice(0,3).map(t => `<span style="font-size:0.65rem; padding:1px 6px; background:var(--accent); color:#000; border-radius:10px; margin-right:3px;">${t}</span>`).join('')}</div>` : '';
+                    const websiteHtml = website ? `<div style="font-size:0.7rem; color:var(--accent); margin-top:2px;"><a href="${website}" target="_blank" rel="noopener" style="color:var(--accent); text-decoration:none;">🔗 ${website.replace(/^https?:\/\//, '').substring(0, 30)}</a></div>` : '';
+
                     item.innerHTML = `
-                        <div>
-                            <div style="font-weight:600; font-size:0.95rem;">${name}</div>
-                            <div style="font-family:monospace; font-size:0.75rem; color:var(--fg-muted);">${agent.did}</div>
+                        <div style="display:flex; align-items:center;">
+                            ${avatarHtml}
+                            <div>
+                                <div style="font-weight:600; font-size:0.95rem;">${displayName}</div>
+                                <div style="font-family:monospace; font-size:0.75rem; color:var(--fg-muted);">${agent.did}</div>
+                                ${bioHtml}
+                                ${tagsHtml}
+                            </div>
                         </div>
                         <div style="text-align:right;">
                             ${vouchCount > 0 ? `<div style="font-size:0.8rem; color:var(--accent);">${vouchCount} vouch${vouchCount !== 1 ? 'es' : ''}</div>` : ''}
                             <div style="font-size:0.75rem; color:var(--fg-muted);">${dateStr}</div>
                             ${platform ? `<div style="font-size:0.7rem; color:var(--fg-muted);">${platform.platform}</div>` : ''}
+                            ${websiteHtml}
                         </div>
                     `;
                     list.appendChild(item);
