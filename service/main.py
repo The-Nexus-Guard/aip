@@ -16,7 +16,7 @@ import time
 import os
 
 # Import routes
-from routes import register, verify, challenge, vouch, messaging, skill, onboard, admin
+from routes import register, verify, challenge, vouch, messaging, skill, onboard, admin, webhooks
 from rate_limit import default_limiter, check_rate_limit, rate_limit_headers
 
 @asynccontextmanager
@@ -35,7 +35,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="AIP - Agent Identity Protocol",
     description="Cryptographic identity and trust verification for AI agents",
-    version="0.5.7",
+    version="0.5.8",
     lifespan=lifespan,
 )
 
@@ -83,6 +83,7 @@ app.include_router(messaging.router, tags=["Messaging"])
 app.include_router(skill.router, tags=["Skills"])
 app.include_router(onboard.router, tags=["Onboarding"])
 app.include_router(admin.router, tags=["Admin"])
+app.include_router(webhooks.router, tags=["Webhooks"])
 
 
 logger = logging.getLogger("aip.cleanup")
@@ -114,7 +115,7 @@ async def root():
     """Service health check and info."""
     return {
         "service": "AIP - Agent Identity Protocol",
-        "version": "0.5.7",
+        "version": "0.5.8",
         "status": "operational",
         "endpoints": {
             "register": "POST /register - Register a DID with platform identity",
@@ -157,7 +158,7 @@ async def health():
     return {
         "status": "healthy" if db_ok else "degraded",
         "timestamp": int(time.time()),
-        "version": "0.5.7",
+        "version": "0.5.8",
         "checks": {
             "database": {"ok": db_ok, "error": db_error},
         },

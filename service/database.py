@@ -144,6 +144,24 @@ def init_database():
             )
         """)
 
+        # Webhooks table - notification callbacks for events
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS webhooks (
+                id TEXT PRIMARY KEY,
+                owner_did TEXT NOT NULL,
+                url TEXT NOT NULL,
+                events TEXT NOT NULL DEFAULT 'registration',
+                secret TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                last_triggered_at TIMESTAMP,
+                failure_count INTEGER DEFAULT 0,
+                active BOOLEAN DEFAULT 1,
+                FOREIGN KEY (owner_did) REFERENCES registrations(did)
+            )
+        """)
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_webhooks_owner ON webhooks(owner_did)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_webhooks_active ON webhooks(active)")
+
         # Create indexes
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_platform_links_did ON platform_links(did)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_vouches_voucher ON vouches(voucher_did)")
@@ -874,6 +892,72 @@ def run_all_cleanup() -> Dict[str, int]:
         "old_messages_removed": old_messages,
         "inbox_trimmed_messages": trimmed_messages,
     }
+
+
+# Webhook operations
+
+def add_webhook(webhook_id: str, owner_did: str, url: str, events: str = "registration", secret: Optional[str] = None) -> bool:
+    """Register a new webhook."""
+    with get_connection() as conn:
+        try:
+            conn.execute(
+                "INSERT INTO webhooks (id, owner_did, url, events, secret) VALUES (?, ?, ?, ?, ?)",
+                (webhook_id, owner_did, url, events, secret)
+            )
+            conn.commit()
+            return True
+        except sqlite3.IntegrityError:
+            return False
+
+
+def get_webhooks_for_event(event: str) -> List[Dict[str, Any]]:
+    """Get all active webhooks that subscribe to a given event."""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT * FROM webhooks WHERE active = 1 AND failure_count < 5"
+        )
+        rows = cursor.fetchall()
+        result = []
+        for row in rows:
+            d = dict(row)
+            subscribed_events = d.get("events", "").split(",")
+            if event in subscribed_events or "*" in subscribed_events:
+                result.append(d)
+        return result
+
+
+def get_webhooks_by_owner(owner_did: str) -> List[Dict[str, Any]]:
+    """Get all webhooks owned by a DID."""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM webhooks WHERE owner_did = ?", (owner_did,))
+        return [dict(row) for row in cursor.fetchall()]
+
+
+def delete_webhook(webhook_id: str, owner_did: str) -> bool:
+    """Delete a webhook (owner must match)."""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM webhooks WHERE id = ? AND owner_did = ?", (webhook_id, owner_did))
+        conn.commit()
+        return cursor.rowcount > 0
+
+
+def update_webhook_status(webhook_id: str, success: bool):
+    """Update webhook after trigger attempt."""
+    with get_connection() as conn:
+        if success:
+            conn.execute(
+                "UPDATE webhooks SET last_triggered_at = CURRENT_TIMESTAMP, failure_count = 0 WHERE id = ?",
+                (webhook_id,)
+            )
+        else:
+            conn.execute(
+                "UPDATE webhooks SET failure_count = failure_count + 1 WHERE id = ?",
+                (webhook_id,)
+            )
+        conn.commit()
 
 
 # Initialize on import

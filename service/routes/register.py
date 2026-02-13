@@ -177,7 +177,8 @@ async def register(request: RegistrationRequest, req: Request):
         proof_verified = True
 
     # Register the DID if new
-    if not existing:
+    is_new = not existing
+    if is_new:
         if not database.register_did(request.did, request.public_key):
             raise HTTPException(
                 status_code=500,
@@ -196,6 +197,20 @@ async def register(request: RegistrationRequest, req: Request):
             status_code=500,
             detail="Failed to add platform link"
         )
+
+    # Fire webhooks for new registrations
+    if is_new:
+        try:
+            from routes.webhooks import fire_webhooks
+            import asyncio
+            asyncio.ensure_future(fire_webhooks("registration", {
+                "event": "registration",
+                "did": request.did,
+                "platform": request.platform,
+                "username": request.username,
+            }))
+        except Exception:
+            pass  # Webhook failures should never block registration
 
     return RegistrationResponse(
         success=True,
