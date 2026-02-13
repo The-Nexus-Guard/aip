@@ -823,6 +823,88 @@ def cmd_whoami(args):
         print("(Could not reach AIP service for trust info)")
 
 
+# ── Export / Import ──────────────────────────────────────────────────
+
+def cmd_export(args):
+    """Export your identity as portable JSON."""
+    creds = require_credentials()
+    export_data = {
+        "aip_version": "1.0",
+        "did": creds["did"],
+        "public_key": creds.get("public_key", ""),
+        "platform": creds.get("platform_id", creds.get("platform", "")),
+        "username": creds.get("username", creds.get("platform_username", "")),
+        "exported_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+    }
+    if args.include_private:
+        if "private_key" in creds:
+            export_data["private_key"] = creds["private_key"]
+            print("⚠️  WARNING: Private key included. Keep this file secret!", file=sys.stderr)
+        else:
+            print("No private key found in credentials.", file=sys.stderr)
+
+    output = json.dumps(export_data, indent=2)
+    if args.output:
+        out_path = Path(args.output)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(out_path, "w") as f:
+            f.write(output + "\n")
+        if args.include_private:
+            os.chmod(out_path, 0o600)
+        print(f"✅ Identity exported to {out_path}", file=sys.stderr)
+    else:
+        print(output)
+
+
+def cmd_import(args):
+    """Import another agent's public key for offline verification."""
+    import urllib.request
+
+    keyring_dir = Path(args.keyring_dir) if args.keyring_dir else Path.home() / ".aip" / "keyring"
+    keyring_dir.mkdir(parents=True, exist_ok=True)
+
+    source = args.source
+
+    # If it looks like a DID, fetch from service
+    if source.startswith("did:aip:"):
+        url = f"{AIP_SERVICE}/admin/registrations/{source}"
+        try:
+            with urllib.request.urlopen(url, timeout=10) as resp:
+                data = json.loads(resp.read().decode())
+        except Exception as e:
+            print(f"❌ Failed to fetch DID from service: {e}", file=sys.stderr)
+            sys.exit(1)
+        # Handle nested response (admin endpoint wraps in "registration")
+        reg = data.get("registration", data)
+        agent_data = {
+            "did": reg.get("did", source),
+            "public_key": reg.get("public_key", ""),
+            "fetched_from": AIP_SERVICE,
+            "imported_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        }
+    elif Path(source).exists():
+        # Read from JSON file
+        with open(source) as f:
+            agent_data = json.load(f)
+        if "did" not in agent_data or "public_key" not in agent_data:
+            print("❌ Invalid identity file: must contain 'did' and 'public_key'", file=sys.stderr)
+            sys.exit(1)
+        agent_data["imported_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    else:
+        print(f"❌ Source not found: {source} (expected a file path or did:aip:... DID)", file=sys.stderr)
+        sys.exit(1)
+
+    # Save to keyring
+    did_slug = agent_data["did"].replace(":", "_")
+    out_path = keyring_dir / f"{did_slug}.json"
+    with open(out_path, "w") as f:
+        json.dump(agent_data, f, indent=2)
+
+    name = agent_data.get("username", agent_data["did"])
+    print(f"✅ Imported {name} ({agent_data['did']})")
+    print(f"   Saved to {out_path}")
+
+
 # ── Main ─────────────────────────────────────────────────────────────
 
 def main():
@@ -907,6 +989,16 @@ def main():
 
     sub.add_parser("whoami", help="Show your current identity")
 
+    # export
+    p_export = sub.add_parser("export", help="Export your identity (DID + public key) as portable JSON")
+    p_export.add_argument("-o", "--output", default=None, help="Output file (default: stdout)")
+    p_export.add_argument("--include-private", action="store_true", help="Include private key (DANGEROUS — for backup only)")
+
+    # import
+    p_import = sub.add_parser("import", help="Import another agent's public key for offline verification")
+    p_import.add_argument("source", help="JSON file path or DID to fetch from service")
+    p_import.add_argument("--keyring-dir", default=None, help="Directory to store imported keys (default: ~/.aip/keyring/)")
+
     args = parser.parse_args()
 
     commands = {
@@ -925,6 +1017,8 @@ def main():
         "trust-score": cmd_trust_score,
         "trust-graph": cmd_trust_graph,
         "search": cmd_search,
+        "export": cmd_export,
+        "import": cmd_import,
     }
 
     if args.command in commands:

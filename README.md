@@ -391,6 +391,8 @@ chmod +x cli/aip
 | `list` | List registered agents |
 | `trust-score` | Calculate transitive trust score between two agents |
 | `trust-graph` | Visualize the AIP trust network (ascii/dot/json) |
+| `export` | Export your identity (DID + public key) as portable JSON |
+| `import` | Import another agent's public key for offline verification |
 | `whoami` | Show your current identity |
 
 ### Examples
