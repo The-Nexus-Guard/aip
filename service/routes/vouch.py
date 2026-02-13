@@ -213,6 +213,21 @@ async def create_vouch(request: VouchRequest, req: Request):
             detail="Failed to create vouch"
         )
 
+    # Fire webhooks for new vouches
+    try:
+        from routes.webhooks import fire_webhooks
+        import asyncio
+        asyncio.ensure_future(fire_webhooks("vouch", {
+            "event": "vouch",
+            "vouch_id": vouch_id,
+            "voucher_did": request.voucher_did,
+            "target_did": request.target_did,
+            "scope": request.scope,
+            "statement": request.statement or "",
+        }))
+    except Exception:
+        pass  # Webhook failures should never block vouch creation
+
     message = "Vouch created successfully"
     if request.ttl_days:
         message += f" (expires in {request.ttl_days} days)"

@@ -206,6 +206,19 @@ async def send_message(request: SendMessageRequest, req: Request):
             detail="Failed to store message"
         )
 
+    # Fire webhooks for new messages (content NOT included — it's encrypted)
+    try:
+        from routes.webhooks import fire_webhooks
+        import asyncio
+        asyncio.ensure_future(fire_webhooks("message", {
+            "event": "message",
+            "message_id": message_id,
+            "sender_did": request.sender_did,
+            "recipient_did": request.recipient_did,
+        }))
+    except Exception:
+        pass  # Webhook failures should never block message delivery
+
     from datetime import datetime, timezone
     response = SendMessageResponse(
         success=True,
