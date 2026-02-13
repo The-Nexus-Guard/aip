@@ -77,6 +77,10 @@
             font-size: 0.9rem;
         }
 
+        [role="button"]:focus-visible {
+            outline: 2px solid var(--accent);
+            outline-offset: 2px;
+        }
         input:focus {
             outline: none;
             border-color: var(--accent);
@@ -1193,7 +1197,17 @@
                     item.style.cssText = 'display:flex; justify-content:space-between; align-items:center; padding:0.75rem 1rem; background:var(--bg-tertiary); border-radius:8px; cursor:pointer; transition:border-color 0.2s; border:1px solid transparent;';
                     item.onmouseenter = () => item.style.borderColor = 'var(--accent)';
                     item.onmouseleave = () => item.style.borderColor = 'transparent';
+                    item.setAttribute('tabindex', '0');
+                    item.setAttribute('role', 'button');
+                    item.setAttribute('aria-label', `View ${displayName || name}`);
                     item.onclick = () => { showAgentModal(agent.did); };
+                    item.onkeydown = (e) => {
+                        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); showAgentModal(agent.did); }
+                        else if (e.key === 'ArrowDown') { e.preventDefault(); const next = item.nextElementSibling; if (next) next.focus(); }
+                        else if (e.key === 'ArrowUp') { e.preventDefault(); const prev = item.previousElementSibling; if (prev) prev.focus(); }
+                        else if (e.key === 'Home') { e.preventDefault(); const first = item.parentElement.firstElementChild; if (first) first.focus(); }
+                        else if (e.key === 'End') { e.preventDefault(); const last = item.parentElement.lastElementChild; if (last) last.focus(); }
+                    };
 
                     const avatarHtml = avatar ? `<img src="${avatar}" alt="" style="width:32px;height:32px;border-radius:50%;margin-right:0.75rem;object-fit:cover;flex-shrink:0;" onerror="this.style.display='none'">` : '';
                     const bioHtml = bio ? `<div style="font-size:0.8rem; color:var(--fg-muted); margin-top:2px; max-width:300px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${bio}</div>` : '';
@@ -1448,7 +1462,13 @@
             }
         }
 
-        document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
+        document.addEventListener('keydown', e => {
+            if (e.key === 'Escape') closeModal();
+            if (e.key === '/' && !e.ctrlKey && !e.metaKey && document.activeElement.tagName !== 'INPUT') {
+                e.preventDefault();
+                document.getElementById('did-input').focus();
+            }
+        });
 
         // Load stats on page load
         loadStats();
