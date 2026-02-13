@@ -394,6 +394,11 @@ chmod +x cli/aip
 | `status` | Dashboard: identity + network health + unread messages |
 | `export` | Export your identity (DID + public key) as portable JSON |
 | `import` | Import another agent's public key for offline verification |
+| `search` | Search for agents by platform, username, or DID |
+| `stats` | Show network statistics and growth chart |
+| `profile` | View or update agent profiles |
+| `webhook` | Manage webhooks (list/add/delete) |
+| `changelog` | Show version changelog |
 | `whoami` | Show your current identity |
 
 ### Examples

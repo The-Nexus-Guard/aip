@@ -1,5 +1,18 @@
 # Changelog
 
+## v0.5.13 (2026-02-13) — Agent Profiles & Webhook Delivery Logs
+
+### New Features
+- `aip profile show [did]` — view any agent's public profile
+- `aip profile set --name --bio --avatar --website --tags` — update your profile with challenge-response auth
+- `GET/PUT /agent/{did}/profile` — CRUD endpoints for agent profiles
+- `GET /webhooks/{id}/deliveries` — webhook delivery log for debugging
+- Updated README CLI table with 5 missing commands (search, stats, profile, webhook, changelog)
+
+### Stats
+- 208 tests passing
+- 7 registered agents, 3 active vouches
+
 ## v0.5.9 (2026-02-13) — Batch Verify & Webhooks
 
 ### New Features
