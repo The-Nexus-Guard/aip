@@ -334,13 +334,36 @@ def cmd_message(args):
     client = get_client(creds, args.service)
 
     import requests as req
+    import base64 as b64
+    from datetime import datetime, timezone
+
+    # Fetch recipient's public key for encryption
+    admin_resp = req.get(f"{client.service_url}/admin/registrations/{args.recipient}", timeout=10)
+    if not admin_resp.ok:
+        print(f"❌ Could not find recipient: {admin_resp.text}")
+        sys.exit(1)
+    pub_key_b64 = admin_resp.json()["registration"]["public_key"]
+
+    # Encrypt with SealedBox
+    from nacl.signing import VerifyKey
+    from nacl.public import SealedBox
+    vk = VerifyKey(b64.b64decode(pub_key_b64))
+    box = SealedBox(vk.to_curve25519_public_key())
+    encrypted_b64 = b64.b64encode(box.encrypt(args.content.encode())).decode()
+
+    # Sign with timestamp (domain-separated)
+    timestamp = datetime.now(timezone.utc).isoformat()
+    sig_payload = f"{client.did}|{args.recipient}|{timestamp}|{encrypted_b64}"
+    signature = client.sign(sig_payload.encode())
+
     resp = req.post(
         f"{client.service_url}/message",
         json={
             "sender_did": client.did,
             "recipient_did": args.recipient,
-            "content": args.content,
-            "signature": client.sign(f"{client.did}|{args.recipient}|{args.content}".encode()),
+            "encrypted_content": encrypted_b64,
+            "signature": signature,
+            "timestamp": timestamp,
         },
         timeout=10,
     )
@@ -503,13 +526,34 @@ def cmd_reply(args):
     reply_prefix = f"[Re: {args.message_id[:8]}] "
     full_content = reply_prefix + content
 
+    import base64 as b64
+    from datetime import datetime, timezone
+
+    # Encrypt with recipient's public key
+    admin_resp = req.get(f"{service}/admin/registrations/{recipient_did}", timeout=10)
+    if not admin_resp.ok:
+        print(f"❌ Could not find recipient: {admin_resp.text}")
+        sys.exit(1)
+    pub_key_b64 = admin_resp.json()["registration"]["public_key"]
+
+    from nacl.signing import VerifyKey
+    from nacl.public import SealedBox
+    vk = VerifyKey(b64.b64decode(pub_key_b64))
+    box = SealedBox(vk.to_curve25519_public_key())
+    encrypted_b64 = b64.b64encode(box.encrypt(full_content.encode())).decode()
+
+    timestamp = datetime.now(timezone.utc).isoformat()
+    sig_payload = f"{client.did}|{recipient_did}|{timestamp}|{encrypted_b64}"
+    signature_reply = client.sign(sig_payload.encode())
+
     resp = req.post(
         f"{service}/message",
         json={
             "sender_did": client.did,
             "recipient_did": recipient_did,
-            "content": full_content,
-            "signature": client.sign(f"{client.did}|{recipient_did}|{full_content}".encode()),
+            "encrypted_content": encrypted_b64,
+            "signature": signature_reply,
+            "timestamp": timestamp,
         },
         timeout=10,
     )
