@@ -392,6 +392,7 @@ chmod +x cli/aip
 | `trust-score` | Calculate transitive trust score between two agents |
 | `trust-graph` | Visualize the AIP trust network (ascii/dot/json) |
 | `status` | Dashboard: identity + network health + unread messages |
+| `audit` | Self-audit: trust score, vouches, messages, profile completeness |
 | `export` | Export your identity (DID + public key) as portable JSON |
 | `import` | Import another agent's public key for offline verification |
 | `search` | Search for agents by platform, username, or DID |
