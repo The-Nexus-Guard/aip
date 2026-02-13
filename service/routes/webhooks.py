@@ -154,6 +154,23 @@ async def delete_webhook(webhook_id: str, request: WebhookDeleteRequest, req: Re
     return {"success": True, "message": "Webhook deleted"}
 
 
+@router.get("/webhooks/{webhook_id}/deliveries")
+async def get_webhook_deliveries(webhook_id: str, req: Request, limit: int = 20):
+    """Get delivery logs for a webhook. Limited to last 20 by default."""
+    client_ip = req.client.host if req.client else "unknown"
+    allowed, retry_after = default_limiter.is_allowed(client_ip)
+    if not allowed:
+        raise HTTPException(status_code=429, detail=f"Rate limit exceeded.")
+
+    limit = min(limit, 100)
+    deliveries = database.get_webhook_deliveries(webhook_id, limit=limit)
+    return {
+        "webhook_id": webhook_id,
+        "deliveries": deliveries,
+        "count": len(deliveries),
+    }
+
+
 async def fire_webhooks(event: str, payload: dict):
     """Fire all webhooks subscribed to an event. Non-blocking."""
     hooks = database.get_webhooks_for_event(event)
@@ -168,15 +185,26 @@ async def fire_webhooks(event: str, payload: dict):
             sig = hmac.new(hook["secret"].encode(), payload_json.encode(), hashlib.sha256).hexdigest()
             headers["X-AIP-Signature"] = f"sha256={sig}"
 
+        start_ms = int(time.time() * 1000)
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
                 resp = await client.post(hook["url"], content=payload_json, headers=headers)
+                duration = int(time.time() * 1000) - start_ms
                 success = 200 <= resp.status_code < 300
                 database.update_webhook_status(hook["id"], success)
+                database.log_webhook_delivery(
+                    hook["id"], event, success,
+                    status_code=resp.status_code, duration_ms=duration
+                )
                 if not success:
                     logger.warning(f"Webhook {hook['id']} returned {resp.status_code}")
         except Exception as e:
+            duration = int(time.time() * 1000) - start_ms
             database.update_webhook_status(hook["id"], False)
+            database.log_webhook_delivery(
+                hook["id"], event, False,
+                error=str(e)[:500], duration_ms=duration
+            )
             logger.error(f"Webhook {hook['id']} failed: {e}")
 
     # Fire all in background

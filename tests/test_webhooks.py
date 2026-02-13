@@ -114,3 +114,54 @@ class TestWebhookCRUD:
         sig = _sign(key, f"webhook:{url}")
         resp = requests.post(f"{local_service}/webhooks", json={"owner_did": did, "url": url, "events": ["*"], "signature": sig})
         assert resp.status_code == 200
+
+
+class TestWebhookDeliveries:
+    def test_delivery_log_empty(self, local_service):
+        """Delivery log returns empty for webhook with no deliveries."""
+        did, pub, key = _make_agent()
+        reg_resp = requests.post(f"{local_service}/register", json={"did": did, "public_key": pub, "platform": "test", "username": "whdeliv1"})
+        assert reg_resp.status_code == 200, f"Register failed: {reg_resp.status_code} {reg_resp.text}"
+        url = "https://example.com/hook-del-empty"
+        sig = _sign(key, f"webhook:{url}")
+        resp = requests.post(f"{local_service}/webhooks", json={"owner_did": did, "url": url, "events": ["registration"], "signature": sig})
+        assert resp.status_code == 200, f"Webhook create failed: {resp.status_code} {resp.text}"
+        wh_id = resp.json()["id"]
+
+        resp = requests.get(f"{local_service}/webhooks/{wh_id}/deliveries")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["webhook_id"] == wh_id
+        assert data["deliveries"] == []
+        assert data["count"] == 0
+
+    def test_delivery_log_after_fire(self, local_service):
+        """Delivery logs are recorded when webhooks fire on registration."""
+        import time
+        did, pub, key = _make_agent()
+        requests.post(f"{local_service}/register", json={"did": did, "public_key": pub, "platform": "test", "username": "whdeliv2"})
+
+        # Create a webhook that subscribes to registration events
+        url = "https://example.com/hook-delivery-test"
+        sig = _sign(key, f"webhook:{url}")
+        resp = requests.post(f"{local_service}/webhooks", json={"owner_did": did, "url": url, "events": ["registration"], "signature": sig})
+        assert resp.status_code == 200
+        wh_id = resp.json()["id"]
+
+        # Trigger a registration event (new agent registers, webhook fires)
+        did2, pub2, key2 = _make_agent()
+        requests.post(f"{local_service}/register", json={"did": did2, "public_key": pub2, "platform": "test", "username": "whdeliv3"})
+
+        # Give async webhook time to fire
+        time.sleep(1)
+
+        resp = requests.get(f"{local_service}/webhooks/{wh_id}/deliveries")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["webhook_id"] == wh_id
+        # Should have at least one delivery (the registration event)
+        assert data["count"] >= 1
+        delivery = data["deliveries"][0]
+        assert "success" in delivery
+        assert "event" in delivery
+        assert delivery["event"] == "registration"

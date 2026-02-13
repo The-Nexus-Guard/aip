@@ -162,6 +162,22 @@ def init_database():
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_webhooks_owner ON webhooks(owner_did)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_webhooks_active ON webhooks(active)")
 
+        # Webhook delivery logs
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS webhook_deliveries (
+                id TEXT PRIMARY KEY,
+                webhook_id TEXT NOT NULL,
+                event TEXT NOT NULL,
+                status_code INTEGER,
+                success BOOLEAN NOT NULL,
+                error TEXT,
+                duration_ms INTEGER,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (webhook_id) REFERENCES webhooks(id) ON DELETE CASCADE
+            )
+        """)
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_wid ON webhook_deliveries(webhook_id)")
+
         # Agent profiles table - optional metadata
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS profiles (
@@ -972,6 +988,33 @@ def update_webhook_status(webhook_id: str, success: bool):
                 (webhook_id,)
             )
         conn.commit()
+
+
+def log_webhook_delivery(webhook_id: str, event: str, success: bool,
+                         status_code: Optional[int] = None, error: Optional[str] = None,
+                         duration_ms: Optional[int] = None) -> str:
+    """Log a webhook delivery attempt."""
+    delivery_id = str(__import__('uuid').uuid4())
+    with get_connection() as conn:
+        conn.execute(
+            """INSERT INTO webhook_deliveries (id, webhook_id, event, status_code, success, error, duration_ms)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (delivery_id, webhook_id, event, status_code, success, error, duration_ms)
+        )
+        conn.commit()
+    return delivery_id
+
+
+def get_webhook_deliveries(webhook_id: str, limit: int = 20) -> List[Dict[str, Any]]:
+    """Get recent delivery logs for a webhook."""
+    with get_connection() as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            """SELECT id, webhook_id, event, status_code, success, error, duration_ms, created_at
+               FROM webhook_deliveries WHERE webhook_id = ? ORDER BY created_at DESC LIMIT ?""",
+            (webhook_id, limit)
+        ).fetchall()
+        return [dict(r) for r in rows]
 
 
 # Profile operations
