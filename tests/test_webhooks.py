@@ -128,7 +128,7 @@ class TestWebhookDeliveries:
         assert resp.status_code == 200, f"Webhook create failed: {resp.status_code} {resp.text}"
         wh_id = resp.json()["id"]
 
-        resp = requests.get(f"{local_service}/webhooks/{wh_id}/deliveries")
+        resp = requests.get(f"{local_service}/webhooks/{wh_id}/deliveries?owner_did={did}")
         assert resp.status_code == 200
         data = resp.json()
         assert data["webhook_id"] == wh_id
@@ -155,7 +155,7 @@ class TestWebhookDeliveries:
         # Give async webhook time to fire
         time.sleep(1)
 
-        resp = requests.get(f"{local_service}/webhooks/{wh_id}/deliveries")
+        resp = requests.get(f"{local_service}/webhooks/{wh_id}/deliveries?owner_did={did}")
         assert resp.status_code == 200
         data = resp.json()
         assert data["webhook_id"] == wh_id
@@ -165,3 +165,30 @@ class TestWebhookDeliveries:
         assert "success" in delivery
         assert "event" in delivery
         assert delivery["event"] == "registration"
+
+    def test_delivery_log_requires_owner(self, local_service):
+        """Delivery log rejects requests without owner_did."""
+        resp = requests.get(f"{local_service}/webhooks/fake-id/deliveries")
+        assert resp.status_code == 400
+
+    def test_delivery_log_wrong_owner(self, local_service):
+        """Delivery log rejects requests from non-owner."""
+        did, pub, key = _make_agent()
+        requests.post(f"{local_service}/register", json={"did": did, "public_key": pub, "platform": "test", "username": "whown1"})
+        url = "https://example.com/hook-own-test"
+        sig = _sign(key, f"webhook:{url}")
+        resp = requests.post(f"{local_service}/webhooks", json={"owner_did": did, "url": url, "events": ["registration"], "signature": sig})
+        wh_id = resp.json()["id"]
+
+        resp = requests.get(f"{local_service}/webhooks/{wh_id}/deliveries?owner_did=did:aip:wrong")
+        assert resp.status_code == 403
+
+    def test_ssrf_private_ip_rejected(self, local_service):
+        """Webhook creation rejects URLs resolving to private IPs."""
+        did, pub, key = _make_agent()
+        requests.post(f"{local_service}/register", json={"did": did, "public_key": pub, "platform": "test", "username": "whssrf1"})
+        url = "https://localhost/metadata"
+        sig = _sign(key, f"webhook:{url}")
+        resp = requests.post(f"{local_service}/webhooks", json={"owner_did": did, "url": url, "events": ["registration"], "signature": sig})
+        assert resp.status_code == 400
+        assert "private" in resp.json()["detail"].lower() or "internal" in resp.json()["detail"].lower()

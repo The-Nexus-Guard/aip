@@ -63,7 +63,7 @@ class RevokeRequest(BaseModel):
     """Request to revoke a vouch."""
     vouch_id: str = Field(..., description="ID of vouch to revoke")
     voucher_did: str = Field(..., description="DID of the voucher (must match)")
-    signature: str = Field(..., description="Base64 Ed25519 signature of the `vouch_id` UUID string (UTF-8 encoded)")
+    signature: str = Field(..., description="Base64 Ed25519 signature of 'revoke:{vouch_id}' (domain-separated, UTF-8 encoded)")
 
 
 class TrustPathResponse(BaseModel):

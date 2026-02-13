@@ -7,11 +7,14 @@ Supported events: registration, vouch, message
 import asyncio
 import hashlib
 import hmac
+import ipaddress
 import json
 import logging
+import socket
 import time
 import uuid
 from typing import Optional, List
+from urllib.parse import urlparse
 
 import httpx
 from fastapi import APIRouter, HTTPException, Request
@@ -51,6 +54,24 @@ class WebhookDeleteRequest(BaseModel):
     signature: str = Field(..., description="Base64 Ed25519 signature of 'delete-webhook:{webhook_id}' with owner's private key")
 
 
+def _is_safe_url(url: str) -> bool:
+    """Check that a webhook URL doesn't resolve to private/internal IPs (SSRF protection)."""
+    try:
+        parsed = urlparse(url)
+        hostname = parsed.hostname
+        if not hostname:
+            return False
+        # Resolve hostname to IPs
+        addrs = socket.getaddrinfo(hostname, parsed.port or 443, proto=socket.IPPROTO_TCP)
+        for family, _type, _proto, _canonname, sockaddr in addrs:
+            ip = ipaddress.ip_address(sockaddr[0])
+            if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
+                return False
+        return True
+    except (socket.gaierror, ValueError):
+        return False
+
+
 def _verify_signature(did: str, message: str, signature_b64: str) -> bool:
     """Verify an Ed25519 signature for a DID."""
     import base64
@@ -83,9 +104,12 @@ async def create_webhook(request: WebhookCreateRequest, req: Request):
     if invalid:
         raise HTTPException(status_code=400, detail=f"Invalid events: {invalid}. Valid: {VALID_EVENTS}")
 
-    # Validate URL
+    # Validate URL (SSRF protection)
     if not request.url.startswith("https://"):
         raise HTTPException(status_code=400, detail="Webhook URL must use HTTPS")
+
+    if not _is_safe_url(request.url):
+        raise HTTPException(status_code=400, detail="Webhook URL resolves to a private/internal IP address")
 
     # Verify ownership
     if not _verify_signature(request.owner_did, f"webhook:{request.url}", request.signature):
@@ -155,12 +179,20 @@ async def delete_webhook(webhook_id: str, request: WebhookDeleteRequest, req: Re
 
 
 @router.get("/webhooks/{webhook_id}/deliveries")
-async def get_webhook_deliveries(webhook_id: str, req: Request, limit: int = 20):
-    """Get delivery logs for a webhook. Limited to last 20 by default."""
+async def get_webhook_deliveries(webhook_id: str, req: Request, owner_did: str = None, limit: int = 20):
+    """Get delivery logs for a webhook. Requires owner_did for ownership verification."""
     client_ip = req.client.host if req.client else "unknown"
     allowed, retry_after = default_limiter.is_allowed(client_ip)
     if not allowed:
         raise HTTPException(status_code=429, detail=f"Rate limit exceeded.")
+
+    if not owner_did:
+        raise HTTPException(status_code=400, detail="owner_did query parameter required")
+
+    # Verify the webhook belongs to this DID
+    owner_hooks = database.get_webhooks_by_owner(owner_did)
+    if not any(h["id"] == webhook_id for h in owner_hooks):
+        raise HTTPException(status_code=403, detail="Webhook not found or not owned by this DID")
 
     limit = min(limit, 100)
     deliveries = database.get_webhook_deliveries(webhook_id, limit=limit)
@@ -180,6 +212,13 @@ async def fire_webhooks(event: str, payload: dict):
     payload_json = json.dumps(payload, default=str)
 
     async def _send(hook):
+        # SSRF check at delivery time too (DNS could change)
+        if not _is_safe_url(hook["url"]):
+            logger.warning(f"Webhook {hook['id']} blocked: URL resolves to private IP")
+            database.update_webhook_status(hook["id"], False)
+            database.log_webhook_delivery(hook["id"], event, False, error="SSRF: private IP")
+            return
+
         headers = {"Content-Type": "application/json", "X-AIP-Event": event}
         if hook.get("secret"):
             sig = hmac.new(hook["secret"].encode(), payload_json.encode(), hashlib.sha256).hexdigest()

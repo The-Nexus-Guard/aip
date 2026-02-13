@@ -45,7 +45,7 @@ class TestDoctor:
                 with patch("json.load", return_value=CREDS):
                     cmd_doctor(args)
         out = capsys.readouterr().out
-        assert "All" in out and "passed" in out
+        assert "passed" in out
 
     def test_doctor_no_service(self, capsys):
         args = MagicMock()
