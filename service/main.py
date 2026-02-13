@@ -4,6 +4,7 @@ AIP Verification Service - Main FastAPI Application
 Provides identity verification and trust management for AI agents.
 """
 
+import os
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -47,8 +48,9 @@ app.add_middleware(
         "https://aip-service.fly.dev",
         "https://www.moltbook.com",
     ],
+    allow_origin_regex=r"http://(localhost|127\.0\.0\.1)(:\d+)?" if os.environ.get("AIP_DEV_MODE") else None,
     allow_credentials=False,
-    allow_methods=["GET", "POST", "DELETE"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
     allow_headers=["Content-Type", "Authorization"],
 )
 
