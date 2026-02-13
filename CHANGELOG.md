@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.5.4 (2026-02-13) — Search & Revoke
+
+### New Features
+- `aip search <query>` — search agents by platform, username, or DID
+- `aip revoke <vouch_id>` — revoke a vouch you previously issued (domain-separated signatures)
+
 ## v0.5.3 (2026-02-13) — Trust Score & Cleanup
 
 ### New Features

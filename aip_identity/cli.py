@@ -765,6 +765,44 @@ def cmd_list(args):
         sys.exit(1)
 
 
+def cmd_search(args):
+    """Search agents by platform or username."""
+    import requests
+    service = getattr(args, "service", None) or AIP_SERVICE
+    url = f"{service}/admin/registrations"
+    params = {"limit": args.limit}
+    if args.platform:
+        params["platform"] = args.platform
+    try:
+        resp = requests.get(url, params=params, timeout=15)
+        resp.raise_for_status()
+        data = resp.json()
+        regs = data.get("registrations", [])
+        query = args.query.lower()
+        # Filter by query matching platform or username
+        matches = []
+        for r in regs:
+            platforms = r.get("platforms", [])
+            for p in platforms:
+                if query in p.get("platform", "").lower() or query in p.get("username", "").lower():
+                    matches.append((r, p))
+                    break
+            else:
+                if query in r.get("did", "").lower():
+                    matches.append((r, {"platform": "—", "username": "—"}))
+        if not matches:
+            print(f"No agents matching '{args.query}' found.")
+            return
+        print(f"{'DID':<45} {'Platform':<12} {'Username':<25} {'Created'}")
+        print("-" * 100)
+        for r, p in matches:
+            print(f"{r['did']:<45} {p.get('platform','?'):<12} {p.get('username','?'):<25} {r.get('created_at','?')}")
+        print(f"\n{len(matches)} result(s)")
+    except requests.RequestException as e:
+        print(f"Error: {e}")
+        sys.exit(1)
+
+
 def cmd_whoami(args):
     """Show your current identity."""
     creds = require_credentials()
@@ -861,6 +899,12 @@ def main():
     p_revoke.add_argument("vouch_id", help="ID of the vouch to revoke")
     p_revoke.add_argument("--service", default=None, help="AIP service URL")
 
+    # search
+    p_search = sub.add_parser("search", help="Search agents by platform or username")
+    p_search.add_argument("query", help="Search term (matched against platform or username)")
+    p_search.add_argument("--platform", default=None, help="Filter by platform (e.g. moltbook, github)")
+    p_search.add_argument("--limit", type=int, default=50, help="Max results (default: 50)")
+
     sub.add_parser("whoami", help="Show your current identity")
 
     args = parser.parse_args()
@@ -880,6 +924,7 @@ def main():
         "list": cmd_list,
         "trust-score": cmd_trust_score,
         "trust-graph": cmd_trust_graph,
+        "search": cmd_search,
     }
 
     if args.command in commands:
