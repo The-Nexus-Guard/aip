@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "aip-identity"
-version = "0.5.16"
+version = "0.5.17"
 description = "Cryptographic identity, trust chains, and E2E encrypted messaging for AI agents"
 readme = "README.md"
 license = {text = "MIT"}
