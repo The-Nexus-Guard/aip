@@ -1,5 +1,16 @@
 # Changelog
 
+## v0.5.7 (2026-02-13) — Stats & Growth
+
+### New Features
+- `aip stats` — network statistics with daily registration growth chart
+- Enhanced `/stats` API endpoint with message counts, skill signatures, and daily growth data
+- Consolidated duplicate stats routes for cleaner API
+
+### Stats
+- 189 tests passing
+- 6 registered agents, 3 active vouches
+
 ## v0.5.6 (2026-02-13) — Status Dashboard
 
 ### New Features
