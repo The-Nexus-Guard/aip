@@ -1544,6 +1544,141 @@ def cmd_demo(args):
     print()
 
 
+def cmd_doctor(args):
+    """Diagnose AIP setup: connectivity, credentials, service compatibility."""
+    import urllib.request
+    import platform as plat_mod
+
+    service = args.service or AIP_SERVICE
+    checks = []
+    warnings = []
+
+    def check(name, ok, detail=""):
+        status = "✅" if ok else "❌"
+        checks.append((name, ok))
+        msg = f"  {status} {name}"
+        if detail:
+            msg += f" — {detail}"
+        print(msg)
+        return ok
+
+    print("═══ AIP Doctor ═══\n")
+    print(f"  Python: {plat_mod.python_version()}")
+    print(f"  OS: {plat_mod.system()} {plat_mod.release()}")
+    print(f"  Service: {service}")
+    print()
+
+    # 1. Check dependencies
+    print("  📦 Dependencies")
+    for dep in ["nacl", "requests"]:
+        try:
+            __import__(dep)
+            check(f"  {dep}", True, "installed")
+        except ImportError:
+            check(f"  {dep}", False, "missing — pip install pynacl requests")
+    print()
+
+    # 2. Service connectivity
+    print("  🌐 Connectivity")
+    svc_ok = False
+    svc_version = "?"
+    try:
+        with urllib.request.urlopen(f"{service}/health", timeout=10) as resp:
+            health = json.loads(resp.read().decode())
+        svc_ok = health.get("status") == "healthy"
+        svc_version = health.get("version", "?")
+        db_ok = health.get("checks", {}).get("database", {}).get("ok", False)
+        check("  Service reachable", svc_ok, f"v{svc_version}")
+        check("  Database", db_ok)
+    except Exception as e:
+        check("  Service reachable", False, str(e))
+    print()
+
+    # 3. Credentials
+    print("  🔑 Credentials")
+    creds_path = Path.home() / ".aip" / "credentials.json"
+    alt_paths = [creds_path, Path("aip_credentials.json"), Path("credentials/aip_credentials.json")]
+    creds = None
+    creds_file = None
+    for p in alt_paths:
+        if p.exists():
+            try:
+                with open(p) as f:
+                    creds = json.load(f)
+                creds_file = p
+                break
+            except Exception:
+                pass
+
+    if creds:
+        check("  Credentials file", True, str(creds_file))
+        did = creds.get("did", "")
+        has_did = bool(did and did.startswith("did:aip:"))
+        check("  DID format", has_did, did[:40] if did else "missing")
+        has_pk = bool(creds.get("private_key"))
+        check("  Private key", has_pk, "present" if has_pk else "MISSING — cannot sign")
+        has_pub = bool(creds.get("public_key"))
+        check("  Public key", has_pub, "present" if has_pub else "MISSING")
+
+        # 4. Registration check (online)
+        if svc_ok and has_did:
+            print()
+            print("  📡 Registration")
+            try:
+                with urllib.request.urlopen(f"{service}/identity/{did}", timeout=5) as resp:
+                    info = json.loads(resp.read().decode())
+                registered = bool(info.get("did"))
+                check("  Registered on service", registered)
+                score = info.get("trust_score", 0)
+                check("  Trust score > 0", score > 0, f"{score:.2f}")
+                v_recv = info.get("vouches_received", 0)
+                if v_recv == 0:
+                    warnings.append("No vouches received — ask a trusted agent to vouch for you")
+            except urllib.request.HTTPError as e:
+                if e.code == 404:
+                    check("  Registered on service", False, "DID not found — run `aip register`")
+                else:
+                    check("  Registered on service", False, f"HTTP {e.code}")
+            except Exception as e:
+                check("  Registered on service", False, str(e))
+    else:
+        check("  Credentials file", False, "not found — run `aip init` or `aip register`")
+    print()
+
+    # 5. Version check
+    print("  🔄 Version")
+    try:
+        from aip_identity import __version__
+        check("  CLI version", True, f"v{__version__}")
+        if svc_ok and svc_version != "?":
+            match = __version__ == svc_version
+            if not match:
+                warnings.append(f"Version mismatch: CLI v{__version__} ≠ service v{svc_version} — pip install --upgrade aip-identity")
+            check("  CLI ↔ service version match", match, f"CLI v{__version__} vs service v{svc_version}")
+    except ImportError:
+        check("  CLI version", False, "could not determine")
+    print()
+
+    # Summary
+    total = len(checks)
+    passed = sum(1 for _, ok in checks if ok)
+    failed = total - passed
+
+    if warnings:
+        print("  ⚠️  Warnings:")
+        for w in warnings:
+            print(f"    • {w}")
+        print()
+
+    if failed == 0:
+        print(f"  🎉 All {total} checks passed — AIP is healthy!")
+    else:
+        print(f"  ⚠️  {passed}/{total} checks passed, {failed} failed")
+        print("  Run `aip init <platform> <username>` to set up, or check the docs:")
+        print("  https://the-nexus-guard.github.io/aip/")
+    print()
+
+
 def main():
     parser = argparse.ArgumentParser(
         prog="aip",
@@ -1670,6 +1805,7 @@ def main():
 
     # audit
     sub.add_parser("audit", help="Self-audit: trust, vouches, messages, profile completeness")
+    sub.add_parser("doctor", help="Diagnose AIP setup: connectivity, credentials, service version")
 
     p_profile = sub.add_parser("profile", help="View or update agent profiles")
     p_profile_sub = p_profile.add_subparsers(dest="profile_action")
@@ -1704,6 +1840,7 @@ def main():
         "trust-graph": cmd_trust_graph,
         "search": cmd_search,
         "audit": cmd_audit,
+        "doctor": cmd_doctor,
         "status": cmd_status,
         "stats": cmd_stats,
         "webhook": cmd_webhook,

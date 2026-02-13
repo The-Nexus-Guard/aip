@@ -24,8 +24,25 @@ import json
 import base64
 import hashlib
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 from typing import Optional, Dict, Any, Tuple
 from pathlib import Path
+
+
+def _create_session(retries=3, backoff_factor=0.3, status_forcelist=(502, 503, 504)):
+    """Create a requests session with retry/backoff for resilience."""
+    session = requests.Session()
+    retry = Retry(
+        total=retries,
+        backoff_factor=backoff_factor,
+        status_forcelist=status_forcelist,
+        allowed_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
+    )
+    adapter = HTTPAdapter(max_retries=retry)
+    session.mount("https://", adapter)
+    session.mount("http://", adapter)
+    return session
 
 
 class AIPClient:
@@ -45,6 +62,7 @@ class AIPClient:
         self.private_key = private_key
         self.service_url = service_url.rstrip("/")
         self._signing_key = None
+        self._session = _create_session()
 
     @classmethod
     def register(
@@ -85,7 +103,7 @@ class AIPClient:
         key_hash = hashlib.sha256(verify_key.encode()).hexdigest()[:32]
         did = f"did:aip:{key_hash}"
 
-        response = requests.post(
+        response = _create_session().post(
             f"{service_url}/register",
             json={
                 "did": did,
@@ -163,7 +181,7 @@ class AIPClient:
 
     def get_challenge(self, target_did: str) -> str:
         """Request a verification challenge for a DID."""
-        response = requests.post(
+        response = self._session.post(
             f"{self.service_url}/challenge",
             params={"did": target_did}
         )
@@ -188,7 +206,7 @@ class AIPClient:
 
         # The target needs to sign this - this is for demo
         # In practice, you'd send the challenge to them
-        response = requests.post(
+        response = self._session.post(
             f"{self.service_url}/verify_challenge",
             json={
                 "did": target_did,
@@ -201,7 +219,7 @@ class AIPClient:
 
     def lookup(self, did: str) -> Dict[str, Any]:
         """Look up a DID's registration info."""
-        response = requests.get(f"{self.service_url}/lookup/{did}")
+        response = self._session.get(f"{self.service_url}/lookup/{did}")
 
         if response.status_code != 200:
             raise AIPError(f"Lookup failed: {response.text}")
@@ -241,7 +259,7 @@ class AIPClient:
         if ttl_days:
             data["ttl_days"] = ttl_days
 
-        response = requests.post(f"{self.service_url}/vouch", json=data)
+        response = self._session.post(f"{self.service_url}/vouch", json=data)
 
         if response.status_code != 200:
             raise AIPError(f"Vouch failed: {response.text}")
@@ -268,7 +286,7 @@ class AIPClient:
             "signature": signature
         }
 
-        response = requests.post(f"{self.service_url}/revoke", json=data)
+        response = self._session.post(f"{self.service_url}/revoke", json=data)
 
         if response.status_code != 200:
             raise AIPError(f"Revoke failed: {response.text}")
@@ -294,7 +312,7 @@ class AIPClient:
         if scope:
             params["scope"] = scope
 
-        response = requests.get(f"{self.service_url}/trust-path", params=params)
+        response = self._session.get(f"{self.service_url}/trust-path", params=params)
 
         if response.status_code != 200:
             raise AIPError(f"Trust path lookup failed: {response.text}")
@@ -303,7 +321,7 @@ class AIPClient:
 
     def get_certificate(self, vouch_id: str) -> Dict[str, Any]:
         """Get a portable vouch certificate for offline verification."""
-        response = requests.get(f"{self.service_url}/vouch/certificate/{vouch_id}")
+        response = self._session.get(f"{self.service_url}/vouch/certificate/{vouch_id}")
 
         if response.status_code != 200:
             raise AIPError(f"Certificate fetch failed: {response.text}")
@@ -329,7 +347,7 @@ class AIPClient:
         if scope:
             params["scope"] = scope
 
-        response = requests.get(f"{self.service_url}/trust/{did}", params=params)
+        response = self._session.get(f"{self.service_url}/trust/{did}", params=params)
 
         if response.status_code != 200:
             raise AIPError(f"Trust lookup failed: {response.text}")
@@ -353,7 +371,7 @@ class AIPClient:
 
     def get_profile(self, did: str) -> Dict[str, Any]:
         """Get an agent's public profile."""
-        response = requests.get(f"{self.service_url}/agent/{did}/profile")
+        response = self._session.get(f"{self.service_url}/agent/{did}/profile")
         if response.status_code != 200:
             raise AIPError(f"Profile lookup failed: {response.text}")
         return response.json()
@@ -384,7 +402,7 @@ class AIPClient:
             if field in fields:
                 body[field] = fields[field]
 
-        response = requests.put(
+        response = self._session.put(
             f"{self.service_url}/agent/{self.did}/profile",
             json=body,
         )
