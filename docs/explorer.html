@@ -15,6 +15,24 @@
             --accent: #10b981;
             --accent-light: #34d399;
             --border: #27272a;
+            --terminal-bg: #0d1117;
+            --terminal-border: #21262d;
+            --terminal-fg: #c9d1d9;
+        }
+
+        [data-theme="light"] {
+            --bg-primary: #ffffff;
+            --bg-secondary: #f4f4f5;
+            --bg-tertiary: #e4e4e7;
+            --fg-primary: #18181b;
+            --fg-secondary: #52525b;
+            --fg-muted: #71717a;
+            --accent: #059669;
+            --accent-light: #10b981;
+            --border: #d4d4d8;
+            --terminal-bg: #f8f9fa;
+            --terminal-border: #d1d5db;
+            --terminal-fg: #1f2937;
         }
 
         * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -351,8 +369,13 @@
     <div class="container">
         <a href="index.html" class="back-link">← Back to AIP</a>
 
-        <h1>Trust Graph Explorer</h1>
-        <p class="subtitle">Look up any agent's trust relationships</p>
+        <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+            <div>
+                <h1>Trust Graph Explorer</h1>
+                <p class="subtitle">Look up any agent's trust relationships</p>
+            </div>
+            <button onclick="toggleTheme()" id="theme-toggle" style="padding: 0.5rem 0.75rem; background: var(--bg-secondary); border: 1px solid var(--border); color: var(--fg-secondary); font-size: 1.1rem; border-radius: 8px; min-width: 2.5rem;" title="Toggle light/dark theme">🌙</button>
+        </div>
 
         <div id="stats" class="stats">
             <div class="stat-card">
@@ -428,7 +451,7 @@
                     </select>
                     <button onclick="runDemoVerify()" id="demo-verify-btn" style="white-space:nowrap;">▶ Run</button>
                 </div>
-                <div id="demo-terminal" style="display:none; background:#0d1117; border:1px solid #21262d; border-radius:8px; padding:1rem; font-family:'Fira Code',monospace; font-size:0.8rem; line-height:1.6; overflow-x:auto; white-space:pre; color:#c9d1d9;">
+                <div id="demo-terminal" style="display:none; background:var(--terminal-bg); border:1px solid var(--terminal-border); border-radius:8px; padding:1rem; font-family:'Fira Code',monospace; font-size:0.8rem; line-height:1.6; overflow-x:auto; white-space:pre; color:var(--terminal-fg);">
                 </div>
             </div>
 
@@ -441,7 +464,7 @@
                     </select>
                     <button onclick="runDemoBadge()" id="demo-badge-btn" style="white-space:nowrap;">▶ Run</button>
                 </div>
-                <div id="badge-terminal" style="display:none; background:#0d1117; border:1px solid #21262d; border-radius:8px; padding:1rem; font-family:'Fira Code',monospace; font-size:0.8rem; line-height:1.6; overflow-x:auto; white-space:pre; color:#c9d1d9;">
+                <div id="badge-terminal" style="display:none; background:var(--terminal-bg); border:1px solid var(--terminal-border); border-radius:8px; padding:1rem; font-family:'Fira Code',monospace; font-size:0.8rem; line-height:1.6; overflow-x:auto; white-space:pre; color:var(--terminal-fg);">
                 </div>
             </div>
 
@@ -512,6 +535,26 @@
     </div>
 
     <script>
+        // Theme toggle
+        function toggleTheme() {
+            const html = document.documentElement;
+            const current = html.getAttribute('data-theme');
+            const next = current === 'light' ? 'dark' : 'light';
+            html.setAttribute('data-theme', next);
+            localStorage.setItem('aip-theme', next);
+            document.getElementById('theme-toggle').textContent = next === 'light' ? '☀️' : '🌙';
+        }
+        (function() {
+            const saved = localStorage.getItem('aip-theme') || (window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
+            if (saved === 'light') {
+                document.documentElement.setAttribute('data-theme', 'light');
+                document.addEventListener('DOMContentLoaded', () => {
+                    const btn = document.getElementById('theme-toggle');
+                    if (btn) btn.textContent = '☀️';
+                });
+            }
+        })();
+
         const API_BASE = 'https://aip-service.fly.dev';
 
         async function findTrustPath() {
