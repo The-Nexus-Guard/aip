@@ -1,5 +1,23 @@
 # Changelog
 
+## v0.5.17 (2026-02-13) — Reliability & Offline Mode
+
+### New Features
+- `aip doctor` — diagnostic tool (checks Python/OS, deps, connectivity, credentials, version)
+- `aip migrate` — credential migration between locations with normalization and dry-run
+- `aip cache` — offline mode (sync/lookup/status/clear for offline agent verification)
+- `aip demo` — interactive walkthrough without registration
+- Retry/backoff on all HTTP client calls (3 retries, 0.3s backoff, 502/503/504)
+- Admin DELETE endpoints for registration cleanup (single + bulk pattern match)
+
+### Fixes
+- Flaky `test_easy_register` — use unique usernames to avoid cross-test collision
+- Removed pytest `return` warning in test_live_service
+
+### Stats
+- 239 tests passing (0 failures, 0 warnings)
+- 12 registrations (7 real + 5 test pollution pending cleanup)
+
 ## v0.5.15 (2026-02-13) — Init Command & Explorer UX
 
 ### New Features
