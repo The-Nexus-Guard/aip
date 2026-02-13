@@ -823,6 +823,74 @@ def cmd_whoami(args):
         print("(Could not reach AIP service for trust info)")
 
 
+# ── Status (dashboard) ───────────────────────────────────────────────
+
+
+def cmd_status(args):
+    """Show a dashboard: your identity + network health + unread messages."""
+    import urllib.request
+
+    service = args.service or AIP_SERVICE
+
+    # 1. Service health
+    print("═══ AIP Status ═══\n")
+    try:
+        with urllib.request.urlopen(f"{service}/health", timeout=5) as resp:
+            health = json.loads(resp.read().decode())
+        ver = health.get("version", "?")
+        regs = health.get("metrics", {}).get("registrations", "?")
+        vouches = health.get("metrics", {}).get("active_vouches", "?")
+        db_ok = health.get("checks", {}).get("database", {}).get("ok", False)
+        print(f"  Service: {service}")
+        print(f"  Version: {ver}  |  DB: {'✅' if db_ok else '❌'}")
+        print(f"  Network: {regs} agents, {vouches} active vouches")
+    except Exception as e:
+        print(f"  Service: ❌ unreachable ({e})")
+        print()
+        return
+
+    # 2. Identity (if credentials exist)
+    creds_path = Path.home() / ".aip" / "credentials.json"
+    alt_path = Path("aip_credentials.json")
+    creds = None
+    for p in [creds_path, alt_path, Path("credentials/aip_credentials.json")]:
+        if p.exists():
+            with open(p) as f:
+                creds = json.load(f)
+            break
+
+    if creds:
+        did = creds.get("did", "?")
+        plat = creds.get("platform", creds.get("platform_id", "?"))
+        user = creds.get("username", creds.get("platform_username", "?"))
+        print(f"\n  Identity: {plat}/{user}")
+        print(f"  DID: {did}")
+
+        # Fetch trust info
+        try:
+            with urllib.request.urlopen(f"{service}/identity/{did}", timeout=5) as resp:
+                info = json.loads(resp.read().decode())
+            score = info.get("trust_score", 0)
+            v_recv = info.get("vouches_received", 0)
+            print(f"  Trust: {score:.2f}  |  Vouches received: {v_recv}")
+        except Exception:
+            pass
+
+        # Unread messages
+        try:
+            with urllib.request.urlopen(f"{service}/messages/count?did={did}", timeout=5) as resp:
+                msg_data = json.loads(resp.read().decode())
+            unread = msg_data.get("unread", 0)
+            sent = msg_data.get("sent", 0)
+            print(f"  Messages: {unread} unread, {sent} sent")
+        except Exception:
+            pass
+    else:
+        print("\n  Identity: not configured (run `aip register` first)")
+
+    print()
+
+
 # ── Export / Import ──────────────────────────────────────────────────
 
 def cmd_export(args):
@@ -989,6 +1057,9 @@ def main():
 
     sub.add_parser("whoami", help="Show your current identity")
 
+    # status
+    sub.add_parser("status", help="Dashboard: identity + network health + unread messages")
+
     # export
     p_export = sub.add_parser("export", help="Export your identity (DID + public key) as portable JSON")
     p_export.add_argument("-o", "--output", default=None, help="Output file (default: stdout)")
@@ -1017,6 +1088,7 @@ def main():
         "trust-score": cmd_trust_score,
         "trust-graph": cmd_trust_graph,
         "search": cmd_search,
+        "status": cmd_status,
         "export": cmd_export,
         "import": cmd_import,
     }
