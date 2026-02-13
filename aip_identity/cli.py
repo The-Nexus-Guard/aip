@@ -1137,6 +1137,72 @@ def cmd_import(args):
 
 # ── Main ─────────────────────────────────────────────────────────────
 
+def cmd_profile(args):
+    """View or update agent profiles."""
+    action = getattr(args, "profile_action", None)
+
+    if action == "show":
+        did = args.did
+        if not did:
+            creds = find_credentials()
+            if not creds:
+                print("No DID specified and no credentials found. Usage: aip profile show <did>")
+                return
+            did = creds["did"]
+
+        try:
+            import requests
+            resp = requests.get(f"{AIP_SERVICE}/agent/{did}/profile")
+            resp.raise_for_status()
+            profile = resp.json()
+            print(f"\n  Agent Profile: {did[:20]}...")
+            print(f"  {'─' * 40}")
+            print(f"  Name:    {profile.get('display_name') or '(not set)'}")
+            print(f"  Bio:     {profile.get('bio') or '(not set)'}")
+            print(f"  Avatar:  {profile.get('avatar_url') or '(not set)'}")
+            print(f"  Website: {profile.get('website') or '(not set)'}")
+            tags = profile.get("tags", [])
+            print(f"  Tags:    {', '.join(tags) if tags else '(none)'}")
+            if profile.get("updated_at"):
+                print(f"  Updated: {profile['updated_at']}")
+            print()
+        except Exception as e:
+            print(f"Error: {e}")
+
+    elif action == "set":
+        creds = require_credentials()
+        client = get_client(creds)
+
+        fields = {}
+        if args.display_name:
+            fields["display_name"] = args.display_name
+        if args.bio:
+            fields["bio"] = args.bio
+        if args.avatar_url:
+            fields["avatar_url"] = args.avatar_url
+        if args.website:
+            fields["website"] = args.website
+        if args.tags:
+            fields["tags"] = [t.strip() for t in args.tags.split(",")]
+
+        if not fields:
+            print("No fields specified. Use --name, --bio, --avatar, --website, or --tags")
+            return
+
+        try:
+            result = client.update_profile(**fields)
+            print("✅ Profile updated!")
+            profile = result.get("profile", {})
+            print(f"  Name:    {profile.get('display_name') or '(not set)'}")
+            print(f"  Bio:     {profile.get('bio') or '(not set)'}")
+            tags = profile.get("tags", [])
+            print(f"  Tags:    {', '.join(tags) if tags else '(none)'}")
+        except Exception as e:
+            print(f"Error updating profile: {e}")
+    else:
+        print("Usage: aip profile show [did] | aip profile set --name '...' --bio '...'")
+
+
 def main():
     parser = argparse.ArgumentParser(
         prog="aip",
@@ -1249,10 +1315,22 @@ def main():
     p_import.add_argument("source", help="JSON file path or DID to fetch from service")
     p_import.add_argument("--keyring-dir", default=None, help="Directory to store imported keys (default: ~/.aip/keyring/)")
 
+    p_profile = sub.add_parser("profile", help="View or update agent profiles")
+    p_profile_sub = p_profile.add_subparsers(dest="profile_action")
+    p_profile_get = p_profile_sub.add_parser("show", help="Show an agent's profile")
+    p_profile_get.add_argument("did", nargs="?", help="DID to look up (default: your own)")
+    p_profile_set = p_profile_sub.add_parser("set", help="Update your profile")
+    p_profile_set.add_argument("--name", dest="display_name", help="Display name")
+    p_profile_set.add_argument("--bio", help="Short bio (max 500 chars)")
+    p_profile_set.add_argument("--avatar", dest="avatar_url", help="Avatar URL")
+    p_profile_set.add_argument("--website", help="Website URL")
+    p_profile_set.add_argument("--tags", help="Comma-separated tags (max 10)")
+
     args = parser.parse_args()
 
     commands = {
         "register": cmd_register,
+        "profile": cmd_profile,
         "verify": cmd_verify,
         "vouch": cmd_vouch,
         "revoke": cmd_revoke,

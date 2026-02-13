@@ -16,7 +16,7 @@ import time
 import os
 
 # Import routes
-from routes import register, verify, challenge, vouch, messaging, skill, onboard, admin, webhooks
+from routes import register, verify, challenge, vouch, messaging, skill, onboard, admin, webhooks, profile
 from rate_limit import default_limiter, check_rate_limit, rate_limit_headers
 
 @asynccontextmanager
@@ -35,7 +35,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="AIP - Agent Identity Protocol",
     description="Cryptographic identity and trust verification for AI agents",
-    version="0.5.9",
+    version="0.5.11",
     lifespan=lifespan,
 )
 
@@ -84,6 +84,7 @@ app.include_router(skill.router, tags=["Skills"])
 app.include_router(onboard.router, tags=["Onboarding"])
 app.include_router(admin.router, tags=["Admin"])
 app.include_router(webhooks.router, tags=["Webhooks"])
+app.include_router(profile.router, tags=["Profiles"])
 
 
 logger = logging.getLogger("aip.cleanup")

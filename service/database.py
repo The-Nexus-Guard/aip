@@ -162,6 +162,20 @@ def init_database():
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_webhooks_owner ON webhooks(owner_did)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_webhooks_active ON webhooks(active)")
 
+        # Agent profiles table - optional metadata
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS profiles (
+                did TEXT PRIMARY KEY,
+                display_name TEXT,
+                bio TEXT,
+                avatar_url TEXT,
+                website TEXT,
+                tags TEXT,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (did) REFERENCES registrations(did)
+            )
+        """)
+
         # Create indexes
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_platform_links_did ON platform_links(did)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_vouches_voucher ON vouches(voucher_did)")
@@ -958,6 +972,92 @@ def update_webhook_status(webhook_id: str, success: bool):
                 (webhook_id,)
             )
         conn.commit()
+
+
+# Profile operations
+
+PROFILE_FIELDS = {"display_name", "bio", "avatar_url", "website", "tags"}
+MAX_BIO_LENGTH = 500
+MAX_FIELD_LENGTH = 200
+MAX_TAGS = 10
+
+
+def get_profile(did: str) -> Optional[Dict[str, Any]]:
+    """Get an agent's profile."""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT did, display_name, bio, avatar_url, website, tags, updated_at FROM profiles WHERE did = ?",
+            (did,)
+        )
+        row = cursor.fetchone()
+        if row:
+            profile = dict(row)
+            # Parse tags from comma-separated string
+            profile["tags"] = [t.strip() for t in (profile["tags"] or "").split(",") if t.strip()]
+            return profile
+        return None
+
+
+def upsert_profile(did: str, **fields) -> bool:
+    """Create or update an agent's profile. Only known fields are accepted.
+
+    Args:
+        did: The DID whose profile to update
+        **fields: Profile fields (display_name, bio, avatar_url, website, tags)
+
+    Returns:
+        True if profile was created/updated
+    """
+    # Filter to allowed fields only
+    safe_fields = {k: v for k, v in fields.items() if k in PROFILE_FIELDS and v is not None}
+    if not safe_fields:
+        return False
+
+    # Validate lengths
+    if "bio" in safe_fields and len(safe_fields["bio"]) > MAX_BIO_LENGTH:
+        raise ValueError(f"Bio must be {MAX_BIO_LENGTH} characters or less")
+    for field in ("display_name", "avatar_url", "website"):
+        if field in safe_fields and len(safe_fields[field]) > MAX_FIELD_LENGTH:
+            raise ValueError(f"{field} must be {MAX_FIELD_LENGTH} characters or less")
+
+    # Convert tags list to comma-separated string
+    if "tags" in safe_fields:
+        if isinstance(safe_fields["tags"], list):
+            if len(safe_fields["tags"]) > MAX_TAGS:
+                raise ValueError(f"Maximum {MAX_TAGS} tags allowed")
+            safe_fields["tags"] = ",".join(safe_fields["tags"][:MAX_TAGS])
+
+    now = datetime.now(tz=timezone.utc).isoformat()
+    safe_fields["updated_at"] = now
+
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        # Check if profile exists
+        cursor.execute("SELECT 1 FROM profiles WHERE did = ?", (did,))
+        exists = cursor.fetchone() is not None
+
+        if exists:
+            set_clause = ", ".join(f"{k} = ?" for k in safe_fields)
+            values = list(safe_fields.values()) + [did]
+            cursor.execute(f"UPDATE profiles SET {set_clause} WHERE did = ?", values)
+        else:
+            safe_fields["did"] = did
+            cols = ", ".join(safe_fields.keys())
+            placeholders = ", ".join("?" for _ in safe_fields)
+            cursor.execute(f"INSERT INTO profiles ({cols}) VALUES ({placeholders})", list(safe_fields.values()))
+
+        conn.commit()
+        return True
+
+
+def delete_profile(did: str) -> bool:
+    """Delete an agent's profile."""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM profiles WHERE did = ?", (did,))
+        conn.commit()
+        return cursor.rowcount > 0
 
 
 # Initialize on import

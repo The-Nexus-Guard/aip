@@ -351,6 +351,48 @@ class AIPClient:
         return trust.get("registered", False) and trust.get("vouch_count", 0) > 0
 
 
+    def get_profile(self, did: str) -> Dict[str, Any]:
+        """Get an agent's public profile."""
+        response = requests.get(f"{self.service_url}/agent/{did}/profile")
+        if response.status_code != 200:
+            raise AIPError(f"Profile lookup failed: {response.text}")
+        return response.json()
+
+    def update_profile(self, **fields) -> Dict[str, Any]:
+        """Update your own profile. Requires challenge-response auth.
+
+        Args:
+            display_name: Display name
+            bio: Short bio (max 500 chars)
+            avatar_url: URL to avatar image
+            website: Website URL
+            tags: List of tags (max 10)
+
+        Returns:
+            Updated profile dict
+        """
+        # Get a challenge
+        challenge = self.get_challenge(self.did)
+        signature = self.sign_challenge(challenge)
+
+        body = {
+            "did": self.did,
+            "challenge": challenge,
+            "signature": signature,
+        }
+        for field in ("display_name", "bio", "avatar_url", "website", "tags"):
+            if field in fields:
+                body[field] = fields[field]
+
+        response = requests.put(
+            f"{self.service_url}/agent/{self.did}/profile",
+            json=body,
+        )
+        if response.status_code != 200:
+            raise AIPError(f"Profile update failed: {response.text}")
+        return response.json()
+
+
 class AIPError(Exception):
     """Error from AIP operations."""
     pass
