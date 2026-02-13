@@ -77,9 +77,10 @@ class TestRegistration:
     def test_easy_register(self):
         """Easy registration creates identity and returns keys."""
         client = get_test_client()
+        unique_name = f"TestAgent_easy_{uuid.uuid4().hex[:8]}"
         response = client.post(
             "/register/easy",
-            json={"platform": "moltbook", "username": "TestAgent"}
+            json={"platform": "moltbook", "username": unique_name}
         )
         assert response.status_code == 200
         data = response.json()
@@ -88,7 +89,7 @@ class TestRegistration:
         assert "public_key" in data
         assert "private_key" in data
         assert data["platform"] == "moltbook"
-        assert data["username"] == "TestAgent"
+        assert data["username"] == unique_name
 
     def test_easy_register_duplicate_fails(self):
         """Cannot register same platform+username twice."""
