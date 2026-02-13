@@ -1544,6 +1544,188 @@ def cmd_demo(args):
     print()
 
 
+def cmd_migrate(args):
+    """Migrate credentials between locations or upgrade format."""
+    print("═══ AIP Credential Migration ═══\n")
+
+    # Find all credential files
+    found = []
+    for p in CREDENTIALS_PATHS:
+        if p.exists():
+            try:
+                with open(p) as f:
+                    data = json.load(f)
+                found.append((p, data))
+                print(f"  📄 Found: {p}")
+                print(f"     DID: {data.get('did', '?')}")
+                has_pk = "private_key" in data
+                print(f"     Private key: {'✅ yes' if has_pk else '❌ no'}")
+            except (json.JSONDecodeError, KeyError) as e:
+                print(f"  ⚠️  Found but invalid: {p} ({e})")
+
+    if not found:
+        print("  ❌ No credentials found anywhere.")
+        print(f"     Expected locations: {', '.join(str(p) for p in CREDENTIALS_PATHS)}")
+        print("     Run: aip init")
+        return
+
+    # Determine the canonical (best) credentials
+    best = None
+    for p, data in found:
+        if "did" in data and "private_key" in data:
+            if best is None:
+                best = (p, data)
+            elif "public_key" in data and "public_key" not in best[1]:
+                best = (p, data)
+
+    if best is None:
+        print("\n  ❌ No complete credentials (need did + private_key).")
+        return
+
+    best_path, best_data = best
+
+    # Normalize field names (old format compatibility)
+    normalized = dict(best_data)
+    if "platform_id" in normalized and "platform" not in normalized:
+        normalized["platform"] = normalized.pop("platform_id")
+    if "platform_username" in normalized and "username" not in normalized:
+        normalized["username"] = normalized.pop("platform_username")
+    # Ensure public_key exists
+    if "public_key" not in normalized and "private_key" in normalized:
+        try:
+            import nacl.signing
+            pk_bytes = base64.b64decode(normalized["private_key"])
+            signing_key = nacl.signing.SigningKey(pk_bytes)
+            normalized["public_key"] = base64.b64encode(
+                bytes(signing_key.verify_key)
+            ).decode()
+            print("\n  🔑 Derived public key from private key.")
+        except Exception as e:
+            print(f"\n  ⚠️  Could not derive public key: {e}")
+
+    target = args.target
+    if target:
+        target_path = Path(target)
+    else:
+        target_path = CREDENTIALS_PATHS[0]  # default: ~/.aip/credentials.json
+
+    if args.dry_run:
+        print(f"\n  🔍 DRY RUN — would write to: {target_path}")
+        print(f"     Fields: {', '.join(normalized.keys())}")
+        return
+
+    # Write normalized credentials to target
+    target_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(target_path, "w") as f:
+        json.dump(normalized, f, indent=2)
+    os.chmod(target_path, 0o600)
+    print(f"\n  ✅ Migrated to {target_path}")
+    print(f"     DID: {normalized['did']}")
+    print(f"     Fields: {', '.join(normalized.keys())}")
+
+    # Clean up old locations if different from target
+    if args.cleanup:
+        for p, _ in found:
+            if p != target_path and p.exists():
+                p.unlink()
+                print(f"  🗑️  Removed old: {p}")
+
+
+def cmd_cache(args):
+    """Cache agent directory locally for offline verification."""
+    import urllib.request
+
+    cache_dir = Path(args.cache_dir) if args.cache_dir else Path.home() / ".aip" / "cache"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+
+    service = args.service or AIP_SERVICE
+
+    if args.cache_action == "sync":
+        print("═══ AIP Offline Cache Sync ═══\n")
+        print(f"  Service: {service}")
+        print(f"  Cache:   {cache_dir}\n")
+
+        # Fetch all agents
+        try:
+            url = f"{service}/admin/registrations?limit=1000"
+            with urllib.request.urlopen(url, timeout=15) as resp:
+                data = json.loads(resp.read().decode())
+        except Exception as e:
+            print(f"  ❌ Failed to fetch directory: {e}")
+            sys.exit(1)
+
+        agents = data.get("registrations", data if isinstance(data, list) else [])
+        print(f"  📡 Fetched {len(agents)} agents from service")
+
+        # Save each agent's public key + metadata
+        for agent in agents:
+            did = agent.get("did", "")
+            if not did:
+                continue
+            agent_file = cache_dir / f"{did.replace(':', '_')}.json"
+            cache_entry = {
+                "did": did,
+                "public_key": agent.get("public_key", ""),
+                "platform": agent.get("platform", ""),
+                "username": agent.get("username", ""),
+                "cached_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            }
+            with open(agent_file, "w") as f:
+                json.dump(cache_entry, f, indent=2)
+
+        # Save directory index
+        index = {
+            "synced_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "agent_count": len(agents),
+            "service": service,
+        }
+        with open(cache_dir / "index.json", "w") as f:
+            json.dump(index, f, indent=2)
+
+        print(f"  ✅ Cached {len(agents)} agents to {cache_dir}")
+        print(f"     Use `aip cache lookup <DID>` for offline verification")
+
+    elif args.cache_action == "lookup":
+        did = args.did
+        if not did:
+            print("  ❌ Provide a DID: aip cache lookup <DID>")
+            sys.exit(1)
+        agent_file = cache_dir / f"{did.replace(':', '_')}.json"
+        if not agent_file.exists():
+            print(f"  ❌ Not in cache: {did}")
+            print("     Run `aip cache sync` to update cache")
+            sys.exit(1)
+        with open(agent_file) as f:
+            data = json.load(f)
+        print(f"  DID:        {data['did']}")
+        print(f"  Public Key: {data.get('public_key', '?')[:20]}...")
+        print(f"  Platform:   {data.get('platform', '?')}")
+        print(f"  Username:   {data.get('username', '?')}")
+        print(f"  Cached:     {data.get('cached_at', '?')}")
+
+    elif args.cache_action == "status":
+        index_file = cache_dir / "index.json"
+        if not index_file.exists():
+            print("  No cache found. Run `aip cache sync`")
+            return
+        with open(index_file) as f:
+            index = json.load(f)
+        print(f"  Last sync:  {index.get('synced_at', '?')}")
+        print(f"  Agents:     {index.get('agent_count', '?')}")
+        print(f"  Cache dir:  {cache_dir}")
+
+    elif args.cache_action == "clear":
+        import shutil
+        if cache_dir.exists():
+            shutil.rmtree(cache_dir)
+            print(f"  🗑️  Cache cleared: {cache_dir}")
+        else:
+            print("  No cache to clear.")
+
+    else:
+        print("  Usage: aip cache [sync|lookup|status|clear]")
+
+
 def cmd_doctor(args):
     """Diagnose AIP setup: connectivity, credentials, service compatibility."""
     import urllib.request
@@ -1800,6 +1982,23 @@ def main():
     p_import.add_argument("source", help="JSON file path or DID to fetch from service")
     p_import.add_argument("--keyring-dir", default=None, help="Directory to store imported keys (default: ~/.aip/keyring/)")
 
+    # migrate
+    p_migrate = sub.add_parser("migrate", help="Migrate credentials between locations or upgrade format")
+    p_migrate.add_argument("--target", default=None, help="Target path (default: ~/.aip/credentials.json)")
+    p_migrate.add_argument("--cleanup", action="store_true", help="Remove old credential files after migration")
+    p_migrate.add_argument("--dry-run", action="store_true", help="Show what would happen without changing anything")
+
+    # cache (offline mode)
+    p_cache = sub.add_parser("cache", help="Offline cache: sync agent directory for local verification")
+    p_cache_sub = p_cache.add_subparsers(dest="cache_action")
+    p_cache_sync = p_cache_sub.add_parser("sync", help="Download agent directory to local cache")
+    p_cache_sync.add_argument("--service", default=None, help="AIP service URL")
+    p_cache_lookup = p_cache_sub.add_parser("lookup", help="Look up an agent from cache")
+    p_cache_lookup.add_argument("did", nargs="?", help="DID to look up")
+    p_cache_sub.add_parser("status", help="Show cache status")
+    p_cache_sub.add_parser("clear", help="Clear local cache")
+    p_cache.add_argument("--cache-dir", default=None, help="Cache directory (default: ~/.aip/cache/)")
+
     # demo
     sub.add_parser("demo", help="Interactive walkthrough — explore AIP without registering")
 
@@ -1845,6 +2044,8 @@ def main():
         "stats": cmd_stats,
         "webhook": cmd_webhook,
         "changelog": cmd_changelog,
+        "migrate": cmd_migrate,
+        "cache": cmd_cache,
         "export": cmd_export,
         "import": cmd_import,
     }
