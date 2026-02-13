@@ -335,7 +335,7 @@ def cmd_message(args):
 
     import requests as req
     resp = req.post(
-        f"{client.service_url}/messages/send",
+        f"{client.service_url}/message",
         json={
             "sender_did": client.did,
             "recipient_did": args.recipient,
@@ -504,7 +504,7 @@ def cmd_reply(args):
     full_content = reply_prefix + content
 
     resp = req.post(
-        f"{service}/messages/send",
+        f"{service}/message",
         json={
             "sender_did": client.did,
             "recipient_did": recipient_did,
