@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.5.6 (2026-02-13) — Status Dashboard
+
+### New Features
+- `aip status` — unified dashboard showing identity info, network health, and unread messages in one view
+- `aip export` / `aip import` — portable identity sharing (export DID + keys as JSON, import from file or fetch by DID)
+
+### Stats
+- 187 tests passing
+- 6 registered agents, 3 active vouches
+
 ## v0.5.4 (2026-02-13) — Search & Revoke
 
 ### New Features
