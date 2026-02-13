@@ -192,6 +192,12 @@ def init_database():
             )
         """)
 
+        # Add last_active column to registrations (migration)
+        try:
+            cursor.execute("ALTER TABLE registrations ADD COLUMN last_active TIMESTAMP")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+
         # Create indexes
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_platform_links_did ON platform_links(did)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_vouches_voucher ON vouches(voucher_did)")
@@ -230,13 +236,23 @@ def get_registration(did: str) -> Optional[Dict[str, Any]]:
     with get_connection() as conn:
         cursor = conn.cursor()
         cursor.execute(
-            "SELECT did, public_key, created_at FROM registrations WHERE did = ?",
+            "SELECT did, public_key, created_at, last_active FROM registrations WHERE did = ?",
             (did,)
         )
         row = cursor.fetchone()
         if row:
             return dict(row)
         return None
+
+
+def touch_activity(did: str) -> None:
+    """Update last_active timestamp for a DID."""
+    with get_connection() as conn:
+        conn.execute(
+            "UPDATE registrations SET last_active = ? WHERE did = ?",
+            (datetime.now(tz=timezone.utc).isoformat(), did)
+        )
+        conn.commit()
 
 
 def rotate_key(did: str, new_public_key: str) -> bool:
@@ -766,8 +782,10 @@ def list_registrations(limit: int = 100, offset: int = 0) -> List[Dict[str, Any]
                     SELECT MAX(created_at) as ts FROM messages WHERE sender_did = ? OR recipient_did = ?
                     UNION ALL
                     SELECT MAX(updated_at) as ts FROM profiles WHERE did = ?
+                    UNION ALL
+                    SELECT last_active as ts FROM registrations WHERE did = ?
                 )""",
-                (reg["did"], reg["did"], reg["did"], reg["did"], reg["did"])
+                (reg["did"], reg["did"], reg["did"], reg["did"], reg["did"], reg["did"])
             )
             activity_row = cursor.fetchone()
             reg["last_activity"] = activity_row["last_activity"] if activity_row and activity_row["last_activity"] else reg["created_at"]

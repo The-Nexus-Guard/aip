@@ -228,6 +228,9 @@ async def create_vouch(request: VouchRequest, req: Request):
     except Exception:
         pass  # Webhook failures should never block vouch creation
 
+    # Update activity for voucher
+    database.touch_activity(request.voucher_did)
+
     message = "Vouch created successfully"
     if request.ttl_days:
         message += f" (expires in {request.ttl_days} days)"

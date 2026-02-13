@@ -219,6 +219,9 @@ async def send_message(request: SendMessageRequest, req: Request):
     except Exception:
         pass  # Webhook failures should never block message delivery
 
+    # Update activity for sender
+    database.touch_activity(request.sender_did)
+
     from datetime import datetime, timezone
     response = SendMessageResponse(
         success=True,

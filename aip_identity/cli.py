@@ -1340,6 +1340,111 @@ def cmd_profile(args):
         print("Usage: aip profile show [did] | aip profile set --name '...' --bio '...'")
 
 
+def cmd_init(args):
+    """One-command setup: register + set profile."""
+    # Check if already registered
+    existing = find_credentials()
+    if existing and not args.force:
+        print(f"⚠️  Already registered as {existing['did']}")
+        print(f"   Use --force to re-register with a new identity.")
+        print(f"   Or use 'aip profile set' to update your profile.")
+        return
+
+    try:
+        import nacl.signing
+        import requests
+    except ImportError:
+        print("Error: Required packages missing. pip install pynacl requests")
+        sys.exit(1)
+
+    service_url = args.service or AIP_SERVICE
+
+    # Step 1: Register (always secure — key never leaves machine)
+    print("\n🚀 AIP Quick Setup")
+    print("=" * 40)
+
+    platform = args.platform
+    username = args.username
+
+    print(f"\n📝 Registering on {platform} as {username}...")
+
+    signing_key = nacl.signing.SigningKey.generate()
+    pub_bytes = bytes(signing_key.verify_key)
+    priv_bytes = bytes(signing_key)
+
+    pub_hex = pub_bytes.hex()
+    priv_hex = priv_bytes.hex()
+    did = "did:aip:" + hashlib.sha256(pub_bytes).hexdigest()[:32]
+
+    resp = requests.post(
+        f"{service_url}/register",
+        json={
+            "public_key": pub_hex,
+            "platform": platform,
+            "username": username,
+        },
+        timeout=10,
+    )
+    if not resp.ok:
+        print(f"❌ Registration failed: {resp.text}")
+        sys.exit(1)
+
+    data = resp.json()
+    if "did" in data:
+        did = data["did"]
+
+    creds = {
+        "did": did,
+        "public_key": pub_hex,
+        "private_key": priv_hex,
+        "platform": platform,
+        "username": username,
+        "service": service_url,
+        "registered_at": int(time.time()),
+    }
+    save_credentials(creds)
+    print(f"   ✅ DID: {did}")
+
+    # Step 2: Set profile if provided
+    profile_fields = {}
+    if args.name:
+        profile_fields["display_name"] = args.name
+    if args.bio:
+        profile_fields["bio"] = args.bio
+    if args.tags:
+        profile_fields["tags"] = [t.strip() for t in args.tags.split(",")]
+
+    if profile_fields:
+        print(f"\n👤 Setting profile...")
+        try:
+            client = get_client(creds)
+            result = client.update_profile(**profile_fields)
+            profile = result.get("profile", {})
+            if profile.get("display_name"):
+                print(f"   Name: {profile['display_name']}")
+            if profile.get("bio"):
+                print(f"   Bio:  {profile['bio']}")
+            tags = profile.get("tags", [])
+            if tags:
+                print(f"   Tags: {', '.join(tags)}")
+            print(f"   ✅ Profile set!")
+        except Exception as e:
+            print(f"   ⚠️  Profile update failed: {e}")
+            print(f"   You can set it later with: aip profile set --name '...'")
+
+    # Summary
+    print(f"\n{'=' * 40}")
+    print(f"🎉 You're on AIP!")
+    print(f"   DID:      {did}")
+    print(f"   Platform: {platform}/{username}")
+    print(f"\n   Next steps:")
+    print(f"   • aip whoami          — view your identity")
+    print(f"   • aip sign <dir>      — sign a skill")
+    print(f"   • aip message <did>   — send encrypted message")
+    print(f"   • aip status          — full dashboard")
+    print()
+
+
 def main():
     parser = argparse.ArgumentParser(
         prog="aip",
@@ -1347,6 +1452,15 @@ def main():
     )
     parser.add_argument("--service", default=None, help=f"AIP service URL (default: {AIP_SERVICE})")
     sub = parser.add_subparsers(dest="command")
+
+    # init (quick setup)
+    p_init = sub.add_parser("init", help="One-command setup: register + set profile")
+    p_init.add_argument("platform", help="Platform name (e.g. moltbook, github)")
+    p_init.add_argument("username", help="Your username on that platform")
+    p_init.add_argument("--name", help="Display name for your profile")
+    p_init.add_argument("--bio", help="Short bio (max 500 chars)")
+    p_init.add_argument("--tags", help="Comma-separated tags (e.g. 'ai,security,builder')")
+    p_init.add_argument("--force", action="store_true", help="Re-register even if credentials exist")
 
     # register
     p_reg = sub.add_parser("register", help="Register a new agent DID")
@@ -1469,6 +1583,7 @@ def main():
     args = parser.parse_args()
 
     commands = {
+        "init": cmd_init,
         "register": cmd_register,
         "profile": cmd_profile,
         "verify": cmd_verify,

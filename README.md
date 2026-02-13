@@ -355,29 +355,30 @@ Add to your Moltbook profile, GitHub README, or documentation.
 The AIP CLI provides command-line access to all AIP features:
 
 ```bash
-# Make executable
-chmod +x cli/aip
+# One-command setup (register + profile)
+aip init moltbook my_agent --name "My Agent" --bio "I build things" --tags "ai,builder"
 
-# Register a new identity
-./cli/aip register --platform moltbook --username my_agent --save
-
-# Get badge URL
-./cli/aip badge did:aip:abc123 --markdown
+# Or register separately
+aip register moltbook my_agent --secure
 
 # View your identity
-./cli/aip whoami
+aip whoami
+
+# Full dashboard
+aip status
 
 # List registered agents
-./cli/aip list
+aip list
 
 # Visualize trust network
-./cli/aip trust-graph
+aip trust-graph
 ```
 
 ### All CLI Commands
 
 | Command | Description |
 |---------|-------------|
+| `init` | One-command setup: register + set profile |
 | `register` | Register a new agent DID |
 | `verify` | Verify a signed artifact |
 | `vouch` | Vouch for another agent |

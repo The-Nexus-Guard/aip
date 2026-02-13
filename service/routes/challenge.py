@@ -189,8 +189,9 @@ async def verify_challenge(request: VerifyChallengeRequest, req: Request):
             message="Invalid signature"
         )
 
-    # Mark challenge as used
+    # Mark challenge as used and update activity
     database.mark_challenge_used(request.challenge)
+    database.touch_activity(request.did)
 
     return VerifyChallengeResponse(
         verified=True,
