@@ -1,5 +1,20 @@
 # Changelog
 
+## v0.5.15 (2026-02-13) — Init Command & Explorer UX
+
+### New Features
+- `aip init` — one-command setup (register + profile in a single step)
+- `aip audit` — self-audit with scoring (trust, vouches, messages, profile completeness)
+- Dark/light theme toggle for explorer.html (persists to localStorage)
+- Agent detail modal in explorer (click agent → full profile, vouches, stats)
+- Keyboard navigation in explorer (arrow keys, Home/End, Enter, Escape, / to search)
+- Activity indicators on agent cards ("Active now", "Xh ago", "Xd ago")
+- CORS localhost dev mode (AIP_DEV_MODE=1 env var)
+
+### Stats
+- 216 tests passing
+- 7 registered agents, 3 active vouches
+
 ## v0.5.13 (2026-02-13) — Agent Profiles & Webhook Delivery Logs
 
 ### New Features
