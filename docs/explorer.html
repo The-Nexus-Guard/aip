@@ -1192,6 +1192,11 @@
                     const avatar = profile?.avatar || '';
                     const website = profile?.website || '';
                     const tags = profile?.tags || [];
+                    const lastActivity = agent.last_activity || agent.created_at;
+                    const activityDate = new Date(lastActivity + 'Z');
+                    const hoursAgo = Math.floor((Date.now() - activityDate.getTime()) / 3600000);
+                    const activityLabel = hoursAgo < 1 ? 'Active now' : hoursAgo < 24 ? `${hoursAgo}h ago` : hoursAgo < 168 ? `${Math.floor(hoursAgo/24)}d ago` : `${Math.floor(hoursAgo/168)}w ago`;
+                    const activityColor = hoursAgo < 24 ? '#22c55e' : hoursAgo < 168 ? '#eab308' : 'var(--fg-muted)';
 
                     const item = document.createElement('div');
                     item.style.cssText = 'display:flex; justify-content:space-between; align-items:center; padding:0.75rem 1rem; background:var(--bg-tertiary); border-radius:8px; cursor:pointer; transition:border-color 0.2s; border:1px solid transparent;';
@@ -1228,6 +1233,7 @@
                             ${vouchCount > 0 ? `<div style="font-size:0.8rem; color:var(--accent);">${vouchCount} vouch${vouchCount !== 1 ? 'es' : ''}</div>` : ''}
                             <div style="font-size:0.75rem; color:var(--fg-muted);">${dateStr}</div>
                             ${platform ? `<div style="font-size:0.7rem; color:var(--fg-muted);">${platform.platform}</div>` : ''}
+                            <div style="font-size:0.7rem; color:${activityColor};"><span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:${activityColor};margin-right:4px;"></span>${activityLabel}</div>
                             ${websiteHtml}
                         </div>
                     `;

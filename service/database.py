@@ -757,6 +757,21 @@ def list_registrations(limit: int = 100, offset: int = 0) -> List[Dict[str, Any]
                 (reg["did"],)
             )
             reg["platforms"] = [dict(link) for link in cursor.fetchall()]
+
+            # Compute last_activity from vouches/messages/profile updates
+            cursor.execute(
+                """SELECT MAX(ts) as last_activity FROM (
+                    SELECT MAX(created_at) as ts FROM vouches WHERE voucher_did = ? OR target_did = ?
+                    UNION ALL
+                    SELECT MAX(created_at) as ts FROM messages WHERE sender_did = ? OR recipient_did = ?
+                    UNION ALL
+                    SELECT MAX(updated_at) as ts FROM profiles WHERE did = ?
+                )""",
+                (reg["did"], reg["did"], reg["did"], reg["did"], reg["did"])
+            )
+            activity_row = cursor.fetchone()
+            reg["last_activity"] = activity_row["last_activity"] if activity_row and activity_row["last_activity"] else reg["created_at"]
+
             registrations.append(reg)
         return registrations
 
