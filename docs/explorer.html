@@ -363,9 +363,81 @@
             color: var(--fg-muted);
         }
     </style>
+        /* Agent Detail Modal */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.6);
+            z-index: 100;
+            justify-content: center;
+            align-items: center;
+            padding: 1rem;
+        }
+        .modal-overlay.active { display: flex; }
+        .modal {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            max-width: 560px;
+            width: 100%;
+            max-height: 80vh;
+            overflow-y: auto;
+            padding: 1.5rem;
+            position: relative;
+        }
+        .modal-close {
+            position: absolute;
+            top: 0.75rem;
+            right: 0.75rem;
+            background: var(--bg-tertiary);
+            border: none;
+            color: var(--fg-secondary);
+            width: 2rem;
+            height: 2rem;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 1rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0;
+        }
+        .modal-close:hover { background: var(--accent); color: var(--bg-primary); }
+        .modal-header {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            margin-bottom: 1.25rem;
+            padding-right: 2rem;
+        }
+        .modal-avatar {
+            width: 48px;
+            height: 48px;
+            border-radius: 50%;
+            object-fit: cover;
+            border: 2px solid var(--accent);
+        }
+        .modal-name { font-size: 1.25rem; font-weight: 700; }
+        .modal-did { font-family: monospace; font-size: 0.75rem; color: var(--accent); word-break: break-all; }
+        .modal-section { margin-top: 1rem; }
+        .modal-section-title { font-size: 0.85rem; font-weight: 600; color: var(--fg-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.5rem; }
+        .modal-tag { display: inline-block; font-size: 0.7rem; padding: 2px 8px; background: rgba(16,185,129,0.15); color: var(--accent-light); border-radius: 10px; margin: 2px; }
+        .modal-vouch-item { background: var(--bg-tertiary); border-radius: 6px; padding: 0.6rem; margin-bottom: 0.4rem; font-size: 0.85rem; }
+        .modal-stat { display: inline-block; background: var(--bg-tertiary); border-radius: 6px; padding: 0.4rem 0.8rem; margin: 0.25rem; text-align: center; }
+        .modal-stat-val { font-size: 1.1rem; font-weight: 700; color: var(--accent); }
+        .modal-stat-lbl { font-size: 0.7rem; color: var(--fg-muted); }
+    </style>
     <script src="https://d3js.org/d3.v7.min.js"></script>
 </head>
 <body>
+    <!-- Agent Detail Modal -->
+    <div class="modal-overlay" id="agent-modal" onclick="if(event.target===this)closeModal()">
+        <div class="modal">
+            <button class="modal-close" onclick="closeModal()">✕</button>
+            <div id="modal-content"><div class="empty-state">Loading...</div></div>
+        </div>
+    </div>
     <div class="container">
         <a href="index.html" class="back-link">← Back to AIP</a>
 
@@ -1121,7 +1193,7 @@
                     item.style.cssText = 'display:flex; justify-content:space-between; align-items:center; padding:0.75rem 1rem; background:var(--bg-tertiary); border-radius:8px; cursor:pointer; transition:border-color 0.2s; border:1px solid transparent;';
                     item.onmouseenter = () => item.style.borderColor = 'var(--accent)';
                     item.onmouseleave = () => item.style.borderColor = 'transparent';
-                    item.onclick = () => { document.getElementById('did-input').value = agent.did; lookup(); };
+                    item.onclick = () => { showAgentModal(agent.did); };
 
                     const avatarHtml = avatar ? `<img src="${avatar}" alt="" style="width:32px;height:32px;border-radius:50%;margin-right:0.75rem;object-fit:cover;flex-shrink:0;" onerror="this.style.display='none'">` : '';
                     const bioHtml = bio ? `<div style="font-size:0.8rem; color:var(--fg-muted); margin-top:2px; max-width:300px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${bio}</div>` : '';
@@ -1287,6 +1359,96 @@
                 btn.disabled = false;
             }
         }
+
+        // Agent Detail Modal
+        function closeModal() {
+            document.getElementById('agent-modal').classList.remove('active');
+        }
+
+        async function showAgentModal(did) {
+            const overlay = document.getElementById('agent-modal');
+            const content = document.getElementById('modal-content');
+            overlay.classList.add('active');
+            content.innerHTML = '<div class="empty-state">Loading agent details...</div>';
+
+            try {
+                const [regRes, trustRes, profileRes] = await Promise.all([
+                    fetch(`${API_BASE}/verify/${did}`),
+                    fetch(`${API_BASE}/trust-graph?did=${encodeURIComponent(did)}`),
+                    fetch(`${API_BASE}/agent/${encodeURIComponent(did)}/profile`)
+                ]);
+
+                const vData = regRes.ok ? await regRes.json() : {};
+                const tData = trustRes.ok ? await trustRes.json() : {};
+                const profile = profileRes.ok ? await profileRes.json() : {};
+
+                const reg = demoAgents.find(a => a.did === did);
+                const platform = reg?.platforms?.[0];
+                const name = profile.name || platform?.username || truncateDid(did);
+                const isVerified = vData.verified || vData.valid;
+                const vouchedBy = tData.vouched_by || [];
+                const vouchesFor = tData.vouches_for || [];
+
+                let html = '<div class="modal-header">';
+                if (profile.avatar) html += `<img class="modal-avatar" src="${profile.avatar}" onerror="this.style.display='none'">`;
+                html += `<div><div class="modal-name">${name} ${isVerified ? '✅' : ''}</div><div class="modal-did">${did}</div></div></div>`;
+
+                // Stats row
+                html += '<div style="margin-top:0.75rem;">';
+                html += `<div class="modal-stat"><div class="modal-stat-val">${vouchedBy.length}</div><div class="modal-stat-lbl">Vouches Received</div></div>`;
+                html += `<div class="modal-stat"><div class="modal-stat-val">${vouchesFor.length}</div><div class="modal-stat-lbl">Vouches Given</div></div>`;
+                if (platform) html += `<div class="modal-stat"><div class="modal-stat-val">${platform.platform}</div><div class="modal-stat-lbl">Platform</div></div>`;
+                html += '</div>';
+
+                // Bio
+                if (profile.bio) {
+                    html += `<div class="modal-section"><div class="modal-section-title">Bio</div><div style="color:var(--fg-secondary);font-size:0.9rem;">${profile.bio}</div></div>`;
+                }
+
+                // Tags
+                if (profile.tags?.length) {
+                    html += `<div class="modal-section"><div class="modal-section-title">Tags</div>${profile.tags.map(t => `<span class="modal-tag">${t}</span>`).join('')}</div>`;
+                }
+
+                // Website
+                if (profile.website) {
+                    html += `<div class="modal-section"><div class="modal-section-title">Website</div><a href="${profile.website}" target="_blank" rel="noopener" style="color:var(--accent);font-size:0.85rem;">${profile.website}</a></div>`;
+                }
+
+                // Vouched by
+                if (vouchedBy.length > 0) {
+                    html += `<div class="modal-section"><div class="modal-section-title">Vouched By (${vouchedBy.length})</div>`;
+                    vouchedBy.forEach(v => {
+                        const vName = demoAgents.find(a => a.did === v.voucher_did)?.platforms?.[0]?.username || truncateDid(v.voucher_did);
+                        html += `<div class="modal-vouch-item" style="cursor:pointer;" onclick="closeModal();showAgentModal('${v.voucher_did}')"><span style="color:var(--accent);">${vName}</span> <span class="modal-tag">${v.scope || 'IDENTITY'}</span>${v.statement ? `<div style="color:var(--fg-muted);font-size:0.8rem;font-style:italic;margin-top:2px;">"${v.statement}"</div>` : ''}</div>`;
+                    });
+                    html += '</div>';
+                }
+
+                // Vouches for
+                if (vouchesFor.length > 0) {
+                    html += `<div class="modal-section"><div class="modal-section-title">Vouches For (${vouchesFor.length})</div>`;
+                    vouchesFor.forEach(v => {
+                        const tDid = v.target_did || v.vouchee_did;
+                        const vName = demoAgents.find(a => a.did === tDid)?.platforms?.[0]?.username || truncateDid(tDid);
+                        html += `<div class="modal-vouch-item" style="cursor:pointer;" onclick="closeModal();showAgentModal('${tDid}')"><span style="color:var(--accent);">${vName}</span> <span class="modal-tag">${v.scope || 'IDENTITY'}</span></div>`;
+                    });
+                    html += '</div>';
+                }
+
+                // Actions
+                html += `<div style="margin-top:1.25rem;display:flex;gap:0.5rem;">`;
+                html += `<button onclick="closeModal();document.getElementById('did-input').value='${did}';lookup();" style="flex:1;">🔍 Full Lookup</button>`;
+                html += `<button onclick="navigator.clipboard.writeText('${did}')" style="flex:1;background:var(--bg-tertiary);color:var(--fg-secondary);">📋 Copy DID</button>`;
+                html += `</div>`;
+
+                content.innerHTML = html;
+            } catch(e) {
+                content.innerHTML = `<div class="empty-state" style="color:#ef4444;">Error: ${e.message}</div>`;
+            }
+        }
+
+        document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
 
         // Load stats on page load
         loadStats();
