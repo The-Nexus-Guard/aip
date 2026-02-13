@@ -794,6 +794,36 @@ def list_registrations(limit: int = 100, offset: int = 0) -> List[Dict[str, Any]
         return registrations
 
 
+def delete_registration(did: str) -> bool:
+    """Delete a registration and all associated data (platform links, vouches, messages, profile, webhooks).
+
+    This is a hard delete — use only for test cleanup or admin removal.
+
+    Args:
+        did: The DID to delete
+
+    Returns:
+        True if the registration existed and was deleted
+    """
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        # Check exists
+        cursor.execute("SELECT did FROM registrations WHERE did = ?", (did,))
+        if not cursor.fetchone():
+            return False
+
+        # Delete all associated data
+        cursor.execute("DELETE FROM platform_links WHERE did = ?", (did,))
+        cursor.execute("DELETE FROM vouches WHERE voucher_did = ? OR target_did = ?", (did, did))
+        cursor.execute("DELETE FROM messages WHERE sender_did = ? OR recipient_did = ?", (did, did))
+        cursor.execute("DELETE FROM key_history WHERE did = ?", (did,))
+        cursor.execute("DELETE FROM profiles WHERE did = ?", (did,))
+        cursor.execute("DELETE FROM webhooks WHERE owner_did = ?", (did,))
+        cursor.execute("DELETE FROM registrations WHERE did = ?", (did,))
+        conn.commit()
+        return True
+
+
 # Stats operations
 
 def get_stats() -> Dict[str, Any]:

@@ -127,5 +127,101 @@ class TestAdminEndpoints(unittest.TestCase):
         self.assertLessEqual(data["count"], 1)
 
 
+class TestAdminDelete(unittest.TestCase):
+    """Tests for admin delete endpoints (require AIP_ADMIN_KEY)."""
+
+    def setUp(self):
+        """Reset database and set admin key."""
+        import sqlite3
+        conn = sqlite3.connect(_test_db_path)
+        for table in ["registrations", "vouches", "platform_links", "key_history", "messages", "profiles", "webhooks"]:
+            try:
+                conn.execute(f"DELETE FROM {table}")
+            except sqlite3.OperationalError:
+                pass
+        conn.commit()
+        conn.close()
+
+        # Set admin key for tests
+        import routes.admin as admin_mod
+        self._orig_key = admin_mod.AIP_ADMIN_KEY
+        admin_mod.AIP_ADMIN_KEY = "test-admin-key-123"
+
+    def tearDown(self):
+        import routes.admin as admin_mod
+        admin_mod.AIP_ADMIN_KEY = self._orig_key
+
+    def _create_agent(self, username="TestAgent"):
+        import hashlib, base64
+        from nacl.signing import SigningKey
+        sk = SigningKey.generate()
+        pk = sk.verify_key.encode()
+        did = "did:aip:" + hashlib.sha256(pk).hexdigest()[:32]
+        pk_b64 = base64.b64encode(pk).decode()
+        database.register_did(did, pk_b64)
+        database.add_platform_link(did, "moltbook", username)
+        return did
+
+    def test_delete_no_auth(self):
+        did = self._create_agent()
+        resp = client.delete(f"/admin/registrations/{did}")
+        self.assertEqual(resp.status_code, 401)
+
+    def test_delete_wrong_key(self):
+        did = self._create_agent()
+        resp = client.delete(f"/admin/registrations/{did}", headers={"Authorization": "Bearer wrong"})
+        self.assertEqual(resp.status_code, 403)
+
+    def test_delete_success(self):
+        did = self._create_agent("DeleteMe")
+        resp = client.delete(f"/admin/registrations/{did}", headers={"Authorization": "Bearer test-admin-key-123"})
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json()["deleted"], did)
+        # Verify gone
+        self.assertIsNone(database.get_registration(did))
+
+    def test_delete_not_found(self):
+        resp = client.delete("/admin/registrations/did:aip:nonexistent", headers={"Authorization": "Bearer test-admin-key-123"})
+        self.assertEqual(resp.status_code, 404)
+
+    def test_bulk_delete_dry_run(self):
+        self._create_agent("test_abc_daec21")
+        self._create_agent("test_def_daec21")
+        self._create_agent("real_agent")
+
+        resp = client.delete("/admin/registrations?pattern=*_daec21&dry_run=true",
+                             headers={"Authorization": "Bearer test-admin-key-123"})
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertTrue(data["dry_run"])
+        self.assertEqual(data["count"], 2)
+
+    def test_bulk_delete_execute(self):
+        self._create_agent("test_abc_daec21")
+        self._create_agent("test_def_daec21")
+        did_real = self._create_agent("real_agent")
+
+        resp = client.delete("/admin/registrations?pattern=*_daec21&dry_run=false",
+                             headers={"Authorization": "Bearer test-admin-key-123"})
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertFalse(data["dry_run"])
+        self.assertEqual(data["count"], 2)
+        # Real agent still exists
+        self.assertIsNotNone(database.get_registration(did_real))
+
+    def test_delete_cascades_vouches(self):
+        did1 = self._create_agent("Agent1")
+        did2 = self._create_agent("Agent2")
+        # Create a vouch between them
+        database.create_vouch("vouch-test-1", did1, did2, "IDENTITY", "test vouch", "sig123")
+
+        resp = client.delete(f"/admin/registrations/{did1}", headers={"Authorization": "Bearer test-admin-key-123"})
+        self.assertEqual(resp.status_code, 200)
+        # Vouch should be cleaned up
+        vouches = database.get_vouches_for(did2)
+        self.assertEqual(len(vouches), 0)
+
+
 if __name__ == "__main__":
     unittest.main()
