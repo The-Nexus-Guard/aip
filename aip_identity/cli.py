@@ -1022,6 +1022,143 @@ def cmd_webhook(args):
         print("  delete <id>             Delete a webhook")
 
 
+# ── Audit ─────────────────────────────────────────────────────────────
+
+def cmd_audit(args):
+    """Comprehensive self-audit: trust, vouches, messages, profile completeness."""
+    import urllib.request
+
+    service = args.service or AIP_SERVICE
+    creds = find_credentials()
+    if not creds:
+        print("No AIP credentials found. Run: aip register")
+        return
+
+    did = creds["did"]
+    plat = creds.get("platform", creds.get("platform_id", "?"))
+    user = creds.get("username", creds.get("platform_username", "?"))
+
+    print("═══ AIP Self-Audit ═══\n")
+    print(f"  DID:      {did}")
+    print(f"  Platform: {plat}/{user}")
+
+    issues = []
+    score = 0
+    max_score = 0
+
+    # 1. Identity registration
+    max_score += 1
+    try:
+        with urllib.request.urlopen(f"{service}/identity/{did}", timeout=5) as resp:
+            identity = json.loads(resp.read().decode())
+        trust = identity.get("trust_score", 0)
+        verified = identity.get("verified", False)
+        v_recv = identity.get("vouches_received", 0)
+        v_given = identity.get("vouches_given", 0)
+        score += 1
+        print(f"\n  ✅ Registered on network")
+        print(f"     Trust score: {trust:.2f}")
+        print(f"     Verified:    {'✅ yes' if verified else '❌ no'}")
+        print(f"     Vouches:     {v_recv} received, {v_given} given")
+        if not verified:
+            issues.append("Not verified — complete platform verification")
+    except Exception as e:
+        print(f"\n  ❌ Could not fetch identity: {e}")
+        issues.append("Identity not found on network")
+
+    # 2. Trust score
+    max_score += 1
+    if trust >= 0.5:
+        score += 1
+        print(f"  ✅ Trust score healthy ({trust:.2f})")
+    elif trust > 0:
+        score += 0.5
+        print(f"  ⚠️  Trust score low ({trust:.2f}) — get more vouches")
+        issues.append("Low trust score — seek vouches from established agents")
+    else:
+        print(f"  ❌ No trust score — you need vouches")
+        issues.append("Zero trust — register and get vouched")
+
+    # 3. Vouches received
+    max_score += 1
+    if v_recv >= 3:
+        score += 1
+        print(f"  ✅ Good vouch coverage ({v_recv} vouches)")
+    elif v_recv >= 1:
+        score += 0.5
+        print(f"  ⚠️  Only {v_recv} vouch(es) — aim for 3+")
+        issues.append(f"Only {v_recv} vouch(es) received — seek more")
+    else:
+        print(f"  ❌ No vouches received")
+        issues.append("No vouches — ask trusted agents to vouch for you")
+
+    # 4. Vouches given (contributing to network)
+    max_score += 1
+    if v_given >= 1:
+        score += 1
+        print(f"  ✅ Contributing vouches ({v_given} given)")
+    else:
+        print(f"  ⚠️  No vouches given — help grow the trust network")
+        issues.append("No vouches given — vouch for agents you trust")
+
+    # 5. Messages
+    max_score += 1
+    try:
+        with urllib.request.urlopen(f"{service}/messages/count?did={did}", timeout=5) as resp:
+            msg_data = json.loads(resp.read().decode())
+        unread = msg_data.get("unread", 0)
+        sent = msg_data.get("sent", 0)
+        score += 1
+        print(f"  ✅ Messaging active ({unread} unread, {sent} sent)")
+        if unread > 0:
+            issues.append(f"{unread} unread message(s) — check with `aip messages`")
+    except Exception:
+        print(f"  ⚠️  Could not check messages")
+
+    # 6. Profile completeness
+    max_score += 1
+    try:
+        with urllib.request.urlopen(f"{service}/agent/{did}/profile", timeout=5) as resp:
+            profile = json.loads(resp.read().decode())
+        filled = sum(1 for k in ["display_name", "bio", "website", "avatar_url"] if profile.get(k))
+        tags = profile.get("tags", [])
+        if tags:
+            filled += 1
+        total_fields = 5
+        if filled >= 4:
+            score += 1
+            print(f"  ✅ Profile well-filled ({filled}/{total_fields} fields)")
+        elif filled >= 2:
+            score += 0.5
+            print(f"  ⚠️  Profile partially filled ({filled}/{total_fields})")
+            missing = [k for k in ["display_name", "bio", "website", "avatar_url"] if not profile.get(k)]
+            if not tags:
+                missing.append("tags")
+            issues.append(f"Profile incomplete — missing: {', '.join(missing)}")
+        else:
+            print(f"  ❌ Profile mostly empty ({filled}/{total_fields})")
+            issues.append("Profile nearly empty — run `aip profile set`")
+    except Exception:
+        print(f"  ⚠️  Could not fetch profile")
+        issues.append("Set up your profile with `aip profile set`")
+
+    # Summary
+    pct = int((score / max_score) * 100) if max_score > 0 else 0
+    bar_len = 20
+    filled_bar = int(bar_len * score / max_score)
+    bar = "█" * filled_bar + "░" * (bar_len - filled_bar)
+    print(f"\n  Score: [{bar}] {pct}% ({score:.1f}/{max_score})")
+
+    if issues:
+        print(f"\n  📋 Recommendations ({len(issues)}):")
+        for i, issue in enumerate(issues, 1):
+            print(f"     {i}. {issue}")
+    else:
+        print(f"\n  🎉 Perfect score! Your identity is fully set up.")
+
+    print()
+
+
 # ── Changelog ────────────────────────────────────────────────────────
 
 def cmd_changelog(args):
@@ -1315,6 +1452,9 @@ def main():
     p_import.add_argument("source", help="JSON file path or DID to fetch from service")
     p_import.add_argument("--keyring-dir", default=None, help="Directory to store imported keys (default: ~/.aip/keyring/)")
 
+    # audit
+    sub.add_parser("audit", help="Self-audit: trust, vouches, messages, profile completeness")
+
     p_profile = sub.add_parser("profile", help="View or update agent profiles")
     p_profile_sub = p_profile.add_subparsers(dest="profile_action")
     p_profile_get = p_profile_sub.add_parser("show", help="Show an agent's profile")
@@ -1345,6 +1485,7 @@ def main():
         "trust-score": cmd_trust_score,
         "trust-graph": cmd_trust_graph,
         "search": cmd_search,
+        "audit": cmd_audit,
         "status": cmd_status,
         "stats": cmd_stats,
         "webhook": cmd_webhook,
