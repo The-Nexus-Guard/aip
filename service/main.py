@@ -170,28 +170,6 @@ async def health():
     }
 
 
-@app.get("/stats")
-async def stats(req: Request):
-    """Service statistics."""
-    # Rate limit
-    client_ip = req.client.host if req.client else "unknown"
-    allowed, retry_after = default_limiter.is_allowed(client_ip)
-    if not allowed:
-        raise HTTPException(
-            status_code=429,
-            detail=f"Rate limit exceeded. Try again in {retry_after} seconds.",
-            headers={"Retry-After": str(retry_after)}
-        )
-    import database
-    db_stats = database.get_stats()
-    return {
-        "service": "AIP - Agent Identity Protocol",
-        "status": "operational",
-        "stats": db_stats,
-        "timestamp": int(time.time())
-    }
-
-
 @app.get("/badge/{did}")
 async def get_badge(did: str, req: Request, size: str = "medium"):
     """

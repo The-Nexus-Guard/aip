@@ -891,6 +891,44 @@ def cmd_status(args):
     print()
 
 
+def cmd_stats(args):
+    """Show public network statistics with growth data."""
+    import urllib.request
+
+    service = args.service or AIP_SERVICE
+
+    print("═══ AIP Network Stats ═══\n")
+    try:
+        with urllib.request.urlopen(f"{service}/stats", timeout=10) as resp:
+            data = json.loads(resp.read().decode())
+    except Exception as e:
+        print(f"  ❌ Could not fetch stats: {e}")
+        return
+
+    stats = data.get("stats", {})
+    print(f"  Agents:      {stats.get('registrations', '?')}")
+    print(f"  Vouches:     {stats.get('active_vouches', '?')}")
+    print(f"  Messages:    {stats.get('messages', '?')}")
+    print(f"  Signatures:  {stats.get('skill_signatures', '?')}")
+    print(f"  Verified:    {stats.get('verifications_completed', '?')}")
+
+    by_plat = stats.get("by_platform", {})
+    if by_plat:
+        print(f"\n  By platform:")
+        for plat, count in by_plat.items():
+            print(f"    {plat}: {count}")
+
+    growth = stats.get("growth", {})
+    daily = growth.get("daily_registrations", [])
+    if daily:
+        print(f"\n  Registration growth (last 30 days):")
+        for entry in daily:
+            bar = "█" * entry["count"]
+            print(f"    {entry['date']}: {bar} {entry['count']}")
+
+    print()
+
+
 # ── Export / Import ──────────────────────────────────────────────────
 
 def cmd_export(args):
@@ -1060,6 +1098,9 @@ def main():
     # status
     sub.add_parser("status", help="Dashboard: identity + network health + unread messages")
 
+    # stats
+    sub.add_parser("stats", help="Public network statistics with growth data")
+
     # export
     p_export = sub.add_parser("export", help="Export your identity (DID + public key) as portable JSON")
     p_export.add_argument("-o", "--output", default=None, help="Output file (default: stdout)")
@@ -1089,6 +1130,7 @@ def main():
         "trust-graph": cmd_trust_graph,
         "search": cmd_search,
         "status": cmd_status,
+        "stats": cmd_stats,
         "export": cmd_export,
         "import": cmd_import,
     }

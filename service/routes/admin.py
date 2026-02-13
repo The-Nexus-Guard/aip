@@ -30,6 +30,36 @@ async def list_registrations(
     })
 
 
+@router.get("/stats")
+async def get_stats():
+    """Public network statistics — total agents, vouches, messages, platform breakdown, growth."""
+    import time as _time
+    stats = database.get_stats()
+
+    # Add recent activity stats
+    with database.get_connection() as conn:
+        cursor = conn.cursor()
+
+        # Recent registrations (last 7 days)
+        cursor.execute(
+            "SELECT COUNT(*) as count FROM registrations WHERE created_at > datetime('now', '-7 days')"
+        )
+        stats["registrations_last_7d"] = cursor.fetchone()["count"]
+
+        # Recent vouches (last 7 days)
+        cursor.execute(
+            "SELECT COUNT(*) as count FROM vouches WHERE created_at > datetime('now', '-7 days') AND revoked_at IS NULL"
+        )
+        stats["vouches_last_7d"] = cursor.fetchone()["count"]
+
+    return JSONResponse(content={
+        "service": "AIP - Agent Identity Protocol",
+        "status": "operational",
+        "stats": stats,
+        "timestamp": int(_time.time())
+    })
+
+
 @router.get("/admin/registrations/{did}")
 async def get_registration(did: str):
     """Get details for a specific DID registration."""

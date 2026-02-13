@@ -84,6 +84,41 @@ class TestAdminEndpoints(unittest.TestCase):
         self.assertIn("vouches_given", data)
         self.assertIn("vouches_received", data)
 
+    def test_stats_endpoint(self):
+        """Test /stats returns network statistics."""
+        resp = client.get("/stats")
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertIn("service", data)
+        self.assertIn("status", data)
+        self.assertEqual(data["status"], "operational")
+        self.assertIn("stats", data)
+        stats = data["stats"]
+        self.assertIn("registrations", stats)
+        self.assertIn("active_vouches", stats)
+        self.assertIn("messages", stats)
+        self.assertIn("by_platform", stats)
+        self.assertIn("growth", stats)
+        self.assertIn("registrations_last_7d", stats)
+        self.assertIn("vouches_last_7d", stats)
+
+    def test_stats_with_data(self):
+        """Test /stats counts correctly after inserting data."""
+        import hashlib, base64
+        from nacl.signing import SigningKey
+        sk = SigningKey.generate()
+        pk = sk.verify_key.encode()
+        did = "did:aip:" + hashlib.sha256(pk).hexdigest()[:32]
+        pk_b64 = base64.b64encode(pk).decode()
+        database.register_did(did, pk_b64)
+        database.add_platform_link(did, "moltbook", "StatsTest")
+
+        resp = client.get("/stats")
+        data = resp.json()
+        stats = data["stats"]
+        self.assertGreaterEqual(stats["registrations"], 1)
+        self.assertIn("moltbook", stats["by_platform"])
+
     def test_pagination(self):
         resp = client.get("/admin/registrations?limit=1&offset=0")
         self.assertEqual(resp.status_code, 200)

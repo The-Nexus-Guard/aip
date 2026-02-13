@@ -744,12 +744,38 @@ def get_stats() -> Dict[str, Any]:
         cursor.execute("SELECT COUNT(*) as count FROM challenges WHERE used = 1")
         verifications = cursor.fetchone()["count"]
 
+        # Count messages
+        cursor.execute("SELECT COUNT(*) as count FROM messages")
+        total_messages = cursor.fetchone()["count"]
+
+        # Count skill signatures (table may not exist in older DBs)
+        try:
+            cursor.execute("SELECT COUNT(*) as count FROM skill_signatures")
+            total_signatures = cursor.fetchone()["count"]
+        except Exception:
+            total_signatures = 0
+
+        # Growth: registrations per day (last 30 days)
+        cursor.execute("""
+            SELECT DATE(created_at) as day, COUNT(*) as count
+            FROM registrations
+            WHERE created_at >= datetime('now', '-30 days')
+            GROUP BY DATE(created_at)
+            ORDER BY day
+        """)
+        daily_registrations = [{"date": row["day"], "count": row["count"]} for row in cursor.fetchall()]
+
         return {
             "registrations": total_registrations,
             "platform_links": total_links,
             "by_platform": by_platform,
             "active_vouches": active_vouches,
-            "verifications_completed": verifications
+            "verifications_completed": verifications,
+            "messages": total_messages,
+            "skill_signatures": total_signatures,
+            "growth": {
+                "daily_registrations": daily_registrations
+            }
         }
 
 
