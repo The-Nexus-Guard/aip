@@ -54,22 +54,35 @@ class WebhookDeleteRequest(BaseModel):
     signature: str = Field(..., description="Base64 Ed25519 signature of 'delete-webhook:{webhook_id}' with owner's private key")
 
 
-def _is_safe_url(url: str) -> bool:
-    """Check that a webhook URL doesn't resolve to private/internal IPs (SSRF protection)."""
+def _is_private_ip(ip_str: str) -> bool:
+    """Check if an IP address is private/internal."""
+    try:
+        ip = ipaddress.ip_address(ip_str)
+        return ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast
+    except ValueError:
+        return True  # If we can't parse it, block it
+
+
+def _resolve_safe_ips(url: str) -> list:
+    """Resolve a URL's hostname and return list of safe IPs, or empty list if any are private."""
     try:
         parsed = urlparse(url)
         hostname = parsed.hostname
         if not hostname:
-            return False
-        # Resolve hostname to IPs
+            return []
         addrs = socket.getaddrinfo(hostname, parsed.port or 443, proto=socket.IPPROTO_TCP)
-        for family, _type, _proto, _canonname, sockaddr in addrs:
-            ip = ipaddress.ip_address(sockaddr[0])
-            if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
-                return False
-        return True
+        ips = list(set(sockaddr[0] for _, _, _, _, sockaddr in addrs))
+        for ip_str in ips:
+            if _is_private_ip(ip_str):
+                return []
+        return ips
     except (socket.gaierror, ValueError):
-        return False
+        return []
+
+
+def _is_safe_url(url: str) -> bool:
+    """Check that a webhook URL doesn't resolve to private/internal IPs (SSRF protection)."""
+    return len(_resolve_safe_ips(url)) > 0
 
 
 def _verify_signature(did: str, message: str, signature_b64: str) -> bool:
@@ -226,7 +239,8 @@ async def fire_webhooks(event: str, payload: dict):
 
         start_ms = int(time.time() * 1000)
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
+            # Disable redirects to prevent SSRF via redirect to internal IP
+            async with httpx.AsyncClient(timeout=10.0, follow_redirects=False) as client:
                 resp = await client.post(hook["url"], content=payload_json, headers=headers)
                 duration = int(time.time() * 1000) - start_ms
                 success = 200 <= resp.status_code < 300

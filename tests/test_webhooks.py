@@ -192,3 +192,24 @@ class TestWebhookDeliveries:
         resp = requests.post(f"{local_service}/webhooks", json={"owner_did": did, "url": url, "events": ["registration"], "signature": sig})
         assert resp.status_code == 400
         assert "private" in resp.json()["detail"].lower() or "internal" in resp.json()["detail"].lower()
+
+
+class TestSSRFProtection:
+    """Unit tests for SSRF protection helpers."""
+
+    def test_private_ip_detection(self):
+        from aip.service.routes.webhooks import _is_private_ip
+        assert _is_private_ip("127.0.0.1") is True
+        assert _is_private_ip("10.0.0.1") is True
+        assert _is_private_ip("192.168.1.1") is True
+        assert _is_private_ip("169.254.1.1") is True  # link-local
+        assert _is_private_ip("224.0.0.1") is True  # multicast
+        assert _is_private_ip("::1") is True  # IPv6 loopback
+        assert _is_private_ip("not-an-ip") is True  # unparseable = blocked
+        assert _is_private_ip("8.8.8.8") is False
+
+    def test_safe_url_rejects_internal(self):
+        from aip.service.routes.webhooks import _is_safe_url
+        assert _is_safe_url("https://localhost/hook") is False
+        assert _is_safe_url("https://127.0.0.1/hook") is False
+        assert _is_safe_url("") is False
