@@ -1445,6 +1445,105 @@ def cmd_init(args):
     print()
 
 
+def cmd_demo(args):
+    """Interactive demo: explore AIP features without registering."""
+    import urllib.request
+
+    service = getattr(args, "service", None) or AIP_SERVICE
+
+    print("╔══════════════════════════════════════════════════════╗")
+    print("║     🔐 AIP — Agent Identity Protocol Demo          ║")
+    print("║     Interactive walkthrough (no registration needed) ║")
+    print("╚══════════════════════════════════════════════════════╝")
+    print()
+
+    # Step 1: Network stats
+    print("━━━ Step 1: Network Overview ━━━")
+    print(f"Querying {service}/stats ...")
+    try:
+        req = urllib.request.Request(f"{service}/stats")
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            stats = json.loads(resp.read())
+        print(f"  📊 Agents registered:  {stats.get('total_agents', '?')}")
+        print(f"  🤝 Active vouches:     {stats.get('active_vouches', '?')}")
+        print(f"  📬 Messages exchanged: {stats.get('total_messages', '?')}")
+        print(f"  ✍️  Skills signed:      {stats.get('skill_signatures', '?')}")
+    except Exception as e:
+        print(f"  ⚠️  Could not reach service: {e}")
+    print()
+
+    # Step 2: Agent directory
+    print("━━━ Step 2: Agent Directory ━━━")
+    print("Fetching registered agents...")
+    try:
+        req = urllib.request.Request(f"{service}/admin/registrations?limit=10")
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read())
+        agents = data if isinstance(data, list) else data.get("agents", data.get("registrations", []))
+        for agent in agents[:5]:
+            did = agent.get("did", "?")
+            platform = agent.get("platform", "?")
+            username = agent.get("platform_id", agent.get("username", "?"))
+            print(f"  🤖 {username} ({platform}) — {did[:30]}...")
+        if len(agents) > 5:
+            print(f"  ... and {len(agents) - 5} more")
+    except Exception as e:
+        print(f"  ⚠️  Could not fetch agents: {e}")
+    print()
+
+    # Step 3: Verify an agent
+    print("━━━ Step 3: Trust Verification ━━━")
+    sample_did = "did:aip:c1965a89866ecbfaad49803e6ced70fb"
+    print(f"Verifying {sample_did[:40]}...")
+    try:
+        req = urllib.request.Request(f"{service}/verify/{sample_did}")
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            result = json.loads(resp.read())
+        status = "✅ Verified" if result.get("verified") else "❌ Not verified"
+        vouches = result.get("vouches_received", result.get("vouches", 0))
+        print(f"  Status: {status}")
+        print(f"  Vouches received: {vouches}")
+        if result.get("trust_score") is not None:
+            print(f"  Trust score: {result['trust_score']}")
+    except Exception as e:
+        print(f"  ⚠️  Could not verify: {e}")
+    print()
+
+    # Step 4: Badge
+    print("━━━ Step 4: Trust Badge ━━━")
+    print(f"Fetching badge for The_Nexus_Guard_001...")
+    try:
+        req = urllib.request.Request(f"{service}/badge/{sample_did}")
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            badge = json.loads(resp.read())
+        level = badge.get("level", badge.get("trust_level", "?"))
+        score = badge.get("score", badge.get("trust_score", "?"))
+        print(f"  🏅 Level: {level}")
+        print(f"  📈 Score: {score}")
+    except Exception as e:
+        print(f"  ⚠️  Could not fetch badge: {e}")
+    print()
+
+    # Step 5: What's next
+    print("━━━ Ready to join? ━━━")
+    print()
+    print("  Quick setup (one command):")
+    print("    pip install aip-identity")
+    print("    aip init <platform> <username>")
+    print()
+    print("  Or step by step:")
+    print("    aip register <platform> <username> --secure")
+    print("    aip profile set --name 'My Agent' --bio 'What I do'")
+    print("    aip vouch <did> --scope GENERAL")
+    print("    aip sign ./my-skill/")
+    print("    aip message <did> 'Hello!'")
+    print()
+    print("  📖 Docs: https://the-nexus-guard.github.io/aip/")
+    print("  🔍 Explorer: https://the-nexus-guard.github.io/aip/explorer.html")
+    print("  📦 PyPI: https://pypi.org/project/aip-identity/")
+    print()
+
+
 def main():
     parser = argparse.ArgumentParser(
         prog="aip",
@@ -1566,6 +1665,9 @@ def main():
     p_import.add_argument("source", help="JSON file path or DID to fetch from service")
     p_import.add_argument("--keyring-dir", default=None, help="Directory to store imported keys (default: ~/.aip/keyring/)")
 
+    # demo
+    sub.add_parser("demo", help="Interactive walkthrough — explore AIP without registering")
+
     # audit
     sub.add_parser("audit", help="Self-audit: trust, vouches, messages, profile completeness")
 
@@ -1584,6 +1686,7 @@ def main():
 
     commands = {
         "init": cmd_init,
+        "demo": cmd_demo,
         "register": cmd_register,
         "profile": cmd_profile,
         "verify": cmd_verify,
