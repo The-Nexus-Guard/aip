@@ -76,7 +76,7 @@ class TestRegistration:
         assert data["username"] == unique_username
 
         # Store for cleanup/other tests
-        return data
+        self._easy_reg_data = data
 
     def test_easy_register_duplicate_fails(self, local_service):
         """Cannot register same platform+username twice."""
