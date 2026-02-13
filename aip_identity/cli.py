@@ -929,6 +929,99 @@ def cmd_stats(args):
     print()
 
 
+# ── Webhook ──────────────────────────────────────────────────────────
+
+def cmd_webhook(args):
+    """Manage webhook subscriptions."""
+    import urllib.request
+
+    creds = require_credentials()
+    service = args.service or creds.get("service", AIP_SERVICE)
+    sub = args.webhook_action
+
+    if sub == "list":
+        url = f"{service}/webhooks/{creds['did']}"
+        try:
+            with urllib.request.urlopen(url, timeout=10) as resp:
+                data = json.loads(resp.read())
+        except Exception as e:
+            print(f"❌ Failed to list webhooks: {e}")
+            return
+        hooks = data.get("webhooks", [])
+        if not hooks:
+            print("No webhooks registered.")
+            return
+        for h in hooks:
+            status = "✅ active" if h["active"] else "❌ inactive"
+            events = ", ".join(h["events"])
+            print(f"  {h['id']}  {status}  events=[{events}]  failures={h['failure_count']}")
+            print(f"    → {h['url']}")
+
+    elif sub == "add":
+        import nacl.signing
+        priv = decode_key(creds["private_key"])
+        signing_key = nacl.signing.SigningKey(priv)
+        url = args.url
+        msg = f"webhook:{url}"
+        sig = base64.b64encode(signing_key.sign(msg.encode()).signature).decode()
+        events = args.events.split(",") if args.events else ["registration"]
+        payload = json.dumps({
+            "owner_did": creds["did"],
+            "url": url,
+            "events": events,
+            "signature": sig,
+        }).encode()
+        req = urllib.request.Request(
+            f"{service}/webhooks",
+            data=payload,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                data = json.loads(resp.read())
+            print(f"✅ Webhook created: {data['id']}")
+            print(f"   URL: {url}")
+            print(f"   Events: {', '.join(events)}")
+        except urllib.error.HTTPError as e:
+            body = e.read().decode()
+            print(f"❌ Failed ({e.code}): {body}")
+        except Exception as e:
+            print(f"❌ Failed: {e}")
+
+    elif sub == "delete":
+        import nacl.signing
+        priv = decode_key(creds["private_key"])
+        signing_key = nacl.signing.SigningKey(priv)
+        wh_id = args.webhook_id
+        msg = f"delete-webhook:{wh_id}"
+        sig = base64.b64encode(signing_key.sign(msg.encode()).signature).decode()
+        payload = json.dumps({
+            "owner_did": creds["did"],
+            "signature": sig,
+        }).encode()
+        req = urllib.request.Request(
+            f"{service}/webhooks/{wh_id}",
+            data=payload,
+            headers={"Content-Type": "application/json"},
+            method="DELETE",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                print(f"✅ Webhook {wh_id} deleted.")
+        except urllib.error.HTTPError as e:
+            body = e.read().decode()
+            print(f"❌ Failed ({e.code}): {body}")
+        except Exception as e:
+            print(f"❌ Failed: {e}")
+
+    else:
+        print("Usage: aip webhook {list|add|delete}")
+        print("  list                    List your webhooks")
+        print("  add <url> [--events ..]  Register a webhook")
+        print("  delete <id>             Delete a webhook")
+
+
 # ── Changelog ────────────────────────────────────────────────────────
 
 def cmd_changelog(args):
@@ -1132,6 +1225,16 @@ def main():
     # stats
     sub.add_parser("stats", help="Public network statistics with growth data")
 
+    # webhook
+    p_wh = sub.add_parser("webhook", help="Manage webhook subscriptions (list/add/delete)")
+    p_wh_sub = p_wh.add_subparsers(dest="webhook_action")
+    p_wh_sub.add_parser("list", help="List your webhooks")
+    p_wh_add = p_wh_sub.add_parser("add", help="Register a new webhook")
+    p_wh_add.add_argument("url", help="HTTPS URL to receive notifications")
+    p_wh_add.add_argument("--events", default="registration", help="Comma-separated events (registration,vouch,message or *)")
+    p_wh_del = p_wh_sub.add_parser("delete", help="Delete a webhook")
+    p_wh_del.add_argument("webhook_id", help="Webhook ID to delete")
+
     # changelog
     p_cl = sub.add_parser("changelog", help="Show recent AIP changes and version history")
     p_cl.add_argument("-n", "--entries", type=int, default=5, help="Number of versions to show (default: 5)")
@@ -1166,6 +1269,7 @@ def main():
         "search": cmd_search,
         "status": cmd_status,
         "stats": cmd_stats,
+        "webhook": cmd_webhook,
         "changelog": cmd_changelog,
         "export": cmd_export,
         "import": cmd_import,
