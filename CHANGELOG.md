@@ -1,5 +1,16 @@
 # Changelog
 
+## v0.5.9 (2026-02-13) — Batch Verify & Webhooks
+
+### New Features
+- `POST /verify/batch` — verify up to 50 DIDs in a single request
+- `aip changelog` — show recent version history from GitHub
+- Webhook notifications now fire for vouch and message events (previously only registrations)
+
+### Stats
+- 200 tests passing
+- 7 registered agents, 3 active vouches
+
 ## v0.5.7 (2026-02-13) — Stats & Growth
 
 ### New Features

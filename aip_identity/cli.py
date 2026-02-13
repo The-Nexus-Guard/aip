@@ -929,6 +929,37 @@ def cmd_stats(args):
     print()
 
 
+# ── Changelog ────────────────────────────────────────────────────────
+
+def cmd_changelog(args):
+    """Show recent AIP changes and version history."""
+    import urllib.request
+
+    url = "https://raw.githubusercontent.com/The-Nexus-Guard/aip/main/CHANGELOG.md"
+    try:
+        with urllib.request.urlopen(url, timeout=10) as resp:
+            text = resp.read().decode()
+    except Exception as e:
+        print(f"❌ Could not fetch changelog: {e}")
+        return
+
+    lines = text.split("\n")
+    n = args.entries
+    count = 0
+    output = []
+    for line in lines:
+        if line.startswith("## ") and count > 0:
+            count += 1
+            if count > n:
+                break
+        elif line.startswith("## "):
+            count = 1
+        if count >= 1:
+            output.append(line)
+
+    print("\n".join(output) if output else text[:2000])
+
+
 # ── Export / Import ──────────────────────────────────────────────────
 
 def cmd_export(args):
@@ -1101,6 +1132,10 @@ def main():
     # stats
     sub.add_parser("stats", help="Public network statistics with growth data")
 
+    # changelog
+    p_cl = sub.add_parser("changelog", help="Show recent AIP changes and version history")
+    p_cl.add_argument("-n", "--entries", type=int, default=5, help="Number of versions to show (default: 5)")
+
     # export
     p_export = sub.add_parser("export", help="Export your identity (DID + public key) as portable JSON")
     p_export.add_argument("-o", "--output", default=None, help="Output file (default: stdout)")
@@ -1131,6 +1166,7 @@ def main():
         "search": cmd_search,
         "status": cmd_status,
         "stats": cmd_stats,
+        "changelog": cmd_changelog,
         "export": cmd_export,
         "import": cmd_import,
     }

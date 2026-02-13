@@ -2303,3 +2303,39 @@ class TestRateLimitHeaders:
         resp = client.get("/")
         assert resp.status_code == 200
         assert "X-RateLimit-Limit" not in resp.headers
+
+
+class TestBatchVerify:
+    """Tests for POST /verify/batch endpoint."""
+
+    def test_batch_verify_mixed(self):
+        """Batch verify with registered and unregistered DIDs."""
+        client = get_test_client()
+        # Register one agent
+        resp = client.post("/register/easy", json={"platform": "test", "username": "batchuser1"})
+        assert resp.status_code == 200
+        did = resp.json()["did"]
+
+        # Batch verify
+        resp = client.post("/verify/batch", json={"dids": [did, "did:aip:nonexistent123456"]})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["count"] == 2
+        results = data["results"]
+        assert results[0]["registered"] is True
+        assert results[0]["did"] == did
+        assert results[1]["registered"] is False
+
+    def test_batch_verify_too_many(self):
+        """Batch verify rejects >50 DIDs."""
+        client = get_test_client()
+        dids = [f"did:aip:{i:032d}" for i in range(51)]
+        resp = client.post("/verify/batch", json={"dids": dids})
+        assert resp.status_code == 400
+
+    def test_batch_verify_empty(self):
+        """Batch verify with empty list."""
+        client = get_test_client()
+        resp = client.post("/verify/batch", json={"dids": []})
+        assert resp.status_code == 200
+        assert resp.json()["count"] == 0

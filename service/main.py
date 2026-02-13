@@ -35,7 +35,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="AIP - Agent Identity Protocol",
     description="Cryptographic identity and trust verification for AI agents",
-    version="0.5.8",
+    version="0.5.9",
     lifespan=lifespan,
 )
 
@@ -115,7 +115,7 @@ async def root():
     """Service health check and info."""
     return {
         "service": "AIP - Agent Identity Protocol",
-        "version": "0.5.8",
+        "version": "0.5.9",
         "status": "operational",
         "endpoints": {
             "register": "POST /register - Register a DID with platform identity",
@@ -158,7 +158,7 @@ async def health():
     return {
         "status": "healthy" if db_ok else "degraded",
         "timestamp": int(time.time()),
-        "version": "0.5.8",
+        "version": "0.5.9",
         "checks": {
             "database": {"ok": db_ok, "error": db_error},
         },

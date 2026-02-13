@@ -129,6 +129,55 @@ async def verify(
     )
 
 
+class BatchVerifyRequest(BaseModel):
+    """Batch verify multiple DIDs at once."""
+    dids: List[str]
+
+
+class BatchVerifyResult(BaseModel):
+    did: str
+    registered: bool
+    platforms: Optional[List[PlatformLink]] = None
+
+
+@router.post("/verify/batch")
+async def verify_batch(request: BatchVerifyRequest, req: Request):
+    """
+    Verify multiple DIDs in a single request. Max 50 DIDs per call.
+    """
+    client_ip = req.client.host if req.client else "unknown"
+    allowed, retry_after = default_limiter.is_allowed(client_ip)
+    if not allowed:
+        raise HTTPException(status_code=429, detail=f"Rate limit exceeded. Try again in {retry_after}s.")
+
+    if len(request.dids) > 50:
+        raise HTTPException(status_code=400, detail="Maximum 50 DIDs per batch request")
+
+    results = []
+    for did in request.dids:
+        reg = database.get_registration(did)
+        if not reg:
+            results.append(BatchVerifyResult(did=did, registered=False))
+        else:
+            links = database.get_platform_links(did)
+            results.append(BatchVerifyResult(
+                did=did,
+                registered=True,
+                platforms=[
+                    PlatformLink(
+                        platform=l["platform"],
+                        username=l["username"],
+                        proof_post_id=l.get("proof_post_id"),
+                        verified=bool(l.get("verified")),
+                        registered_at=l.get("registered_at", ""),
+                    )
+                    for l in links
+                ],
+            ))
+
+    return {"results": results, "count": len(results)}
+
+
 @router.get("/lookup/{platform}/{username}", response_model=VerifyResponse)
 async def lookup_by_platform(platform: str, username: str, req: Request = None):
     """
