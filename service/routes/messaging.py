@@ -28,28 +28,8 @@ from rate_limit import message_send_limiter, message_read_limiter, default_limit
 
 router = APIRouter()
 
-# Replay protection: store recent signature hashes with their expiry time
-# Format: {sig_hash: expiry_timestamp}
-_recent_signatures: dict[str, float] = {}
+# Replay protection: signatures stored in database for persistence across restarts
 _REPLAY_WINDOW_SECONDS = 300  # 5 minutes
-
-
-def _cleanup_expired_signatures():
-    """Remove expired entries from the replay cache."""
-    now = time.time()
-    expired = [k for k, v in _recent_signatures.items() if v < now]
-    for k in expired:
-        del _recent_signatures[k]
-
-
-def _check_replay(signature: str) -> bool:
-    """Check if signature was recently seen. Returns True if it's a replay."""
-    _cleanup_expired_signatures()
-    sig_hash = hashlib.sha256(signature.encode()).hexdigest()
-    if sig_hash in _recent_signatures:
-        return True
-    _recent_signatures[sig_hash] = time.time() + _REPLAY_WINDOW_SECONDS
-    return False
 
 
 class SendMessageRequest(BaseModel):
@@ -155,7 +135,9 @@ async def send_message(request: SendMessageRequest, req: Request):
         )
 
     # Check for replay attacks
-    if _check_replay(request.signature):
+    sig_hash = hashlib.sha256(request.signature.encode()).hexdigest()
+    expires_at = time.time() + _REPLAY_WINDOW_SECONDS
+    if database.check_replay(sig_hash, expires_at):
         raise HTTPException(
             status_code=409,
             detail="Duplicate message detected (replay). Each message must have a unique signature."

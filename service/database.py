@@ -6,6 +6,7 @@ Uses SQLite for simplicity and portability.
 
 import sqlite3
 import os
+import time
 from datetime import datetime, timedelta, timezone
 from typing import Optional, List, Dict, Any
 from contextlib import contextmanager
@@ -177,6 +178,15 @@ def init_database():
             )
         """)
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_wid ON webhook_deliveries(webhook_id)")
+
+        # Replay cache - prevents replay attacks on message signatures
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS replay_cache (
+                sig_hash TEXT PRIMARY KEY,
+                expires_at REAL NOT NULL
+            )
+        """)
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_replay_expires ON replay_cache(expires_at)")
 
         # Agent profiles table - optional metadata
         cursor.execute("""
@@ -952,12 +962,63 @@ def enforce_inbox_limits(max_size: int = MAX_INBOX_SIZE) -> int:
     return total_deleted
 
 
+def check_replay(sig_hash: str, expires_at: float) -> bool:
+    """Check if signature was recently seen (replay attack detection).
+
+    Args:
+        sig_hash: Hash of the signature to check
+        expires_at: Unix timestamp when this signature should expire
+
+    Returns:
+        True if sig_hash exists and not expired (replay detected)
+        False if this is a new signature (inserts it into cache)
+    """
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        now = time.time()
+
+        # Check if exists and not expired
+        cursor.execute(
+            "SELECT 1 FROM replay_cache WHERE sig_hash = ? AND expires_at > ?",
+            (sig_hash, now)
+        )
+        if cursor.fetchone():
+            return True  # Replay detected
+
+        # Not found or expired - insert new entry
+        cursor.execute(
+            "INSERT OR REPLACE INTO replay_cache (sig_hash, expires_at) VALUES (?, ?)",
+            (sig_hash, expires_at)
+        )
+        conn.commit()
+        return False  # New signature
+
+
+def cleanup_replay_cache() -> int:
+    """Delete expired entries from replay cache.
+
+    Returns:
+        Number of entries removed
+    """
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        now = time.time()
+        cursor.execute(
+            "DELETE FROM replay_cache WHERE expires_at < ?",
+            (now,)
+        )
+        count = cursor.rowcount
+        conn.commit()
+        return count
+
+
 def run_all_cleanup() -> Dict[str, int]:
     """Run all cleanup tasks and return stats."""
     expired_challenges = 0
     expired_vouches = 0
     old_messages = 0
     trimmed_messages = 0
+    replay_cache_cleaned = 0
 
     try:
         expired_challenges = cleanup_expired_challenges()
@@ -979,11 +1040,17 @@ def run_all_cleanup() -> Dict[str, int]:
     except Exception:
         pass
 
+    try:
+        replay_cache_cleaned = cleanup_replay_cache()
+    except Exception:
+        pass
+
     return {
         "expired_challenges_removed": expired_challenges,
         "expired_vouches_removed": expired_vouches,
         "old_messages_removed": old_messages,
         "inbox_trimmed_messages": trimmed_messages,
+        "replay_cache_cleaned": replay_cache_cleaned,
     }
 
 
