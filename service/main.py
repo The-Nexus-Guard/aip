@@ -36,7 +36,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="AIP - Agent Identity Protocol",
     description="Cryptographic identity and trust verification for AI agents",
-    version="0.5.18",
+    version="0.5.19",
     lifespan=lifespan,
 )
 
