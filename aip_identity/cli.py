@@ -22,6 +22,8 @@ import sys
 import time
 from pathlib import Path
 
+from aip_identity import __version__
+
 AIP_SERVICE = os.environ.get("AIP_SERVICE_URL", "https://aip-service.fly.dev")
 CREDENTIALS_PATHS = [
     Path.home() / ".aip" / "credentials.json",
@@ -37,7 +39,25 @@ IGNORE_PATTERNS = {
 # ── Helpers ──────────────────────────────────────────────────────────
 
 def find_credentials():
-    """Find AIP credentials from known locations."""
+    """Find AIP credentials from known locations.
+    
+    Checks AIP_CREDENTIALS_PATH env var first, then standard locations.
+    """
+    # Check env var override first
+    env_path = os.environ.get("AIP_CREDENTIALS_PATH")
+    if env_path:
+        p = Path(env_path)
+        if p.exists():
+            try:
+                with open(p) as f:
+                    creds = json.load(f)
+                if "did" in creds and "private_key" in creds:
+                    return creds
+            except (json.JSONDecodeError, KeyError):
+                pass
+        # If env var is set but file doesn't exist/is invalid, don't fall through
+        return None
+
     for path in CREDENTIALS_PATHS:
         if path.exists():
             try:
@@ -1835,11 +1855,15 @@ def cmd_doctor(args):
 
     # 3. Credentials
     print("  🔑 Credentials")
-    creds_path = Path.home() / ".aip" / "credentials.json"
-    alt_paths = [creds_path, Path("aip_credentials.json"), Path("credentials/aip_credentials.json")]
+    # Use same logic as find_credentials() — respects AIP_CREDENTIALS_PATH env var
+    env_creds_path = os.environ.get("AIP_CREDENTIALS_PATH")
+    if env_creds_path:
+        search_paths = [Path(env_creds_path)]
+    else:
+        search_paths = list(CREDENTIALS_PATHS) + [Path("aip_credentials.json"), Path("credentials/aip_credentials.json")]
     creds = None
     creds_file = None
-    for p in alt_paths:
+    for p in search_paths:
         if p.exists():
             try:
                 with open(p) as f:
@@ -1922,6 +1946,7 @@ def main():
         prog="aip",
         description="Agent Identity Protocol — cryptographic identity, trust, and messaging for AI agents",
     )
+    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     parser.add_argument("--service", default=None, help=f"AIP service URL (default: {AIP_SERVICE})")
     sub = parser.add_subparsers(dest="command")
 

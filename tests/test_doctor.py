@@ -1,5 +1,6 @@
 """Tests for `aip doctor` command."""
 import json
+import os
 from unittest.mock import patch, MagicMock
 import pytest
 
@@ -63,7 +64,8 @@ class TestDoctor:
             "/health": {"status": "healthy", "version": "0.5.15", "checks": {"database": {"ok": True}}},
         }
         with patch("urllib.request.urlopen", side_effect=mock_urlopen(responses)), \
-             patch("aip_identity.cli.Path") as mock_path:
+             patch("aip_identity.cli.Path") as mock_path, \
+             patch.dict(os.environ, {"AIP_CREDENTIALS_PATH": "/tmp/nonexistent_creds.json"}):
             mock_path.home.return_value.__truediv__ = lambda s, x: MagicMock(
                 __truediv__=lambda s2, x2: MagicMock(exists=MagicMock(return_value=False))
             )
