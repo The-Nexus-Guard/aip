@@ -1507,10 +1507,11 @@ def cmd_demo(args):
     try:
         req = urllib.request.Request(f"{service}/stats")
         with urllib.request.urlopen(req, timeout=10) as resp:
-            stats = json.loads(resp.read())
-        print(f"  📊 Agents registered:  {stats.get('total_agents', '?')}")
+            data = json.loads(resp.read())
+        stats = data.get("stats", data)
+        print(f"  📊 Agents registered:  {stats.get('registrations', stats.get('total_agents', '?'))}")
         print(f"  🤝 Active vouches:     {stats.get('active_vouches', '?')}")
-        print(f"  📬 Messages exchanged: {stats.get('total_messages', '?')}")
+        print(f"  📬 Messages exchanged: {stats.get('messages', stats.get('total_messages', '?'))}")
         print(f"  ✍️  Skills signed:      {stats.get('skill_signatures', '?')}")
     except Exception as e:
         print(f"  ⚠️  Could not reach service: {e}")
@@ -1523,11 +1524,16 @@ def cmd_demo(args):
         req = urllib.request.Request(f"{service}/admin/registrations?limit=10")
         with urllib.request.urlopen(req, timeout=10) as resp:
             data = json.loads(resp.read())
-        agents = data if isinstance(data, list) else data.get("agents", data.get("registrations", []))
+        agents = data if isinstance(data, list) else data.get("registrations", data.get("agents", []))
         for agent in agents[:5]:
             did = agent.get("did", "?")
-            platform = agent.get("platform", "?")
-            username = agent.get("platform_id", agent.get("username", "?"))
+            platforms = agent.get("platforms", [])
+            if platforms:
+                platform = platforms[0].get("platform", "?")
+                username = platforms[0].get("username", "?")
+            else:
+                platform = agent.get("platform", "?")
+                username = agent.get("platform_id", agent.get("username", "?"))
             print(f"  🤖 {username} ({platform}) — {did[:30]}...")
         if len(agents) > 5:
             print(f"  ... and {len(agents) - 5} more")
@@ -1538,17 +1544,19 @@ def cmd_demo(args):
     # Step 3: Verify an agent
     print("━━━ Step 3: Trust Verification ━━━")
     sample_did = "did:aip:c1965a89866ecbfaad49803e6ced70fb"
-    print(f"Verifying {sample_did[:40]}...")
+    print(f"Checking trust for {sample_did[:40]}...")
     try:
-        req = urllib.request.Request(f"{service}/verify/{sample_did}")
+        req = urllib.request.Request(f"{service}/trust/{sample_did}")
         with urllib.request.urlopen(req, timeout=10) as resp:
             result = json.loads(resp.read())
-        status = "✅ Verified" if result.get("verified") else "❌ Not verified"
-        vouches = result.get("vouches_received", result.get("vouches", 0))
+        registered = result.get("registered", False)
+        status = "✅ Registered" if registered else "❌ Not found"
+        vouches = result.get("vouch_count", len(result.get("vouched_by", [])))
+        scopes = result.get("scopes", [])
         print(f"  Status: {status}")
         print(f"  Vouches received: {vouches}")
-        if result.get("trust_score") is not None:
-            print(f"  Trust score: {result['trust_score']}")
+        if scopes:
+            print(f"  Trust scopes: {', '.join(scopes)}")
     except Exception as e:
         print(f"  ⚠️  Could not verify: {e}")
     print()
@@ -1559,11 +1567,16 @@ def cmd_demo(args):
     try:
         req = urllib.request.Request(f"{service}/badge/{sample_did}")
         with urllib.request.urlopen(req, timeout=10) as resp:
-            badge = json.loads(resp.read())
-        level = badge.get("level", badge.get("trust_level", "?"))
-        score = badge.get("score", badge.get("trust_score", "?"))
-        print(f"  🏅 Level: {level}")
-        print(f"  📈 Score: {score}")
+            content_type = resp.headers.get("Content-Type", "")
+            if "svg" in content_type or "xml" in content_type:
+                print(f"  🏅 Badge: {service}/badge/{sample_did}")
+                print(f"  (SVG badge — embed in your README or profile)")
+            else:
+                badge = json.loads(resp.read())
+                level = badge.get("level", badge.get("trust_level", "?"))
+                score = badge.get("score", badge.get("trust_score", "?"))
+                print(f"  🏅 Level: {level}")
+                print(f"  📈 Score: {score}")
     except Exception as e:
         print(f"  ⚠️  Could not fetch badge: {e}")
     print()
