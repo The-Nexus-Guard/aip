@@ -1864,13 +1864,12 @@ def cmd_doctor(args):
             print()
             print("  📡 Registration")
             try:
-                with urllib.request.urlopen(f"{service}/identity/{did}", timeout=5) as resp:
+                with urllib.request.urlopen(f"{service}/trust/{did}", timeout=5) as resp:
                     info = json.loads(resp.read().decode())
-                registered = bool(info.get("did"))
+                registered = bool(info.get("registered") or info.get("did"))
                 check("  Registered on service", registered)
-                score = info.get("trust_score", 0)
-                check("  Trust score > 0", score > 0, f"{score:.2f}")
-                v_recv = info.get("vouches_received", 0)
+                v_recv = info.get("vouch_count", 0)
+                check("  Vouches received", v_recv > 0, f"{v_recv}")
                 if v_recv == 0:
                     warnings.append("No vouches received — ask a trusted agent to vouch for you")
             except urllib.request.HTTPError as e:
