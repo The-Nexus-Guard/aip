@@ -1,5 +1,39 @@
 # Changelog
 
+## v0.5.21 (2026-02-14) — Credential Discovery & Version Flag
+
+### Fixes
+- `AIP_CREDENTIALS_PATH` env var for custom credential file location
+- `aip --version` flag now works correctly
+
+## v0.5.20 (2026-02-14) — Doctor & Import Fixes
+
+### Fixes
+- `aip doctor` now uses correct `/trust/` endpoint for registration check
+- Correct import path in SSRF tests
+
+## v0.5.19 (2026-02-14) — Messaging & Demo Fixes
+
+### Fixes
+- `aip demo` — use correct API endpoints and field names
+- CLI `message`/`reply` commands now properly encrypt with SealedBox + domain-separated signatures
+- Correct message send endpoint URL (`/messages/send` → `/message`)
+- Harden webhook SSRF protection
+
+### New
+- CLI messaging integration tests
+- CLI smoke tests: 35 tests covering `--help` for all 28 commands + graceful degradation
+
+## v0.5.18 (2026-02-13) — Security Hardening
+
+### Security
+- Move replay cache to database (previously in-memory)
+- Remove broken demo endpoint
+
+### Docs
+- Added `VERSIONING.md` guide for version sync across surfaces
+- Landing page now fetches version from live API instead of hardcoding
+
 ## v0.5.17 (2026-02-13) — Reliability & Offline Mode
 
 ### New Features
