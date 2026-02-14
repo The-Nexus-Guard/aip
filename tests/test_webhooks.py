@@ -198,7 +198,7 @@ class TestSSRFProtection:
     """Unit tests for SSRF protection helpers."""
 
     def test_private_ip_detection(self):
-        from aip.service.routes.webhooks import _is_private_ip
+        from service.routes.webhooks import _is_private_ip
         assert _is_private_ip("127.0.0.1") is True
         assert _is_private_ip("10.0.0.1") is True
         assert _is_private_ip("192.168.1.1") is True
@@ -209,7 +209,7 @@ class TestSSRFProtection:
         assert _is_private_ip("8.8.8.8") is False
 
     def test_safe_url_rejects_internal(self):
-        from aip.service.routes.webhooks import _is_safe_url
+        from service.routes.webhooks import _is_safe_url
         assert _is_safe_url("https://localhost/hook") is False
         assert _is_safe_url("https://127.0.0.1/hook") is False
         assert _is_safe_url("") is False
