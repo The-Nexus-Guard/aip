@@ -1,5 +1,16 @@
 # Changelog
 
+## v0.5.24 (2026-02-18) — Single Version Source of Truth
+
+### Fixes
+- **Version now defined once in `pyproject.toml`** — service reads via `tomllib`, package reads via `importlib.metadata`. Eliminates version drift across files.
+- Dockerfile updated to include `pyproject.toml` in build.
+
+## v0.5.23 (2026-02-18) — Fix Init Command
+
+### Fixes
+- **`aip init` now sends base64-encoded keys and DID** to the registration endpoint (was sending hex, causing registration failures for new users).
+
 ## v0.5.22 (2026-02-18) — Fix Secure Registration
 
 ### Fixes
