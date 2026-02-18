@@ -1437,14 +1437,15 @@ def cmd_init(args):
     pub_bytes = bytes(signing_key.verify_key)
     priv_bytes = bytes(signing_key)
 
-    pub_hex = pub_bytes.hex()
-    priv_hex = priv_bytes.hex()
+    pub_b64 = base64.b64encode(pub_bytes).decode()
+    priv_b64 = base64.b64encode(priv_bytes).decode()
     did = "did:aip:" + hashlib.sha256(pub_bytes).hexdigest()[:32]
 
     resp = requests.post(
         f"{service_url}/register",
         json={
-            "public_key": pub_hex,
+            "did": did,
+            "public_key": pub_b64,
             "platform": platform,
             "username": username,
         },
@@ -1460,8 +1461,8 @@ def cmd_init(args):
 
     creds = {
         "did": did,
-        "public_key": pub_hex,
-        "private_key": priv_hex,
+        "public_key": pub_b64,
+        "private_key": priv_b64,
         "platform": platform,
         "username": username,
         "service": service_url,

@@ -2,5 +2,5 @@
 
 from .client import AIPClient, AIPError
 
-__version__ = "0.5.21"
+__version__ = "0.5.23"
 __all__ = ["AIPClient", "AIPError"]
