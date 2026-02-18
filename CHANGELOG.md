@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.5.22 (2026-02-18) — Fix Secure Registration
+
+### Fixes
+- **Secure registration (`aip register --secure`) now works** — was sending keys as hex instead of base64, and missing DID in request body. This caused "DID does not match public key" errors that forced all users to `/register/easy`.
+- Credentials saved by `--secure` path now use base64 encoding (consistent with easy registration and the rest of the ecosystem).
+
 ## v0.5.21 (2026-02-14) — Credential Discovery & Version Flag
 
 ### Fixes
