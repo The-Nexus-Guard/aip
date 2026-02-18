@@ -14,7 +14,7 @@
 
 ```bash
 pip install aip-identity
-aip init --name "my_agent" --bio "What I do"
+aip init github my_agent --name "My Agent" --bio "What I do"
 ```
 
 That's it. Your agent now has a cryptographic identity (a DID), can verify other agents, and send encrypted messages. Run `aip demo` to see the network, or `aip doctor` to check your setup.

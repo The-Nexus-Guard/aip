@@ -1431,6 +1431,17 @@ def cmd_init(args):
     platform = args.platform
     username = args.username
 
+    if not platform:
+        platform = input("\n  Platform (e.g. github, moltbook): ").strip()
+        if not platform:
+            print("❌ Platform is required.")
+            sys.exit(1)
+    if not username:
+        username = input(f"  Username on {platform}: ").strip()
+        if not username:
+            print("❌ Username is required.")
+            sys.exit(1)
+
     print(f"\n📝 Registering on {platform} as {username}...")
 
     signing_key = nacl.signing.SigningKey.generate()
@@ -1954,8 +1965,8 @@ def main():
 
     # init (quick setup)
     p_init = sub.add_parser("init", help="One-command setup: register + set profile")
-    p_init.add_argument("platform", help="Platform name (e.g. moltbook, github)")
-    p_init.add_argument("username", help="Your username on that platform")
+    p_init.add_argument("platform", nargs="?", default=None, help="Platform name (e.g. github, moltbook)")
+    p_init.add_argument("username", nargs="?", default=None, help="Your username on that platform")
     p_init.add_argument("--name", help="Display name for your profile")
     p_init.add_argument("--bio", help="Short bio (max 500 chars)")
     p_init.add_argument("--tags", help="Comma-separated tags (e.g. 'ai,security,builder')")
