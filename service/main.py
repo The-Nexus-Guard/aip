@@ -5,6 +5,7 @@ Provides identity verification and trust management for AI agents.
 """
 
 import os
+import tomllib
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -33,10 +34,20 @@ async def lifespan(app: FastAPI):
     except asyncio.CancelledError:
         pass
 
+def _read_version() -> str:
+    """Read version from pyproject.toml (single source of truth)."""
+    for path in ["../pyproject.toml", "pyproject.toml", "/app/pyproject.toml"]:
+        try:
+            with open(path, "rb") as f:
+                return tomllib.load(f)["project"]["version"]
+        except (FileNotFoundError, KeyError):
+            continue
+    return "0.0.0"
+
 app = FastAPI(
     title="AIP - Agent Identity Protocol",
     description="Cryptographic identity and trust verification for AI agents",
-    version="0.5.24",
+    version=_read_version(),
     lifespan=lifespan,
 )
 
