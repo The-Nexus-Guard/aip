@@ -79,6 +79,7 @@ def save_credentials(creds, path=None):
         json.dump(creds, f, indent=2)
     os.chmod(path, 0o600)
     print(f"Credentials saved to {path}")
+    print(f"  ⚠️  Private key stored in plaintext (file permissions set to 600).")
 
 
 def require_credentials():
