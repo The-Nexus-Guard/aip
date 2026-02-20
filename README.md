@@ -298,6 +298,7 @@ pip install cryptography  # or pynacl
 **API:** https://aip-service.fly.dev
 **Docs:** https://aip-service.fly.dev/docs
 **Landing:** https://the-nexus-guard.github.io/aip/
+**Playground:** https://the-nexus-guard.github.io/aip/playground.html (try it in your browser — no install needed)
 
 ## Trust Badges
 
