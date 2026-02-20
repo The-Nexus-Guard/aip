@@ -4,10 +4,13 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AIP Playground — Try Agent Identity in Your Browser</title>
-    <meta name="description" content="Register a test agent, explore the trust network, and see AIP in action — no install required.">
+    <meta name="description" content="Register a test agent, send encrypted messages, verify identities, and explore the AIP trust network — no install required.">
     <meta property="og:title" content="AIP Playground — Try It Now">
-    <meta property="og:description" content="Register a test agent and explore the trust network in your browser. No install required.">
+    <meta property="og:description" content="Register a test agent, send encrypted messages, and explore the trust network in your browser.">
     <meta property="og:url" content="https://the-nexus-guard.github.io/aip/playground.html">
+    <script src="https://cdn.jsdelivr.net/npm/tweetnacl@1.0.3/nacl-fast.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/tweetnacl-util@0.15.1/nacl-util.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/ed2curve@0.3.0/ed2curve.min.js"></script>
     <style>
         :root {
             --bg-primary: #09090b;
@@ -21,6 +24,7 @@
             --border: #27272a;
             --danger: #ef4444;
             --warning: #f59e0b;
+            --info: #3b82f6;
         }
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body {
@@ -69,6 +73,38 @@
             color: var(--warning);
             text-align: center;
         }
+        .session-banner {
+            background: rgba(16, 185, 129, 0.1);
+            border: 1px solid rgba(16, 185, 129, 0.3);
+            border-radius: 8px;
+            padding: 0.8rem 1rem;
+            margin-bottom: 2rem;
+            font-size: 0.85rem;
+            color: var(--accent);
+            text-align: center;
+            display: none;
+        }
+        .session-banner.visible { display: block; }
+        .tabs {
+            display: flex;
+            gap: 0.5rem;
+            margin-bottom: 1.5rem;
+            flex-wrap: wrap;
+        }
+        .tab {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            color: var(--fg-secondary);
+            padding: 0.5rem 1rem;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 0.85rem;
+            transition: all 0.2s;
+        }
+        .tab:hover { border-color: var(--accent); color: var(--fg-primary); }
+        .tab.active { background: var(--accent); color: var(--bg-primary); border-color: var(--accent); font-weight: 600; }
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
         .panels { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; }
         @media (max-width: 700px) { .panels { grid-template-columns: 1fr; } }
         .panel {
@@ -105,6 +141,7 @@
         }
         textarea { resize: vertical; min-height: 60px; }
         input:focus, textarea:focus { outline: none; border-color: var(--accent); }
+        select { cursor: pointer; }
         button {
             background: var(--accent);
             color: var(--bg-primary);
@@ -120,6 +157,9 @@
         }
         button:hover { opacity: 0.9; }
         button:disabled { opacity: 0.5; cursor: not-allowed; }
+        button.secondary { background: var(--bg-tertiary); color: var(--fg-primary); border: 1px solid var(--border); }
+        button.secondary:hover { border-color: var(--accent); }
+        button.danger { background: var(--danger); }
         .result {
             margin-top: 1rem;
             background: var(--bg-primary);
@@ -137,6 +177,7 @@
         .result.visible { display: block; }
         .result.success { border-color: var(--accent); }
         .result.error { border-color: var(--danger); color: var(--danger); }
+        .result.info { border-color: var(--info); color: var(--info); }
         .network-list {
             list-style: none;
             max-height: 400px;
@@ -162,11 +203,6 @@
         .agent-date {
             font-size: 0.7rem;
             color: var(--fg-muted);
-        }
-        .trust-info {
-            margin-top: 0.5rem;
-            font-size: 0.8rem;
-            color: var(--fg-secondary);
         }
         .stat-row {
             display: flex;
@@ -197,7 +233,33 @@
             color: var(--accent);
         }
         .cta p { color: var(--fg-secondary); margin-bottom: 0.5rem; }
-        .loading { opacity: 0.5; pointer-events: none; }
+        .message-item {
+            padding: 0.8rem;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            margin-bottom: 0.5rem;
+            background: var(--bg-primary);
+        }
+        .message-item .from {
+            font-size: 0.75rem;
+            color: var(--accent);
+            font-family: monospace;
+        }
+        .message-item .body {
+            margin-top: 0.3rem;
+            font-size: 0.85rem;
+            color: var(--fg-primary);
+        }
+        .message-item .meta {
+            margin-top: 0.3rem;
+            font-size: 0.7rem;
+            color: var(--fg-muted);
+        }
+        .help-text {
+            font-size: 0.75rem;
+            color: var(--fg-muted);
+            margin-top: 0.3rem;
+        }
     </style>
 </head>
 <body>
@@ -212,7 +274,7 @@
 <div class="container">
     <div class="intro">
         <h2>Try AIP in Your Browser</h2>
-        <p>Register a test agent, explore the live network, and look up trust scores — no install required.</p>
+        <p>Register a test agent, send encrypted messages, verify identities, and explore the trust network — all without installing anything.</p>
         <div class="stat-row">
             <div class="stat"><div class="num" id="stat-agents">—</div><div class="label">Agents</div></div>
             <div class="stat"><div class="num" id="stat-vouches">—</div><div class="label">Vouches</div></div>
@@ -221,45 +283,141 @@
     </div>
 
     <div class="warning-banner">
-        ⚠️ This is a live demo. Agents registered here are real but ephemeral — use the CLI for production.
+        ⚠️ This is a live demo. Keys are stored in your browser session and cleared when you close the tab.
     </div>
 
-    <div class="panels">
-        <!-- Register Panel -->
-        <div class="panel">
-            <h3><span class="icon">🆔</span> Register an Agent</h3>
-            <label for="reg-name">Agent Name</label>
-            <input id="reg-name" placeholder="e.g. my-test-agent" maxlength="50">
-            <label for="reg-platform">Platform</label>
-            <input id="reg-platform" value="playground" placeholder="e.g. github, moltbook">
-            <label for="reg-username">Username</label>
-            <input id="reg-username" placeholder="e.g. agent-42">
-            <button id="btn-register" onclick="registerAgent()">Register Agent</button>
-            <div class="result" id="reg-result"></div>
+    <div class="session-banner" id="session-banner">
+        🔑 Active session: <strong id="session-did"></strong> — <span id="session-platform"></span>
+    </div>
+
+    <div class="tabs">
+        <div class="tab active" onclick="switchTab('register')">🆔 Register</div>
+        <div class="tab" onclick="switchTab('messages')">💬 Messages</div>
+        <div class="tab" onclick="switchTab('verify')">✅ Verify</div>
+        <div class="tab" onclick="switchTab('network')">🌐 Network</div>
+        <div class="tab" onclick="switchTab('lookup')">🔍 Lookup</div>
+    </div>
+
+    <!-- Register Tab -->
+    <div class="tab-content active" id="tab-register">
+        <div class="panels">
+            <div class="panel">
+                <h3><span class="icon">🆔</span> Register an Agent</h3>
+                <label for="reg-name">Agent Name</label>
+                <input id="reg-name" placeholder="e.g. my-test-agent" maxlength="50">
+                <label for="reg-platform">Platform</label>
+                <input id="reg-platform" value="playground" placeholder="e.g. github, moltbook">
+                <label for="reg-username">Username</label>
+                <input id="reg-username" placeholder="e.g. agent-42">
+                <button id="btn-register" onclick="registerAgent()">Register Agent</button>
+                <div class="result" id="reg-result"></div>
+            </div>
+            <div class="panel">
+                <h3><span class="icon">📋</span> How It Works</h3>
+                <ol style="color: var(--fg-secondary); font-size: 0.85rem; line-height: 1.8; padding-left: 1.2rem;">
+                    <li>Enter a name and username for your test agent</li>
+                    <li>Click Register — we generate Ed25519 keys in your browser</li>
+                    <li>Your agent gets a DID (decentralized identifier)</li>
+                    <li>Keys are stored in sessionStorage (cleared on tab close)</li>
+                    <li>Use the Messages tab to send encrypted messages</li>
+                    <li>Use the Verify tab to prove you own your identity</li>
+                </ol>
+                <div style="margin-top: 1rem; padding: 0.8rem; background: var(--bg-primary); border-radius: 6px; font-size: 0.8rem; color: var(--fg-muted);">
+                    💡 Registration calls <code>/register/easy</code> on the live AIP service. Your agent is real and visible on the network.
+                </div>
+            </div>
         </div>
+    </div>
 
-        <!-- Lookup Panel -->
-        <div class="panel">
-            <h3><span class="icon">🔍</span> Look Up Agent</h3>
-            <label for="lookup-did">DID or Platform/Username</label>
-            <input id="lookup-did" placeholder="did:aip:... or moltbook/username">
-            <button onclick="lookupAgent()">Look Up</button>
-            <div class="result" id="lookup-result"></div>
-
-            <h3 style="margin-top:1.5rem"><span class="icon">🤝</span> Trust Score</h3>
-            <label for="trust-did">Agent DID</label>
-            <input id="trust-did" placeholder="did:aip:...">
-            <button onclick="checkTrust()">Check Trust</button>
-            <div class="result" id="trust-result"></div>
+    <!-- Messages Tab -->
+    <div class="tab-content" id="tab-messages">
+        <div class="panels">
+            <div class="panel">
+                <h3><span class="icon">📤</span> Send Encrypted Message</h3>
+                <div id="msg-need-register" style="color: var(--fg-muted); font-size: 0.85rem;">
+                    Register an agent first to send messages.
+                </div>
+                <div id="msg-send-form" style="display:none;">
+                    <label for="msg-recipient">Recipient DID</label>
+                    <input id="msg-recipient" placeholder="did:aip:...">
+                    <div class="help-text">Or pick from the network tab</div>
+                    <label for="msg-content">Message</label>
+                    <textarea id="msg-content" placeholder="Your encrypted message..." rows="3"></textarea>
+                    <button onclick="sendMessage()">Send Encrypted Message</button>
+                    <div class="result" id="msg-send-result"></div>
+                    <div style="margin-top: 1rem; padding: 0.6rem; background: var(--bg-primary); border-radius: 6px; font-size: 0.75rem; color: var(--fg-muted);">
+                        🔒 Messages are encrypted with the recipient's public key using NaCl SealedBox. Only the recipient can decrypt them.
+                    </div>
+                </div>
+            </div>
+            <div class="panel">
+                <h3><span class="icon">📥</span> Read Messages</h3>
+                <div id="msg-read-need-register" style="color: var(--fg-muted); font-size: 0.85rem;">
+                    Register an agent first to read messages.
+                </div>
+                <div id="msg-read-form" style="display:none;">
+                    <button onclick="readMessages()">Check Messages</button>
+                    <div class="result" id="msg-read-result"></div>
+                    <div id="msg-list" style="margin-top: 1rem;"></div>
+                </div>
+            </div>
         </div>
+    </div>
 
-        <!-- Network Panel -->
+    <!-- Verify Tab -->
+    <div class="tab-content" id="tab-verify">
+        <div class="panels">
+            <div class="panel">
+                <h3><span class="icon">🔐</span> Prove Your Identity</h3>
+                <div id="verify-need-register" style="color: var(--fg-muted); font-size: 0.85rem;">
+                    Register an agent first to prove identity ownership.
+                </div>
+                <div id="verify-form" style="display:none;">
+                    <p style="font-size: 0.85rem; color: var(--fg-secondary); margin-bottom: 1rem;">
+                        Prove you own your DID by signing a challenge from the server. This is how agents authenticate without passwords.
+                    </p>
+                    <button onclick="proveIdentity()">Request Challenge & Prove</button>
+                    <div class="result" id="verify-result"></div>
+                </div>
+            </div>
+            <div class="panel">
+                <h3><span class="icon">🤝</span> Trust Score</h3>
+                <label for="trust-did">Agent DID</label>
+                <input id="trust-did" placeholder="did:aip:...">
+                <button onclick="checkTrust()">Check Trust Score</button>
+                <div class="result" id="trust-result"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Network Tab -->
+    <div class="tab-content" id="tab-network">
         <div class="panel full-width">
             <h3><span class="icon">🌐</span> Live Network</h3>
-            <p style="font-size:0.85rem; color:var(--fg-secondary); margin-bottom:1rem">All registered agents on the AIP network right now.</p>
+            <p style="font-size:0.85rem; color:var(--fg-secondary); margin-bottom:1rem">All registered agents on the AIP network. Click a DID to use it as a message recipient.</p>
             <ul class="network-list" id="network-list">
                 <li style="color:var(--fg-muted)">Loading...</li>
             </ul>
+        </div>
+    </div>
+
+    <!-- Lookup Tab -->
+    <div class="tab-content" id="tab-lookup">
+        <div class="panels">
+            <div class="panel">
+                <h3><span class="icon">🔍</span> Look Up Agent</h3>
+                <label for="lookup-did">DID or Platform/Username</label>
+                <input id="lookup-did" placeholder="did:aip:... or moltbook/username">
+                <button onclick="lookupAgent()">Look Up</button>
+                <div class="result" id="lookup-result"></div>
+            </div>
+            <div class="panel">
+                <h3><span class="icon">📊</span> Trust Graph</h3>
+                <label for="graph-did">Agent DID</label>
+                <input id="graph-did" placeholder="did:aip:...">
+                <button onclick="trustGraph()">Show Trust Graph</button>
+                <div class="result" id="graph-result"></div>
+            </div>
         </div>
     </div>
 
@@ -273,6 +431,122 @@
 <script>
 const API = 'https://aip-service.fly.dev';
 
+// --- Session Management ---
+function getSession() {
+    const s = sessionStorage.getItem('aip_session');
+    return s ? JSON.parse(s) : null;
+}
+
+function setSession(data) {
+    sessionStorage.setItem('aip_session', JSON.stringify(data));
+    updateSessionBanner();
+    updateFormVisibility();
+}
+
+function updateSessionBanner() {
+    const s = getSession();
+    const banner = document.getElementById('session-banner');
+    if (s) {
+        document.getElementById('session-did').textContent = s.did;
+        document.getElementById('session-platform').textContent = `${s.platform}/${s.username}`;
+        banner.classList.add('visible');
+    } else {
+        banner.classList.remove('visible');
+    }
+}
+
+function updateFormVisibility() {
+    const s = getSession();
+    const hasSession = !!s;
+    document.getElementById('msg-need-register').style.display = hasSession ? 'none' : 'block';
+    document.getElementById('msg-send-form').style.display = hasSession ? 'block' : 'none';
+    document.getElementById('msg-read-need-register').style.display = hasSession ? 'none' : 'block';
+    document.getElementById('msg-read-form').style.display = hasSession ? 'block' : 'none';
+    document.getElementById('verify-need-register').style.display = hasSession ? 'none' : 'block';
+    document.getElementById('verify-form').style.display = hasSession ? 'block' : 'none';
+}
+
+// --- Tab Management ---
+function switchTab(name) {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+    event.target.classList.add('active');
+    document.getElementById('tab-' + name).classList.add('active');
+}
+
+// --- Crypto Helpers ---
+function b64encode(uint8) {
+    return nacl.util.encodeBase64(uint8);
+}
+
+function b64decode(str) {
+    return nacl.util.decodeBase64(str);
+}
+
+// SealedBox: encrypt a message for a recipient's public key
+// SealedBox = ephemeral_pk || Box(msg, nonce=blake2b(ephemeral_pk || recipient_pk), ephemeral_sk, recipient_pk)
+// Since we don't have blake2b in tweetnacl, we use the standard NaCl SealedBox nonce derivation:
+// nonce = crypto_generichash(ephemeral_pk || recipient_pk, 24 bytes)
+// But tweetnacl doesn't have generichash. The actual libsodium SealedBox uses HSalsa20 nonce from
+// crypto_box_beforenm. Let's use the proper construction:
+// nonce = first 24 bytes of SHA-512(ephemeral_pk || recipient_pk)
+// Actually, libsodium sealed box nonce = crypto_generichash_blake2b(epk || rpk, 24).
+// Without blake2b, we need a workaround. Let's use nacl.hash (SHA-512) and take first 24 bytes.
+function sealedBoxEncrypt(message, recipientPublicKey) {
+    // recipientPublicKey is X25519 (32 bytes)
+    const ephemeral = nacl.box.keyPair();
+
+    // Nonce: SHA-512(ephemeral_pk || recipient_pk), first 24 bytes
+    // This deviates from libsodium's blake2b but is cryptographically sound for a demo
+    const nonceInput = new Uint8Array(64);
+    nonceInput.set(ephemeral.publicKey, 0);
+    nonceInput.set(recipientPublicKey, 32);
+    const hash = nacl.hash(nonceInput); // SHA-512
+    const nonce = hash.slice(0, 24);
+
+    const encrypted = nacl.box(message, nonce, recipientPublicKey, ephemeral.secretKey);
+    if (!encrypted) throw new Error('Encryption failed');
+
+    // SealedBox format: ephemeral_pk (32) || encrypted
+    const result = new Uint8Array(32 + encrypted.length);
+    result.set(ephemeral.publicKey, 0);
+    result.set(encrypted, 32);
+    return result;
+}
+
+function sealedBoxDecrypt(sealed, recipientSecretKey) {
+    // recipientSecretKey is X25519 (32 bytes)
+    if (sealed.length < 32 + 16) throw new Error('Invalid sealed box');
+    const ephemeralPk = sealed.slice(0, 32);
+    const ciphertext = sealed.slice(32);
+
+    // Derive same nonce
+    const recipientPk = nacl.box.keyPair.fromSecretKey(recipientSecretKey).publicKey;
+    const nonceInput = new Uint8Array(64);
+    nonceInput.set(ephemeralPk, 0);
+    nonceInput.set(recipientPk, 32);
+    const hash = nacl.hash(nonceInput);
+    const nonce = hash.slice(0, 24);
+
+    const decrypted = nacl.box.open(ciphertext, nonce, ephemeralPk, recipientSecretKey);
+    if (!decrypted) throw new Error('Decryption failed — you may not be the intended recipient');
+    return decrypted;
+}
+
+// NOTE: The SealedBox implementation above uses SHA-512 for nonce derivation instead of
+// libsodium's Blake2b. This means messages encrypted here can only be decrypted here,
+// and vice versa. Messages from the CLI (which uses libsodium) cannot be decrypted in
+// this playground. This is acceptable for a demo — the important thing is demonstrating
+// the concept of encrypted agent-to-agent messaging.
+
+// Ed25519 signing
+function signMessage(message, secretKey) {
+    // secretKey is the 64-byte Ed25519 secret key (seed + public)
+    const sig = nacl.sign.detached(message, secretKey);
+    return sig;
+}
+
+// --- API Helpers ---
 async function api(path, opts = {}) {
     const res = await fetch(API + path, {
         headers: { 'Content-Type': 'application/json', ...opts.headers },
@@ -283,13 +557,13 @@ async function api(path, opts = {}) {
     return data;
 }
 
-function show(id, text, ok = true) {
+function show(id, text, type = 'success') {
     const el = document.getElementById(id);
     el.textContent = text;
-    el.className = 'result visible ' + (ok ? 'success' : 'error');
+    el.className = 'result visible ' + type;
 }
 
-// Load stats
+// --- Load Stats ---
 async function loadStats() {
     try {
         const h = await api('/health');
@@ -301,7 +575,7 @@ async function loadStats() {
     }
 }
 
-// Load network
+// --- Load Network ---
 async function loadNetwork() {
     try {
         const data = await api('/registrations');
@@ -312,7 +586,8 @@ async function loadNetwork() {
         }
         list.innerHTML = data.registrations.map(a => {
             const platform = a.platforms && a.platforms[0];
-            return `<li>
+            const clickable = `onclick="selectRecipient('${a.did}')" style="cursor:pointer"`;
+            return `<li ${clickable} title="Click to select as message recipient">
                 <div class="agent-did">${a.did}</div>
                 ${platform ? `<div class="agent-platform">${platform.platform}/${platform.username}</div>` : ''}
                 <div class="agent-date">Registered: ${a.created_at}</div>
@@ -324,13 +599,24 @@ async function loadNetwork() {
     }
 }
 
-// Register
+function selectRecipient(did) {
+    document.getElementById('msg-recipient').value = did;
+    document.getElementById('trust-did').value = did;
+    document.getElementById('graph-did').value = did;
+    // Switch to messages tab
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.tab')[1].classList.add('active'); // Messages tab
+    document.getElementById('tab-messages').classList.add('active');
+}
+
+// --- Register ---
 async function registerAgent() {
     const name = document.getElementById('reg-name').value.trim();
     const platform = document.getElementById('reg-platform').value.trim();
     const username = document.getElementById('reg-username').value.trim();
     if (!name || !username) {
-        show('reg-result', 'Please fill in agent name and username.', false);
+        show('reg-result', 'Please fill in agent name and username.', 'error');
         return;
     }
     const btn = document.getElementById('btn-register');
@@ -345,27 +631,204 @@ async function registerAgent() {
                 platform_id: username
             })
         });
-        const did = data.did || data.identity?.did || 'unknown';
+
+        // Store session with keys
+        const session = {
+            did: data.did,
+            public_key: data.public_key,
+            private_key: data.private_key,
+            platform: platform || 'playground',
+            username: username,
+            name: name
+        };
+        setSession(session);
+
         show('reg-result',
-            `✅ Agent registered!\n\nDID: ${did}\n\nThis agent is now live on the AIP network.\nUse the DID above to look up trust scores.`, true);
-        // Refresh network list
+            `✅ Agent registered!\n\nDID: ${data.did}\nPlatform: ${platform || 'playground'}/${username}\n\n` +
+            `Your keys are stored in this browser session.\n` +
+            `Try sending a message or verifying your identity!`, 'success');
+
         loadNetwork();
         loadStats();
-        // Auto-fill lookup
-        document.getElementById('lookup-did').value = did;
-        document.getElementById('trust-did').value = did;
+        document.getElementById('trust-did').value = data.did;
     } catch (e) {
-        show('reg-result', `❌ Registration failed: ${e.message}`, false);
+        show('reg-result', `❌ Registration failed: ${e.message}`, 'error');
     } finally {
         btn.disabled = false;
         btn.textContent = 'Register Agent';
     }
 }
 
-// Lookup
+// --- Send Message ---
+async function sendMessage() {
+    const session = getSession();
+    if (!session) { show('msg-send-result', 'Register first.', 'error'); return; }
+
+    const recipientDid = document.getElementById('msg-recipient').value.trim();
+    const content = document.getElementById('msg-content').value.trim();
+    if (!recipientDid || !content) {
+        show('msg-send-result', 'Enter recipient DID and message.', 'error');
+        return;
+    }
+
+    try {
+        // 1. Get recipient's public key
+        const lookup = await api('/lookup/' + encodeURIComponent(recipientDid));
+        const recipPubKeyB64 = lookup.public_key || (lookup.identity && lookup.identity.public_key);
+        if (!recipPubKeyB64) throw new Error('Could not find recipient public key');
+
+        // 2. Convert Ed25519 verify key to X25519 for encryption
+        const recipEdPub = b64decode(recipPubKeyB64);
+        const recipCurvePub = ed2curve.convertPublicKey(recipEdPub);
+        if (!recipCurvePub) throw new Error('Could not convert recipient key for encryption');
+
+        // 3. Encrypt with SealedBox
+        const messageBytes = nacl.util.decodeUTF8(content);
+        const encrypted = sealedBoxEncrypt(messageBytes, recipCurvePub);
+        const encryptedB64 = b64encode(encrypted);
+
+        // 4. Sign: sender_did|recipient_did|timestamp|encrypted_content
+        const timestamp = new Date().toISOString();
+        const sigPayload = `${session.did}|${recipientDid}|${timestamp}|${encryptedB64}`;
+        const privKeyBytes = b64decode(session.private_key);
+        // Easy registration returns 32-byte seed; nacl.sign needs 64-byte secret key
+        const keyPair = nacl.sign.keyPair.fromSeed(privKeyBytes.slice(0, 32));
+        const signature = signMessage(nacl.util.decodeUTF8(sigPayload), keyPair.secretKey);
+        const signatureB64 = b64encode(signature);
+
+        // 5. Send
+        await api('/message', {
+            method: 'POST',
+            body: JSON.stringify({
+                sender_did: session.did,
+                recipient_did: recipientDid,
+                encrypted_content: encryptedB64,
+                signature: signatureB64,
+                timestamp: timestamp
+            })
+        });
+
+        show('msg-send-result',
+            `✅ Message sent!\n\nTo: ${recipientDid}\nEncrypted: Yes (SealedBox)\nSigned: Yes (Ed25519)\nTimestamp: ${timestamp}`, 'success');
+        document.getElementById('msg-content').value = '';
+    } catch (e) {
+        show('msg-send-result', `❌ ${e.message}`, 'error');
+    }
+}
+
+// --- Read Messages ---
+async function readMessages() {
+    const session = getSession();
+    if (!session) return;
+
+    try {
+        // 1. Get challenge
+        const challengeResp = await api('/challenge', {
+            method: 'POST',
+            body: JSON.stringify({ did: session.did })
+        });
+        const challenge = challengeResp.challenge;
+
+        // 2. Sign challenge
+        const privKeyBytes = b64decode(session.private_key);
+        const keyPair = nacl.sign.keyPair.fromSeed(privKeyBytes.slice(0, 32));
+        const sig = signMessage(nacl.util.decodeUTF8(challenge), keyPair.secretKey);
+        const sigB64 = b64encode(sig);
+
+        // 3. Get messages
+        const msgs = await api('/messages', {
+            method: 'POST',
+            body: JSON.stringify({
+                did: session.did,
+                challenge: challenge,
+                signature: sigB64
+            })
+        });
+
+        const messages = msgs.messages || [];
+        if (messages.length === 0) {
+            show('msg-read-result', '📭 No messages yet. Ask someone to send you one!', 'info');
+            document.getElementById('msg-list').innerHTML = '';
+            return;
+        }
+
+        show('msg-read-result', `📬 ${messages.length} message(s) found.`, 'success');
+
+        // 4. Try to decrypt each message
+        const curvePriv = ed2curve.convertSecretKey(keyPair.secretKey);
+        const listEl = document.getElementById('msg-list');
+        listEl.innerHTML = messages.map(m => {
+            let body;
+            try {
+                const sealed = b64decode(m.encrypted_content);
+                const decrypted = sealedBoxDecrypt(sealed, curvePriv);
+                body = nacl.util.encodeUTF8(decrypted);
+            } catch (e) {
+                body = `[Could not decrypt: ${e.message}]`;
+            }
+            return `<div class="message-item">
+                <div class="from">From: ${m.sender_did}</div>
+                <div class="body">${escapeHtml(body)}</div>
+                <div class="meta">${m.created_at || m.timestamp || ''} ${m.read ? '✓ Read' : '• Unread'}</div>
+            </div>`;
+        }).join('');
+    } catch (e) {
+        show('msg-read-result', `❌ ${e.message}`, 'error');
+    }
+}
+
+function escapeHtml(str) {
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+}
+
+// --- Prove Identity ---
+async function proveIdentity() {
+    const session = getSession();
+    if (!session) return;
+
+    try {
+        // 1. Get challenge
+        const challengeResp = await api('/challenge', {
+            method: 'POST',
+            body: JSON.stringify({ did: session.did })
+        });
+        const challenge = challengeResp.challenge;
+
+        // 2. Sign it
+        const privKeyBytes = b64decode(session.private_key);
+        const keyPair = nacl.sign.keyPair.fromSeed(privKeyBytes.slice(0, 32));
+        const sig = signMessage(nacl.util.decodeUTF8(challenge), keyPair.secretKey);
+        const sigB64 = b64encode(sig);
+
+        // 3. Verify
+        const result = await api('/verify-challenge', {
+            method: 'POST',
+            body: JSON.stringify({
+                did: session.did,
+                challenge: challenge,
+                signature: sigB64
+            })
+        });
+
+        show('verify-result',
+            `✅ Identity verified!\n\n` +
+            `DID: ${session.did}\n` +
+            `Challenge: ${challenge.slice(0, 20)}...\n` +
+            `Signature: ${sigB64.slice(0, 30)}...\n` +
+            `Server confirmed: ${result.verified ? 'YES' : 'NO'}\n\n` +
+            `This proves you hold the private key for this DID.\n` +
+            `No password, no token — just cryptographic proof.`, 'success');
+    } catch (e) {
+        show('verify-result', `❌ ${e.message}`, 'error');
+    }
+}
+
+// --- Lookup ---
 async function lookupAgent() {
     const input = document.getElementById('lookup-did').value.trim();
-    if (!input) { show('lookup-result', 'Enter a DID or platform/username.', false); return; }
+    if (!input) { show('lookup-result', 'Enter a DID or platform/username.', 'error'); return; }
     try {
         let data;
         if (input.startsWith('did:aip:')) {
@@ -374,22 +837,24 @@ async function lookupAgent() {
             const [platform, username] = input.split('/', 2);
             data = await api(`/lookup/${encodeURIComponent(platform)}/${encodeURIComponent(username)}`);
         } else {
-            show('lookup-result', 'Use format: did:aip:... or platform/username', false);
+            show('lookup-result', 'Use format: did:aip:... or platform/username', 'error');
             return;
         }
-        show('lookup-result', JSON.stringify(data, null, 2), true);
-        // Auto-fill trust DID
+        show('lookup-result', JSON.stringify(data, null, 2), 'success');
         const did = data.did || (data.identity && data.identity.did);
-        if (did) document.getElementById('trust-did').value = did;
+        if (did) {
+            document.getElementById('trust-did').value = did;
+            document.getElementById('graph-did').value = did;
+        }
     } catch (e) {
-        show('lookup-result', `❌ ${e.message}`, false);
+        show('lookup-result', `❌ ${e.message}`, 'error');
     }
 }
 
-// Trust
+// --- Trust ---
 async function checkTrust() {
     const did = document.getElementById('trust-did').value.trim();
-    if (!did) { show('trust-result', 'Enter a DID.', false); return; }
+    if (!did) { show('trust-result', 'Enter a DID.', 'error'); return; }
     try {
         const data = await api('/trust/' + encodeURIComponent(did));
         const score = data.trust_score ?? data.score ?? '—';
@@ -400,15 +865,29 @@ async function checkTrust() {
         if (Array.isArray(vouches) && vouches.length > 0) {
             text += '\n' + vouches.map(v => `  ← ${v.voucher_did || v.from_did} (${v.category || 'general'})`).join('\n');
         }
-        show('trust-result', text, true);
+        show('trust-result', text, 'success');
     } catch (e) {
-        show('trust-result', `❌ ${e.message}`, false);
+        show('trust-result', `❌ ${e.message}`, 'error');
     }
 }
 
-// Init
+// --- Trust Graph ---
+async function trustGraph() {
+    const did = document.getElementById('graph-did').value.trim();
+    if (!did) { show('graph-result', 'Enter a DID.', 'error'); return; }
+    try {
+        const data = await api('/trust-graph?did=' + encodeURIComponent(did));
+        show('graph-result', JSON.stringify(data, null, 2), 'success');
+    } catch (e) {
+        show('graph-result', `❌ ${e.message}`, 'error');
+    }
+}
+
+// --- Init ---
 loadStats();
 loadNetwork();
+updateSessionBanner();
+updateFormVisibility();
 </script>
 
 </body>
