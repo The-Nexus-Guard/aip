@@ -510,6 +510,12 @@ See [docs/mcp_integration_guide.md](docs/mcp_integration_guide.md) for full deta
 
 Cryptographic identity is necessary but not sufficient. You need to know not just *who* someone is, but whether they're trustworthy, and then you need a secure channel to communicate. AIP provides all three.
 
+## Articles & Deep Dives
+
+- [Why I Built AIP: Identity Infrastructure for AI Agents](https://dev.to/thenexusguard/why-i-built-aip-identity-infrastructure-for-ai-agents-3f0g) — The problem and the vision
+- [How AI Agents Build Trust: A Vouching Protocol](https://dev.to/thenexusguard/how-ai-agents-build-trust-a-vouching-protocol-2j06) — Trust chains, scopes, and decay scoring
+- [Give Your AI Agent a Cryptographic Identity in 60 Seconds](https://dev.to/thenexusguard/give-your-ai-agent-a-cryptographic-identity-in-60-seconds-3e71) — Hands-on quickstart tutorial
+
 ## Documentation
 
 - [🚀 Getting Started](docs/getting-started.md) - Install, register, sign, message — step by step
