@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AIP Playground — Try Agent Identity in Your Browser</title>
+    <meta name="description" content="Register a test agent, explore the trust network, and see AIP in action — no install required.">
+    <meta property="og:title" content="AIP Playground — Try It Now">
+    <meta property="og:description" content="Register a test agent and explore the trust network in your browser. No install required.">
+    <meta property="og:url" content="https://the-nexus-guard.github.io/aip/playground.html">
+    <style>
+        :root {
+            --bg-primary: #09090b;
+            --bg-secondary: #18181b;
+            --bg-tertiary: #27272a;
+            --fg-primary: #fafafa;
+            --fg-secondary: #a1a1aa;
+            --fg-muted: #71717a;
+            --accent: #10b981;
+            --accent-light: #34d399;
+            --border: #27272a;
+            --danger: #ef4444;
+            --warning: #f59e0b;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: var(--bg-primary);
+            color: var(--fg-primary);
+            min-height: 100vh;
+        }
+        .header {
+            border-bottom: 1px solid var(--border);
+            padding: 1.5rem 2rem;
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+        .header a { color: var(--accent); text-decoration: none; font-size: 0.9rem; }
+        .header a:hover { text-decoration: underline; }
+        .header h1 { font-size: 1.3rem; flex: 1; }
+        .header .badge {
+            background: var(--accent);
+            color: var(--bg-primary);
+            font-size: 0.7rem;
+            font-weight: 700;
+            padding: 0.2rem 0.5rem;
+            border-radius: 4px;
+            text-transform: uppercase;
+        }
+        .container { max-width: 900px; margin: 0 auto; padding: 2rem; }
+        .intro {
+            text-align: center;
+            margin-bottom: 2.5rem;
+            padding: 2rem;
+            background: var(--bg-secondary);
+            border-radius: 12px;
+            border: 1px solid var(--border);
+        }
+        .intro h2 { font-size: 1.8rem; margin-bottom: 0.5rem; }
+        .intro p { color: var(--fg-secondary); max-width: 600px; margin: 0 auto; line-height: 1.6; }
+        .warning-banner {
+            background: rgba(245, 158, 11, 0.1);
+            border: 1px solid rgba(245, 158, 11, 0.3);
+            border-radius: 8px;
+            padding: 0.8rem 1rem;
+            margin-bottom: 2rem;
+            font-size: 0.85rem;
+            color: var(--warning);
+            text-align: center;
+        }
+        .panels { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; }
+        @media (max-width: 700px) { .panels { grid-template-columns: 1fr; } }
+        .panel {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 1.5rem;
+        }
+        .panel h3 {
+            font-size: 1rem;
+            margin-bottom: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        .panel h3 .icon { font-size: 1.2rem; }
+        label {
+            display: block;
+            font-size: 0.8rem;
+            color: var(--fg-secondary);
+            margin-bottom: 0.3rem;
+            margin-top: 0.8rem;
+        }
+        label:first-of-type { margin-top: 0; }
+        input, select, textarea {
+            width: 100%;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border);
+            color: var(--fg-primary);
+            border-radius: 6px;
+            padding: 0.6rem 0.8rem;
+            font-size: 0.9rem;
+            font-family: inherit;
+        }
+        textarea { resize: vertical; min-height: 60px; }
+        input:focus, textarea:focus { outline: none; border-color: var(--accent); }
+        button {
+            background: var(--accent);
+            color: var(--bg-primary);
+            border: none;
+            border-radius: 6px;
+            padding: 0.7rem 1.2rem;
+            font-size: 0.9rem;
+            font-weight: 600;
+            cursor: pointer;
+            margin-top: 1rem;
+            width: 100%;
+            transition: opacity 0.2s;
+        }
+        button:hover { opacity: 0.9; }
+        button:disabled { opacity: 0.5; cursor: not-allowed; }
+        .result {
+            margin-top: 1rem;
+            background: var(--bg-primary);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 1rem;
+            font-family: 'JetBrains Mono', 'Fira Code', monospace;
+            font-size: 0.8rem;
+            line-height: 1.5;
+            color: var(--fg-secondary);
+            white-space: pre-wrap;
+            word-break: break-all;
+            display: none;
+        }
+        .result.visible { display: block; }
+        .result.success { border-color: var(--accent); }
+        .result.error { border-color: var(--danger); color: var(--danger); }
+        .network-list {
+            list-style: none;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        .network-list li {
+            padding: 0.7rem;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            gap: 0.2rem;
+        }
+        .network-list li:last-child { border-bottom: none; }
+        .agent-did {
+            font-family: monospace;
+            font-size: 0.75rem;
+            color: var(--fg-muted);
+        }
+        .agent-platform {
+            font-size: 0.8rem;
+            color: var(--accent);
+        }
+        .agent-date {
+            font-size: 0.7rem;
+            color: var(--fg-muted);
+        }
+        .trust-info {
+            margin-top: 0.5rem;
+            font-size: 0.8rem;
+            color: var(--fg-secondary);
+        }
+        .stat-row {
+            display: flex;
+            justify-content: center;
+            gap: 2rem;
+            margin-top: 1rem;
+        }
+        .stat { text-align: center; }
+        .stat .num { font-size: 1.8rem; font-weight: 700; color: var(--accent); }
+        .stat .label { font-size: 0.75rem; color: var(--fg-muted); }
+        .full-width { grid-column: 1 / -1; }
+        .cta {
+            text-align: center;
+            margin-top: 2rem;
+            padding: 1.5rem;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+        }
+        .cta code {
+            background: var(--bg-tertiary);
+            padding: 0.5rem 1rem;
+            border-radius: 6px;
+            font-family: monospace;
+            font-size: 1rem;
+            display: inline-block;
+            margin-top: 0.5rem;
+            color: var(--accent);
+        }
+        .cta p { color: var(--fg-secondary); margin-bottom: 0.5rem; }
+        .loading { opacity: 0.5; pointer-events: none; }
+    </style>
+</head>
+<body>
+
+<div class="header">
+    <h1>🔬 AIP Playground</h1>
+    <span class="badge">Demo</span>
+    <a href="./">← Home</a>
+    <a href="explorer.html">Explorer</a>
+</div>
+
+<div class="container">
+    <div class="intro">
+        <h2>Try AIP in Your Browser</h2>
+        <p>Register a test agent, explore the live network, and look up trust scores — no install required.</p>
+        <div class="stat-row">
+            <div class="stat"><div class="num" id="stat-agents">—</div><div class="label">Agents</div></div>
+            <div class="stat"><div class="num" id="stat-vouches">—</div><div class="label">Vouches</div></div>
+            <div class="stat"><div class="num" id="stat-version">—</div><div class="label">Version</div></div>
+        </div>
+    </div>
+
+    <div class="warning-banner">
+        ⚠️ This is a live demo. Agents registered here are real but ephemeral — use the CLI for production.
+    </div>
+
+    <div class="panels">
+        <!-- Register Panel -->
+        <div class="panel">
+            <h3><span class="icon">🆔</span> Register an Agent</h3>
+            <label for="reg-name">Agent Name</label>
+            <input id="reg-name" placeholder="e.g. my-test-agent" maxlength="50">
+            <label for="reg-platform">Platform</label>
+            <input id="reg-platform" value="playground" placeholder="e.g. github, moltbook">
+            <label for="reg-username">Username</label>
+            <input id="reg-username" placeholder="e.g. agent-42">
+            <button id="btn-register" onclick="registerAgent()">Register Agent</button>
+            <div class="result" id="reg-result"></div>
+        </div>
+
+        <!-- Lookup Panel -->
+        <div class="panel">
+            <h3><span class="icon">🔍</span> Look Up Agent</h3>
+            <label for="lookup-did">DID or Platform/Username</label>
+            <input id="lookup-did" placeholder="did:aip:... or moltbook/username">
+            <button onclick="lookupAgent()">Look Up</button>
+            <div class="result" id="lookup-result"></div>
+
+            <h3 style="margin-top:1.5rem"><span class="icon">🤝</span> Trust Score</h3>
+            <label for="trust-did">Agent DID</label>
+            <input id="trust-did" placeholder="did:aip:...">
+            <button onclick="checkTrust()">Check Trust</button>
+            <div class="result" id="trust-result"></div>
+        </div>
+
+        <!-- Network Panel -->
+        <div class="panel full-width">
+            <h3><span class="icon">🌐</span> Live Network</h3>
+            <p style="font-size:0.85rem; color:var(--fg-secondary); margin-bottom:1rem">All registered agents on the AIP network right now.</p>
+            <ul class="network-list" id="network-list">
+                <li style="color:var(--fg-muted)">Loading...</li>
+            </ul>
+        </div>
+    </div>
+
+    <div class="cta">
+        <p>Ready for the real thing? Install AIP:</p>
+        <code>pip install aip-identity</code>
+        <p style="margin-top:0.8rem"><a href="https://github.com/The-Nexus-Guard/aip" style="color:var(--accent)">View on GitHub →</a></p>
+    </div>
+</div>
+
+<script>
+const API = 'https://aip-service.fly.dev';
+
+async function api(path, opts = {}) {
+    const res = await fetch(API + path, {
+        headers: { 'Content-Type': 'application/json', ...opts.headers },
+        ...opts
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || JSON.stringify(data));
+    return data;
+}
+
+function show(id, text, ok = true) {
+    const el = document.getElementById(id);
+    el.textContent = text;
+    el.className = 'result visible ' + (ok ? 'success' : 'error');
+}
+
+// Load stats
+async function loadStats() {
+    try {
+        const h = await api('/health');
+        document.getElementById('stat-agents').textContent = h.metrics.registrations;
+        document.getElementById('stat-vouches').textContent = h.metrics.active_vouches;
+        document.getElementById('stat-version').textContent = h.version;
+    } catch (e) {
+        console.error('Stats load failed:', e);
+    }
+}
+
+// Load network
+async function loadNetwork() {
+    try {
+        const data = await api('/registrations');
+        const list = document.getElementById('network-list');
+        if (!data.registrations || data.registrations.length === 0) {
+            list.innerHTML = '<li style="color:var(--fg-muted)">No agents registered yet.</li>';
+            return;
+        }
+        list.innerHTML = data.registrations.map(a => {
+            const platform = a.platforms && a.platforms[0];
+            return `<li>
+                <div class="agent-did">${a.did}</div>
+                ${platform ? `<div class="agent-platform">${platform.platform}/${platform.username}</div>` : ''}
+                <div class="agent-date">Registered: ${a.created_at}</div>
+            </li>`;
+        }).join('');
+    } catch (e) {
+        document.getElementById('network-list').innerHTML =
+            `<li style="color:var(--danger)">Failed to load: ${e.message}</li>`;
+    }
+}
+
+// Register
+async function registerAgent() {
+    const name = document.getElementById('reg-name').value.trim();
+    const platform = document.getElementById('reg-platform').value.trim();
+    const username = document.getElementById('reg-username').value.trim();
+    if (!name || !username) {
+        show('reg-result', 'Please fill in agent name and username.', false);
+        return;
+    }
+    const btn = document.getElementById('btn-register');
+    btn.disabled = true;
+    btn.textContent = 'Registering...';
+    try {
+        const data = await api('/register/easy', {
+            method: 'POST',
+            body: JSON.stringify({
+                name: name,
+                platform: platform || 'playground',
+                platform_id: username
+            })
+        });
+        const did = data.did || data.identity?.did || 'unknown';
+        show('reg-result',
+            `✅ Agent registered!\n\nDID: ${did}\n\nThis agent is now live on the AIP network.\nUse the DID above to look up trust scores.`, true);
+        // Refresh network list
+        loadNetwork();
+        loadStats();
+        // Auto-fill lookup
+        document.getElementById('lookup-did').value = did;
+        document.getElementById('trust-did').value = did;
+    } catch (e) {
+        show('reg-result', `❌ Registration failed: ${e.message}`, false);
+    } finally {
+        btn.disabled = false;
+        btn.textContent = 'Register Agent';
+    }
+}
+
+// Lookup
+async function lookupAgent() {
+    const input = document.getElementById('lookup-did').value.trim();
+    if (!input) { show('lookup-result', 'Enter a DID or platform/username.', false); return; }
+    try {
+        let data;
+        if (input.startsWith('did:aip:')) {
+            data = await api('/lookup/' + encodeURIComponent(input));
+        } else if (input.includes('/')) {
+            const [platform, username] = input.split('/', 2);
+            data = await api(`/lookup/${encodeURIComponent(platform)}/${encodeURIComponent(username)}`);
+        } else {
+            show('lookup-result', 'Use format: did:aip:... or platform/username', false);
+            return;
+        }
+        show('lookup-result', JSON.stringify(data, null, 2), true);
+        // Auto-fill trust DID
+        const did = data.did || (data.identity && data.identity.did);
+        if (did) document.getElementById('trust-did').value = did;
+    } catch (e) {
+        show('lookup-result', `❌ ${e.message}`, false);
+    }
+}
+
+// Trust
+async function checkTrust() {
+    const did = document.getElementById('trust-did').value.trim();
+    if (!did) { show('trust-result', 'Enter a DID.', false); return; }
+    try {
+        const data = await api('/trust/' + encodeURIComponent(did));
+        const score = data.trust_score ?? data.score ?? '—';
+        const vouches = data.vouches ?? data.received_vouches ?? [];
+        let text = `Trust Score: ${score}\n`;
+        if (typeof data.level === 'string') text += `Level: ${data.level}\n`;
+        text += `\nVouches received: ${Array.isArray(vouches) ? vouches.length : '—'}`;
+        if (Array.isArray(vouches) && vouches.length > 0) {
+            text += '\n' + vouches.map(v => `  ← ${v.voucher_did || v.from_did} (${v.category || 'general'})`).join('\n');
+        }
+        show('trust-result', text, true);
+    } catch (e) {
+        show('trust-result', `❌ ${e.message}`, false);
+    }
+}
+
+// Init
+loadStats();
+loadNetwork();
+</script>
+
+</body>
+</html>
