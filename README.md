@@ -489,6 +489,28 @@ See [docs/skill_signing_tutorial.md](docs/skill_signing_tutorial.md) for the ful
 └─────────────────────────────────────────────┘
 ```
 
+## Framework Integrations (LangChain / CrewAI)
+
+AIP provides ready-made tools for LangChain and CrewAI agents:
+
+```python
+from aip_identity.integrations.langchain_tools import get_aip_tools
+
+tools = get_aip_tools()
+
+# LangChain
+from langchain.agents import create_agent
+agent = create_agent(model="claude-sonnet-4-5-20250929", tools=tools)
+
+# CrewAI
+from crewai import Agent
+agent = Agent(role="Security Analyst", tools=tools)
+```
+
+Available tools: `aip_whoami`, `aip_lookup_agent`, `aip_verify_agent`, `aip_get_trust`, `aip_is_trusted`, `aip_sign_message`, `aip_vouch_for_agent`, `aip_get_profile`, `aip_get_trust_path`.
+
+Requires: `pip install langchain-core` (optional dependency).
+
 ## MCP Integration
 
 AIP fills the "agent identity gap" in MCP (Model Context Protocol):
