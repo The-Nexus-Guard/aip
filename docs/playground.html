@@ -8,9 +8,7 @@
     <meta property="og:title" content="AIP Playground — Try It Now">
     <meta property="og:description" content="Register a test agent, send encrypted messages, and explore the trust network in your browser.">
     <meta property="og:url" content="https://the-nexus-guard.github.io/aip/playground.html">
-    <script src="https://cdn.jsdelivr.net/npm/tweetnacl@1.0.3/nacl-fast.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/tweetnacl-util@0.15.1/nacl-util.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/ed2curve@0.3.0/ed2curve.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/libsodium-wrappers-sumo@0.7.15/dist/modules-sumo/libsodium-wrappers.js"></script>
     <style>
         :root {
             --bg-primary: #09090b;
@@ -346,7 +344,7 @@
                     <button onclick="sendMessage()">Send Encrypted Message</button>
                     <div class="result" id="msg-send-result"></div>
                     <div style="margin-top: 1rem; padding: 0.6rem; background: var(--bg-primary); border-radius: 6px; font-size: 0.75rem; color: var(--fg-muted);">
-                        🔒 Messages are encrypted with the recipient's public key using NaCl SealedBox. Only the recipient can decrypt them.
+                        🔒 Messages use libsodium SealedBox (Blake2b nonce) — fully compatible with the AIP CLI. Only the recipient can decrypt.
                     </div>
                 </div>
             </div>
@@ -430,6 +428,7 @@
 
 <script>
 const API = 'https://aip-service.fly.dev';
+let sodium; // initialized async
 
 // --- Session Management ---
 function getSession() {
@@ -474,76 +473,38 @@ function switchTab(name) {
     document.getElementById('tab-' + name).classList.add('active');
 }
 
-// --- Crypto Helpers ---
+// --- Crypto Helpers (libsodium) ---
+// Uses libsodium's native crypto_box_seal / crypto_box_seal_open
+// which use Blake2b for nonce derivation — fully compatible with the CLI.
+
 function b64encode(uint8) {
-    return nacl.util.encodeBase64(uint8);
+    return sodium.to_base64(uint8, sodium.base64_variants.ORIGINAL);
 }
 
 function b64decode(str) {
-    return nacl.util.decodeBase64(str);
+    return sodium.from_base64(str, sodium.base64_variants.ORIGINAL);
 }
 
-// SealedBox: encrypt a message for a recipient's public key
-// SealedBox = ephemeral_pk || Box(msg, nonce=blake2b(ephemeral_pk || recipient_pk), ephemeral_sk, recipient_pk)
-// Since we don't have blake2b in tweetnacl, we use the standard NaCl SealedBox nonce derivation:
-// nonce = crypto_generichash(ephemeral_pk || recipient_pk, 24 bytes)
-// But tweetnacl doesn't have generichash. The actual libsodium SealedBox uses HSalsa20 nonce from
-// crypto_box_beforenm. Let's use the proper construction:
-// nonce = first 24 bytes of SHA-512(ephemeral_pk || recipient_pk)
-// Actually, libsodium sealed box nonce = crypto_generichash_blake2b(epk || rpk, 24).
-// Without blake2b, we need a workaround. Let's use nacl.hash (SHA-512) and take first 24 bytes.
-function sealedBoxEncrypt(message, recipientPublicKey) {
-    // recipientPublicKey is X25519 (32 bytes)
-    const ephemeral = nacl.box.keyPair();
-
-    // Nonce: SHA-512(ephemeral_pk || recipient_pk), first 24 bytes
-    // This deviates from libsodium's blake2b but is cryptographically sound for a demo
-    const nonceInput = new Uint8Array(64);
-    nonceInput.set(ephemeral.publicKey, 0);
-    nonceInput.set(recipientPublicKey, 32);
-    const hash = nacl.hash(nonceInput); // SHA-512
-    const nonce = hash.slice(0, 24);
-
-    const encrypted = nacl.box(message, nonce, recipientPublicKey, ephemeral.secretKey);
-    if (!encrypted) throw new Error('Encryption failed');
-
-    // SealedBox format: ephemeral_pk (32) || encrypted
-    const result = new Uint8Array(32 + encrypted.length);
-    result.set(ephemeral.publicKey, 0);
-    result.set(encrypted, 32);
-    return result;
+function sealedBoxEncrypt(message, recipientCurvePublicKey) {
+    // recipientCurvePublicKey is X25519 (32 bytes)
+    return sodium.crypto_box_seal(message, recipientCurvePublicKey);
 }
 
-function sealedBoxDecrypt(sealed, recipientSecretKey) {
-    // recipientSecretKey is X25519 (32 bytes)
-    if (sealed.length < 32 + 16) throw new Error('Invalid sealed box');
-    const ephemeralPk = sealed.slice(0, 32);
-    const ciphertext = sealed.slice(32);
-
-    // Derive same nonce
-    const recipientPk = nacl.box.keyPair.fromSecretKey(recipientSecretKey).publicKey;
-    const nonceInput = new Uint8Array(64);
-    nonceInput.set(ephemeralPk, 0);
-    nonceInput.set(recipientPk, 32);
-    const hash = nacl.hash(nonceInput);
-    const nonce = hash.slice(0, 24);
-
-    const decrypted = nacl.box.open(ciphertext, nonce, ephemeralPk, recipientSecretKey);
-    if (!decrypted) throw new Error('Decryption failed — you may not be the intended recipient');
-    return decrypted;
+function sealedBoxDecrypt(sealed, recipientCurvePublicKey, recipientCurveSecretKey) {
+    // Uses libsodium's native seal_open — Blake2b nonce, fully CLI-compatible
+    return sodium.crypto_box_seal_open(sealed, recipientCurvePublicKey, recipientCurveSecretKey);
 }
 
-// NOTE: The SealedBox implementation above uses SHA-512 for nonce derivation instead of
-// libsodium's Blake2b. This means messages encrypted here can only be decrypted here,
-// and vice versa. Messages from the CLI (which uses libsodium) cannot be decrypted in
-// this playground. This is acceptable for a demo — the important thing is demonstrating
-// the concept of encrypted agent-to-agent messaging.
-
-// Ed25519 signing
 function signMessage(message, secretKey) {
-    // secretKey is the 64-byte Ed25519 secret key (seed + public)
-    const sig = nacl.sign.detached(message, secretKey);
-    return sig;
+    return sodium.crypto_sign_detached(message, secretKey);
+}
+
+function edToX25519Pk(edPk) {
+    return sodium.crypto_sign_ed25519_pk_to_curve25519(edPk);
+}
+
+function edToX25519Sk(edSk) {
+    return sodium.crypto_sign_ed25519_sk_to_curve25519(edSk);
 }
 
 // --- API Helpers ---
@@ -603,10 +564,9 @@ function selectRecipient(did) {
     document.getElementById('msg-recipient').value = did;
     document.getElementById('trust-did').value = did;
     document.getElementById('graph-did').value = did;
-    // Switch to messages tab
     document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
     document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
-    document.querySelectorAll('.tab')[1].classList.add('active'); // Messages tab
+    document.querySelectorAll('.tab')[1].classList.add('active');
     document.getElementById('tab-messages').classList.add('active');
 }
 
@@ -632,7 +592,6 @@ async function registerAgent() {
             })
         });
 
-        // Store session with keys
         const session = {
             did: data.did,
             public_key: data.public_key,
@@ -679,11 +638,10 @@ async function sendMessage() {
 
         // 2. Convert Ed25519 verify key to X25519 for encryption
         const recipEdPub = b64decode(recipPubKeyB64);
-        const recipCurvePub = ed2curve.convertPublicKey(recipEdPub);
-        if (!recipCurvePub) throw new Error('Could not convert recipient key for encryption');
+        const recipCurvePub = edToX25519Pk(recipEdPub);
 
-        // 3. Encrypt with SealedBox
-        const messageBytes = nacl.util.decodeUTF8(content);
+        // 3. Encrypt with SealedBox (libsodium native — Blake2b nonce, CLI-compatible)
+        const messageBytes = sodium.from_string(content);
         const encrypted = sealedBoxEncrypt(messageBytes, recipCurvePub);
         const encryptedB64 = b64encode(encrypted);
 
@@ -691,9 +649,9 @@ async function sendMessage() {
         const timestamp = new Date().toISOString();
         const sigPayload = `${session.did}|${recipientDid}|${timestamp}|${encryptedB64}`;
         const privKeyBytes = b64decode(session.private_key);
-        // Easy registration returns 32-byte seed; nacl.sign needs 64-byte secret key
-        const keyPair = nacl.sign.keyPair.fromSeed(privKeyBytes.slice(0, 32));
-        const signature = signMessage(nacl.util.decodeUTF8(sigPayload), keyPair.secretKey);
+        // Easy registration returns 32-byte seed
+        const keyPair = sodium.crypto_sign_seed_keypair(privKeyBytes.slice(0, 32));
+        const signature = signMessage(sodium.from_string(sigPayload), keyPair.privateKey);
         const signatureB64 = b64encode(signature);
 
         // 5. Send
@@ -709,7 +667,7 @@ async function sendMessage() {
         });
 
         show('msg-send-result',
-            `✅ Message sent!\n\nTo: ${recipientDid}\nEncrypted: Yes (SealedBox)\nSigned: Yes (Ed25519)\nTimestamp: ${timestamp}`, 'success');
+            `✅ Message sent!\n\nTo: ${recipientDid}\nEncrypted: Yes (SealedBox + Blake2b)\nSigned: Yes (Ed25519)\nTimestamp: ${timestamp}\n\n🔗 CLI-compatible: messages can be decrypted by aip-identity CLI`, 'success');
         document.getElementById('msg-content').value = '';
     } catch (e) {
         show('msg-send-result', `❌ ${e.message}`, 'error');
@@ -731,8 +689,8 @@ async function readMessages() {
 
         // 2. Sign challenge
         const privKeyBytes = b64decode(session.private_key);
-        const keyPair = nacl.sign.keyPair.fromSeed(privKeyBytes.slice(0, 32));
-        const sig = signMessage(nacl.util.decodeUTF8(challenge), keyPair.secretKey);
+        const keyPair = sodium.crypto_sign_seed_keypair(privKeyBytes.slice(0, 32));
+        const sig = signMessage(sodium.from_string(challenge), keyPair.privateKey);
         const sigB64 = b64encode(sig);
 
         // 3. Get messages
@@ -755,14 +713,15 @@ async function readMessages() {
         show('msg-read-result', `📬 ${messages.length} message(s) found.`, 'success');
 
         // 4. Try to decrypt each message
-        const curvePriv = ed2curve.convertSecretKey(keyPair.secretKey);
+        const curvePub = edToX25519Pk(keyPair.publicKey);
+        const curvePriv = edToX25519Sk(keyPair.privateKey);
         const listEl = document.getElementById('msg-list');
         listEl.innerHTML = messages.map(m => {
             let body;
             try {
                 const sealed = b64decode(m.encrypted_content);
-                const decrypted = sealedBoxDecrypt(sealed, curvePriv);
-                body = nacl.util.encodeUTF8(decrypted);
+                const decrypted = sealedBoxDecrypt(sealed, curvePub, curvePriv);
+                body = sodium.to_string(decrypted);
             } catch (e) {
                 body = `[Could not decrypt: ${e.message}]`;
             }
@@ -798,8 +757,8 @@ async function proveIdentity() {
 
         // 2. Sign it
         const privKeyBytes = b64decode(session.private_key);
-        const keyPair = nacl.sign.keyPair.fromSeed(privKeyBytes.slice(0, 32));
-        const sig = signMessage(nacl.util.decodeUTF8(challenge), keyPair.secretKey);
+        const keyPair = sodium.crypto_sign_seed_keypair(privKeyBytes.slice(0, 32));
+        const sig = signMessage(sodium.from_string(challenge), keyPair.privateKey);
         const sigB64 = b64encode(sig);
 
         // 3. Verify
@@ -883,11 +842,16 @@ async function trustGraph() {
     }
 }
 
-// --- Init ---
-loadStats();
-loadNetwork();
-updateSessionBanner();
-updateFormVisibility();
+// --- Init (wait for libsodium) ---
+async function init() {
+    await window.sodium.ready;
+    sodium = window.sodium;
+    loadStats();
+    loadNetwork();
+    updateSessionBanner();
+    updateFormVisibility();
+}
+init();
 </script>
 
 </body>
