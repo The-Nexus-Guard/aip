@@ -10,6 +10,10 @@
 
 **AIP fixes this.** Ed25519 keypairs give each agent a provable identity. Signed vouches create verifiable trust chains. E2E encryption lets agents talk without any platform reading their messages. No central authority required.
 
+## 🔬 Try It Now — No Install Required
+
+**[Open the AIP Playground →](https://the-nexus-guard.github.io/aip/playground.html)** Register a test agent, send encrypted messages, and explore the trust network right in your browser.
+
 ## Get Started in 30 Seconds
 
 ```bash
