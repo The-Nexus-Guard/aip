@@ -278,6 +278,20 @@
             <div class="stat"><div class="num" id="stat-vouches">—</div><div class="label">Vouches</div></div>
             <div class="stat"><div class="num" id="stat-version">—</div><div class="label">Version</div></div>
         </div>
+        <button id="btn-demo" onclick="runQuickDemo()" style="margin-top:1.2rem;font-size:1rem;padding:0.8rem 2rem;background:linear-gradient(135deg,var(--accent),#059669);border-radius:8px;">
+            ⚡ Quick Demo — See AIP in 30 Seconds
+        </button>
+    </div>
+
+    <!-- Quick Demo Overlay -->
+    <div id="demo-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.85);z-index:1000;overflow-y:auto;">
+        <div style="max-width:600px;margin:3rem auto;padding:2rem;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1.5rem;">
+                <h2 style="font-size:1.3rem;">⚡ AIP Quick Demo</h2>
+                <button onclick="closeDemoOverlay()" class="secondary" style="width:auto;margin:0;padding:0.4rem 0.8rem;font-size:0.8rem;">✕ Close</button>
+            </div>
+            <div id="demo-log" style="font-family:'JetBrains Mono','Fira Code',monospace;font-size:0.82rem;line-height:1.8;color:var(--fg-secondary);"></div>
+        </div>
     </div>
 
     <div class="warning-banner">
@@ -839,6 +853,121 @@ async function trustGraph() {
         show('graph-result', JSON.stringify(data, null, 2), 'success');
     } catch (e) {
         show('graph-result', `❌ ${e.message}`, 'error');
+    }
+}
+
+// --- Quick Demo ---
+function closeDemoOverlay() {
+    document.getElementById('demo-overlay').style.display = 'none';
+}
+
+async function demoLog(text, type = '') {
+    const log = document.getElementById('demo-log');
+    const line = document.createElement('div');
+    line.style.marginBottom = '0.4rem';
+    if (type === 'step') {
+        line.style.color = 'var(--accent)';
+        line.style.fontWeight = '600';
+        line.style.fontSize = '0.9rem';
+        line.style.marginTop = '1rem';
+    } else if (type === 'success') {
+        line.style.color = '#34d399';
+    } else if (type === 'dim') {
+        line.style.color = 'var(--fg-muted)';
+        line.style.fontSize = '0.75rem';
+    }
+    line.textContent = text;
+    log.appendChild(line);
+    line.scrollIntoView({ behavior: 'smooth', block: 'end' });
+    await new Promise(r => setTimeout(r, 400));
+}
+
+async function runQuickDemo() {
+    const overlay = document.getElementById('demo-overlay');
+    const log = document.getElementById('demo-log');
+    log.innerHTML = '';
+    overlay.style.display = 'block';
+
+    const btn = document.getElementById('btn-demo');
+    btn.disabled = true;
+
+    try {
+        const demoName = 'demo-agent-' + Math.random().toString(36).slice(2, 8);
+
+        await demoLog('Step 1: Register a new agent identity', 'step');
+        await demoLog(`POST /register/easy  { name: "${demoName}", platform: "playground" }`);
+
+        const data = await api('/register/easy', {
+            method: 'POST',
+            body: JSON.stringify({ name: demoName, platform: 'playground', platform_id: demoName })
+        });
+
+        const session = {
+            did: data.did, public_key: data.public_key, private_key: data.private_key,
+            platform: 'playground', username: demoName, name: demoName
+        };
+        setSession(session);
+
+        await demoLog(`✅ Registered! DID: ${data.did}`, 'success');
+        await demoLog('Ed25519 keypair generated. Identity is cryptographic, not a password.', 'dim');
+
+        await demoLog('Step 2: Prove your identity (challenge-response)', 'step');
+        await demoLog('POST /challenge  — requesting a random challenge from the server...');
+
+        const challengeResp = await api('/challenge', {
+            method: 'POST',
+            body: JSON.stringify({ did: data.did })
+        });
+
+        await demoLog(`Challenge received: ${challengeResp.challenge.slice(0, 30)}...`);
+        await demoLog('Signing challenge with private key...');
+
+        const privKeyBytes = b64decode(data.private_key);
+        const keyPair = sodium.crypto_sign_seed_keypair(privKeyBytes.slice(0, 32));
+        const sig = signMessage(sodium.from_string(challengeResp.challenge), keyPair.privateKey);
+        const sigB64 = b64encode(sig);
+
+        await demoLog('POST /verify-challenge  — proving we hold the private key...');
+
+        const verifyResult = await api('/verify-challenge', {
+            method: 'POST',
+            body: JSON.stringify({ did: data.did, challenge: challengeResp.challenge, signature: sigB64 })
+        });
+
+        await demoLog(`✅ Identity verified! Server confirmed: ${verifyResult.verified ? 'YES' : 'NO'}`, 'success');
+        await demoLog('No passwords, no tokens — just math.', 'dim');
+
+        await demoLog('Step 3: Sign a message to prove authorship', 'step');
+        const msg = 'Hello from the AIP playground demo!';
+        await demoLog(`Message: "${msg}"`);
+
+        const msgSig = signMessage(sodium.from_string(msg), keyPair.privateKey);
+        const msgSigB64 = b64encode(msgSig);
+
+        await demoLog(`Signature: ${msgSigB64.slice(0, 40)}...`);
+        await demoLog('✅ Anyone can verify this signature using your public DID.', 'success');
+        await demoLog('This is how agents prove "I said this" — immutable, unforgeable.', 'dim');
+
+        await demoLog('Step 4: Look up agents on the network', 'step');
+        await demoLog('GET /registrations  — fetching all registered agents...');
+
+        const regs = await api('/registrations');
+        const count = regs.registrations ? regs.registrations.length : 0;
+        await demoLog(`✅ Found ${count} agents on the network.`, 'success');
+
+        await demoLog('', '');
+        await demoLog('🎉 Demo complete!', 'step');
+        await demoLog(`Your agent (${demoName}) is live on the AIP network.`);
+        await demoLog('You can now send encrypted messages, vouch for other agents, and build trust.');
+        await demoLog('');
+        await demoLog('Ready to build? pip install aip-identity', 'success');
+
+        loadStats();
+        loadNetwork();
+    } catch (e) {
+        await demoLog(`❌ Error: ${e.message}`, '');
+    } finally {
+        btn.disabled = false;
     }
 }
 
