@@ -1,5 +1,19 @@
 # Changelog
 
+## v0.5.25 (2026-02-22) — Quickstart CLI + MCP Server Launch
+
+### New Features
+- **`aip quickstart` command** — guided 30-second setup: generates Ed25519 keypair, registers on AIP service, verifies identity, checks trust score. Handles offline-first and already-registered cases.
+- **`aip-mcp-server` package** — MCP server for Claude Desktop, Cursor, and any MCP client. 8 tools (register, verify, vouch, trust-score, message, sign, lookup, whoami) and 2 resources. Published to PyPI as `aip-mcp-server` v0.1.0.
+- **Categorized help** — `aip` now shows organized help by category (Quick start, Identity, Communication, Artifacts, Tools). Full command list via `aip commands`.
+- **Post-command tips** — `aip register` and `aip verify` now show helpful next-step suggestions.
+
+### Distribution
+- Landing page updated with quickstart CLI and MCP server sections
+- dev.to article: "Why Your MCP Server Doesn't Know Who's Calling"
+- Submitted to awesome-mcp-servers lists
+- Integration issues opened on LangChain and CrewAI
+
 ## v0.5.24 (2026-02-18) — Single Version Source of Truth
 
 ### Fixes
