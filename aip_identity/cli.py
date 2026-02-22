@@ -206,6 +206,7 @@ def cmd_register(args):
         print(f"\n✅ Registered (secure)!")
         print(f"   DID: {did}")
         print(f"   Private key never left your machine.")
+        print(f"\n   Tip: Run `aip quickstart` for a guided setup.")
     else:
         from aip_identity.client import AIPClient
         client = AIPClient.register(
@@ -225,6 +226,7 @@ def cmd_register(args):
         save_credentials(creds)
         print(f"\n✅ Registered!")
         print(f"   DID: {client.did}")
+        print(f"\n   Tip: Run `aip quickstart` for a guided setup.")
 
     if args.output:
         save_credentials(creds, Path(args.output))
@@ -281,6 +283,7 @@ def cmd_verify(args):
     print(f"   Files: {len(manifest['files'])} verified")
     if new_files:
         print(f"   ⚠️  {len(new_files)} new file(s) not in original signature")
+    print(f"\n   Tip: Run `aip vouch {manifest['did']}` to vouch for this agent.")
 
 
 def cmd_vouch(args):
@@ -1406,6 +1409,111 @@ def cmd_profile(args):
         print("Usage: aip profile show [did] | aip profile set --name '...' --bio '...'")
 
 
+def cmd_quickstart(args):
+    """Get your agent identity in 30 seconds."""
+    existing = find_credentials()
+    if existing:
+        print(f"✅ You're already registered!")
+        print(f"   DID: {existing['did']}")
+        print(f"   Platform: {existing.get('platform', '?')}/{existing.get('username', '?')}")
+        _print_quickstart_next_steps()
+        return
+
+    try:
+        import nacl.signing
+    except ImportError:
+        print("Error: PyNaCl required. pip install pynacl")
+        sys.exit(1)
+
+    service_url = args.service or AIP_SERVICE
+    platform = getattr(args, 'platform', None) or 'cli'
+    username = getattr(args, 'username', None) or f"agent-{hashlib.sha256(os.urandom(8)).hexdigest()[:8]}"
+
+    print("🦞 AIP Quickstart — Get your agent identity in 30 seconds\n")
+
+    # Step 1: Create identity
+    print("Step 1: Creating your cryptographic identity...")
+    signing_key = nacl.signing.SigningKey.generate()
+    pub_bytes = bytes(signing_key.verify_key)
+    priv_bytes = bytes(signing_key)
+    pub_b64 = base64.b64encode(pub_bytes).decode()
+    priv_b64 = base64.b64encode(priv_bytes).decode()
+    did = "did:aip:" + hashlib.sha256(pub_bytes).hexdigest()[:32]
+    print("  ✓ Generated Ed25519 keypair")
+    print(f"  ✓ Your DID: {did}")
+
+    # Step 2: Register
+    print("\nStep 2: Registering with AIP service...")
+    creds = {
+        "did": did,
+        "public_key": pub_b64,
+        "private_key": priv_b64,
+        "platform": platform,
+        "username": username,
+        "service": service_url,
+        "registered_at": int(time.time()),
+    }
+    try:
+        import requests
+        resp = requests.post(
+            f"{service_url}/register",
+            json={"did": did, "public_key": pub_b64, "platform": platform, "username": username},
+            timeout=10,
+        )
+        if resp.ok:
+            data = resp.json()
+            if "did" in data:
+                did = data["did"]
+                creds["did"] = did
+            print(f'  ✓ Registered as "{username}" on platform "{platform}"')
+        else:
+            print(f"  ⚠️  Registration failed ({resp.status_code}), but your keys are saved locally")
+    except Exception as e:
+        print(f"  ⚠️  Could not reach service ({e}), but your keys are saved locally")
+
+    save_credentials(creds)
+    print(f"  ✓ Credentials saved to {CREDENTIALS_PATHS[0]}")
+
+    # Step 3: Verify
+    print("\nStep 3: Verifying your identity...")
+    try:
+        import requests
+        resp = requests.get(f"{service_url}/trust/{did}", timeout=5)
+        if resp.ok:
+            print("  ✓ Identity verified on AIP service")
+        else:
+            print("  ⚠️  Could not verify (service may be slow)")
+    except Exception:
+        print("  ⚠️  Could not verify (offline)")
+
+    # Step 4: Trust score
+    print("\nStep 4: Checking your trust score...")
+    try:
+        import requests
+        resp = requests.get(f"{service_url}/trust/{did}", timeout=5)
+        if resp.ok:
+            data = resp.json()
+            score = data.get("trust_score", 0.0)
+            print(f"  ✓ Trust score: {score} (new agent — get vouched to increase!)")
+            print(f"  ✓ Trust badge: {service_url}/trust/did/aip:{did.split(':')[-1]}/badge")
+    except Exception:
+        print("  ✓ Trust score: 0.0 (new agent — get vouched to increase!)")
+
+    print("\n🎉 You're set up! Your agent now has a cryptographic identity.")
+    _print_quickstart_next_steps()
+
+
+def _print_quickstart_next_steps():
+    """Print the 'what's next' section for quickstart."""
+    print("\nWhat's next:")
+    print("  aip whoami          — see your identity")
+    print("  aip trust-score     — check your trust level")
+    print("  aip message <did>   — send an encrypted message")
+    print("  aip sign <file>     — sign an artifact")
+    print("  aip vouch <did>     — vouch for another agent")
+    print(f"\n  Full docs: https://the-nexus-guard.github.io/aip/")
+
+
 def cmd_init(args):
     """One-command setup: register + set profile."""
     # Check if already registered
@@ -1956,13 +2064,57 @@ def cmd_doctor(args):
 
 
 def main():
+    CATEGORIZED_HELP = """\
+AIP — Agent Identity Protocol
+
+Quick start:
+  aip quickstart          Get your agent identity in 30 seconds
+  aip whoami              Show your current identity
+  aip demo                Interactive walkthrough (no registration needed)
+
+Identity:
+  aip register            Register a new agent identity
+  aip init                One-command setup: register + set profile
+  aip verify <path>       Verify a signed artifact
+  aip trust-score         Check trust between two agents
+  aip trust-graph         Visualize the trust network
+
+Communication:
+  aip message <did> <msg> Send an encrypted message
+  aip messages            Check your messages
+  aip reply <id> <msg>    Reply to a message
+
+Artifacts:
+  aip sign <path>         Sign a file or directory
+  aip vouch <did>         Vouch for another agent
+
+Tools:
+  aip status              Dashboard: identity + network health
+  aip doctor              Diagnose your AIP setup
+  aip audit               Self-audit: trust, vouches, profile
+
+Run 'aip <command> --help' for details on any command.
+Run 'aip commands' for the full command list.
+"""
+
     parser = argparse.ArgumentParser(
         prog="aip",
         description="Agent Identity Protocol — cryptographic identity, trust, and messaging for AI agents",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        usage="aip <command> [options]",
+        epilog="Run 'aip quickstart' to get started in 30 seconds.",
     )
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     parser.add_argument("--service", default=None, help=f"AIP service URL (default: {AIP_SERVICE})")
     sub = parser.add_subparsers(dest="command")
+
+    # quickstart
+    p_qs = sub.add_parser("quickstart", help="Get your agent identity in 30 seconds")
+    p_qs.add_argument("--platform", default="cli", help="Platform name (default: cli)")
+    p_qs.add_argument("--username", default=None, help="Username (default: auto-generated)")
+
+    # commands (full list)
+    sub.add_parser("commands", help="Show all available commands")
 
     # init (quick setup)
     p_init = sub.add_parser("init", help="One-command setup: register + set profile")
@@ -2115,6 +2267,7 @@ def main():
     args = parser.parse_args()
 
     commands = {
+        "quickstart": cmd_quickstart,
         "init": cmd_init,
         "demo": cmd_demo,
         "register": cmd_register,
@@ -2145,10 +2298,12 @@ def main():
         "import": cmd_import,
     }
 
-    if args.command in commands:
+    if args.command == "commands":
+        parser.print_help()
+    elif args.command in commands:
         commands[args.command](args)
     else:
-        parser.print_help()
+        print(CATEGORIZED_HELP)
 
 
 if __name__ == "__main__":

@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "aip-mcp-server"
+version = "0.1.0"
+description = "MCP server for AI agent identity verification via AIP"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.10"
+authors = [
+    {name = "Hannes Lehmann"},
+]
+keywords = ["aip", "mcp", "agent", "identity", "did", "trust"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Security :: Cryptography",
+    "Topic :: Software Development :: Libraries",
+]
+dependencies = [
+    "aip-identity>=0.5.24",
+    "mcp[cli]>=1.0.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/aip-protocol/aip-python"
+Documentation = "https://github.com/aip-protocol/aip-python/tree/main/mcp-server"
+Repository = "https://github.com/aip-protocol/aip-python"
+Issues = "https://github.com/aip-protocol/aip-python/issues"
+
+[project.scripts]
+aip-mcp-server = "aip_mcp_server.server:main"
+
+[tool.setuptools.packages.find]
+include = ["aip_mcp_server*"]
