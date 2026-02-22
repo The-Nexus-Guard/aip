@@ -30,10 +30,10 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/aip-protocol/aip-python"
-Documentation = "https://github.com/aip-protocol/aip-python/tree/main/mcp-server"
-Repository = "https://github.com/aip-protocol/aip-python"
-Issues = "https://github.com/aip-protocol/aip-python/issues"
+Homepage = "https://github.com/The-Nexus-Guard/aip"
+Documentation = "https://github.com/The-Nexus-Guard/aip/tree/main/mcp-server"
+Repository = "https://github.com/The-Nexus-Guard/aip"
+Issues = "https://github.com/The-Nexus-Guard/aip/issues"
 
 [project.scripts]
 aip-mcp-server = "aip_mcp_server.server:main"
