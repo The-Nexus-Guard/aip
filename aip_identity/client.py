@@ -183,7 +183,7 @@ class AIPClient:
         """Request a verification challenge for a DID."""
         response = self._session.post(
             f"{self.service_url}/challenge",
-            params={"did": target_did}
+            json={"did": target_did}
         )
 
         if response.status_code != 200:
