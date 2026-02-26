@@ -1,5 +1,7 @@
 # AIP MCP Server
 
+<!-- mcp-name: io.github.the-nexus-guard/aip-mcp-server -->
+
 MCP server that gives AI agents (Claude, Cursor, etc.) access to AIP identity tools — verify agents, check trust scores, sign content, and exchange encrypted messages.
 
 ## Install
