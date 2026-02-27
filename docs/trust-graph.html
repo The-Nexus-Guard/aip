@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AIP Trust Graph — Live Network</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #0a0a1a; color: #e0e0e0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; overflow: hidden; }
+  #header { position: fixed; top: 0; left: 0; right: 0; z-index: 10; padding: 16px 24px; background: rgba(10,10,26,0.9); backdrop-filter: blur(8px); border-bottom: 1px solid rgba(255,255,255,0.06); display: flex; justify-content: space-between; align-items: center; }
+  #header h1 { font-size: 18px; font-weight: 600; }
+  #header h1 span { color: #4ecdc4; }
+  #stats { font-size: 13px; color: #888; display: flex; gap: 16px; }
+  #stats .stat { display: flex; align-items: center; gap: 4px; }
+  #stats .stat .num { color: #4ecdc4; font-weight: 600; }
+  #canvas-wrap { width: 100vw; height: 100vh; }
+  canvas { display: block; }
+  #tooltip { position: fixed; display: none; background: rgba(20,20,40,0.95); border: 1px solid rgba(78,205,196,0.3); border-radius: 8px; padding: 12px 16px; font-size: 13px; max-width: 300px; pointer-events: none; z-index: 20; box-shadow: 0 4px 20px rgba(0,0,0,0.5); }
+  #tooltip .name { font-weight: 600; color: #4ecdc4; font-size: 15px; margin-bottom: 4px; }
+  #tooltip .did { font-family: monospace; font-size: 11px; color: #666; margin-bottom: 6px; word-break: break-all; }
+  #tooltip .detail { color: #aaa; font-size: 12px; line-height: 1.5; }
+  #legend { position: fixed; bottom: 16px; left: 24px; font-size: 12px; color: #555; }
+  #legend a { color: #4ecdc4; text-decoration: none; }
+  #error { position: fixed; top: 50%; left: 50%; transform: translate(-50%,-50%); color: #666; font-size: 14px; display: none; text-align: center; }
+</style>
+</head>
+<body>
+<div id="header">
+  <h1>🦞 AIP <span>Trust Graph</span></h1>
+  <div id="stats">
+    <div class="stat">Agents: <span class="num" id="s-agents">-</span></div>
+    <div class="stat">Vouches: <span class="num" id="s-vouches">-</span></div>
+    <div class="stat">Trust Chains: <span class="num" id="s-chains">-</span></div>
+  </div>
+</div>
+<div id="canvas-wrap"><canvas id="graph"></canvas></div>
+<div id="tooltip"><div class="name"></div><div class="did"></div><div class="detail"></div></div>
+<div id="legend">Live data from <a href="https://aip-service.fly.dev" target="_blank">aip-service.fly.dev</a> · <a href="https://github.com/The-Nexus-Guard/aip" target="_blank">GitHub</a></div>
+<div id="error">Loading trust graph…</div>
+<script>
+const API = 'https://aip-service.fly.dev';
+const canvas = document.getElementById('graph');
+const ctx = canvas.getContext('2d');
+const tooltip = document.getElementById('tooltip');
+const errorEl = document.getElementById('error');
+
+let nodes = [], edges = [], W, H, mouse = {x:-1,y:-1}, hovered = null, dragging = null, dragOff = {x:0,y:0};
+
+function resize() { W = canvas.width = window.innerWidth; H = canvas.height = window.innerHeight; }
+window.addEventListener('resize', resize); resize();
+
+async function fetchGraph() {
+  errorEl.style.display = 'block';
+  try {
+    const regRes = await fetch(`${API}/admin/registrations`);
+    const regData = await regRes.json();
+    const regs = regData.registrations || [];
+
+    // Build nodes
+    const nodeMap = {};
+    for (const r of regs) {
+      const name = r.platforms?.[0]?.username || r.did.slice(-8);
+      const platform = r.platforms?.[0]?.platform || 'unknown';
+      nodeMap[r.did] = { id: r.did, name, platform, created: r.created_at, vouches: [], vouchedBy: [], x: 0, y: 0, vx: 0, vy: 0 };
+    }
+
+    // Fetch trust info for each
+    const trustPromises = regs.map(r => fetch(`${API}/trust/${r.did}`).then(res => res.json()).catch(() => ({})));
+    const trustResults = await Promise.all(trustPromises);
+
+    edges = [];
+    for (let i = 0; i < regs.length; i++) {
+      const did = regs[i].did;
+      const trust = trustResults[i];
+      const vouchedBy = trust.vouched_by || [];
+      if (nodeMap[did]) nodeMap[did].vouchedBy = vouchedBy;
+      for (const voucher of vouchedBy) {
+        if (nodeMap[voucher]) {
+          nodeMap[voucher].vouches.push(did);
+          edges.push({ from: voucher, to: did });
+        }
+      }
+    }
+
+    nodes = Object.values(nodeMap);
+
+    // Initial positions — circular layout
+    const cx = W / 2, cy = H / 2;
+    nodes.forEach((n, i) => {
+      const angle = (i / nodes.length) * Math.PI * 2;
+      const r = Math.min(W, H) * 0.3;
+      n.x = cx + Math.cos(angle) * r;
+      n.y = cy + Math.sin(angle) * r;
+    });
+
+    // Stats
+    const chains = edges.length > 0 ? new Set(edges.flatMap(e => [e.from, e.to])).size : 0;
+    document.getElementById('s-agents').textContent = nodes.length;
+    document.getElementById('s-vouches').textContent = edges.length;
+    document.getElementById('s-chains').textContent = chains;
+
+    errorEl.style.display = 'none';
+    animate();
+  } catch (e) {
+    errorEl.textContent = 'Failed to load graph: ' + e.message;
+  }
+}
+
+// Force simulation
+function tick() {
+  const k = 0.01, repel = 8000, attract = 0.005, damping = 0.9, center = 0.002;
+  for (const n of nodes) {
+    // Center gravity
+    n.vx += (W/2 - n.x) * center;
+    n.vy += (H/2 - n.y) * center;
+    // Repulsion
+    for (const m of nodes) {
+      if (n === m) continue;
+      const dx = n.x - m.x, dy = n.y - m.y;
+      const d2 = dx*dx + dy*dy + 1;
+      const f = repel / d2;
+      n.vx += dx * f / Math.sqrt(d2);
+      n.vy += dy * f / Math.sqrt(d2);
+    }
+  }
+  // Edge attraction
+  for (const e of edges) {
+    const a = nodes.find(n => n.id === e.from), b = nodes.find(n => n.id === e.to);
+    if (!a || !b) continue;
+    const dx = b.x - a.x, dy = b.y - a.y;
+    a.vx += dx * attract; a.vy += dy * attract;
+    b.vx -= dx * attract; b.vy -= dy * attract;
+  }
+  for (const n of nodes) {
+    if (n === dragging) continue;
+    n.vx *= damping; n.vy *= damping;
+    n.x += n.vx; n.y += n.vy;
+    n.x = Math.max(40, Math.min(W-40, n.x));
+    n.y = Math.max(60, Math.min(H-40, n.y));
+  }
+}
+
+function getColor(n) {
+  if (n.vouches.length > 0 && n.vouchedBy.length > 0) return '#4ecdc4'; // mutual trust
+  if (n.vouches.length > 0) return '#ff6b6b'; // voucher
+  if (n.vouchedBy.length > 0) return '#45b7d1'; // vouched
+  return '#444'; // isolated
+}
+
+function getRadius(n) {
+  return 6 + (n.vouches.length + n.vouchedBy.length) * 3;
+}
+
+function draw() {
+  ctx.clearRect(0, 0, W, H);
+
+  // Edges
+  for (const e of edges) {
+    const a = nodes.find(n => n.id === e.from), b = nodes.find(n => n.id === e.to);
+    if (!a || !b) continue;
+    const isHovered = hovered && (hovered.id === a.id || hovered.id === b.id);
+    ctx.beginPath();
+    ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y);
+    ctx.strokeStyle = isHovered ? 'rgba(78,205,196,0.6)' : 'rgba(78,205,196,0.15)';
+    ctx.lineWidth = isHovered ? 2 : 1;
+    ctx.stroke();
+
+    // Arrow
+    const angle = Math.atan2(b.y - a.y, b.x - a.x);
+    const r = getRadius(b) + 4;
+    const ax = b.x - Math.cos(angle) * r, ay = b.y - Math.sin(angle) * r;
+    ctx.beginPath();
+    ctx.moveTo(ax, ay);
+    ctx.lineTo(ax - Math.cos(angle - 0.3) * 8, ay - Math.sin(angle - 0.3) * 8);
+    ctx.lineTo(ax - Math.cos(angle + 0.3) * 8, ay - Math.sin(angle + 0.3) * 8);
+    ctx.closePath();
+    ctx.fillStyle = isHovered ? 'rgba(78,205,196,0.6)' : 'rgba(78,205,196,0.2)';
+    ctx.fill();
+  }
+
+  // Nodes
+  for (const n of nodes) {
+    const r = getRadius(n);
+    const color = getColor(n);
+    const isHov = hovered === n;
+
+    // Glow
+    if (isHov || n.vouches.length + n.vouchedBy.length > 0) {
+      ctx.beginPath(); ctx.arc(n.x, n.y, r + 6, 0, Math.PI * 2);
+      const grad = ctx.createRadialGradient(n.x, n.y, r, n.x, n.y, r + 6);
+      grad.addColorStop(0, color + '40');
+      grad.addColorStop(1, 'transparent');
+      ctx.fillStyle = grad; ctx.fill();
+    }
+
+    ctx.beginPath(); ctx.arc(n.x, n.y, r, 0, Math.PI * 2);
+    ctx.fillStyle = isHov ? '#fff' : color;
+    ctx.fill();
+    ctx.strokeStyle = isHov ? color : 'rgba(255,255,255,0.1)';
+    ctx.lineWidth = isHov ? 2 : 1;
+    ctx.stroke();
+
+    // Label
+    ctx.font = `${isHov ? '13px' : '11px'} -apple-system, sans-serif`;
+    ctx.fillStyle = isHov ? '#fff' : '#888';
+    ctx.textAlign = 'center';
+    ctx.fillText(n.name, n.x, n.y + r + 14);
+  }
+}
+
+function animate() {
+  tick(); draw();
+  requestAnimationFrame(animate);
+}
+
+// Interaction
+canvas.addEventListener('mousemove', e => {
+  mouse.x = e.clientX; mouse.y = e.clientY;
+  if (dragging) { dragging.x = e.clientX + dragOff.x; dragging.y = e.clientY + dragOff.y; return; }
+  hovered = null;
+  for (const n of nodes) {
+    const dx = e.clientX - n.x, dy = e.clientY - n.y;
+    if (dx*dx + dy*dy < (getRadius(n)+4)**2) { hovered = n; break; }
+  }
+  canvas.style.cursor = hovered ? 'pointer' : 'default';
+
+  if (hovered) {
+    const t = tooltip;
+    t.style.display = 'block';
+    t.style.left = (e.clientX + 16) + 'px';
+    t.style.top = (e.clientY + 16) + 'px';
+    t.querySelector('.name').textContent = hovered.name;
+    t.querySelector('.did').textContent = hovered.id;
+    const v = hovered.vouches.length, vb = hovered.vouchedBy.length;
+    t.querySelector('.detail').innerHTML =
+      `Platform: ${hovered.platform}<br>` +
+      `Vouched for: ${v} agent${v!==1?'s':''}<br>` +
+      `Vouched by: ${vb} agent${vb!==1?'s':''}<br>` +
+      `Registered: ${hovered.created?.slice(0,10) || '?'}`;
+  } else {
+    tooltip.style.display = 'none';
+  }
+});
+
+canvas.addEventListener('mousedown', e => {
+  if (hovered) { dragging = hovered; dragOff.x = hovered.x - e.clientX; dragOff.y = hovered.y - e.clientY; }
+});
+canvas.addEventListener('mouseup', () => { dragging = null; });
+
+canvas.addEventListener('click', e => {
+  if (hovered) {
+    const url = `${API}/trust/${hovered.id}`;
+    window.open(url, '_blank');
+  }
+});
+
+fetchGraph();
+</script>
+</body>
+</html>
