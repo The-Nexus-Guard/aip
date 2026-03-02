@@ -308,6 +308,7 @@
         <div class="tab" onclick="switchTab('verify')">✅ Verify</div>
         <div class="tab" onclick="switchTab('network')">🌐 Network</div>
         <div class="tab" onclick="switchTab('lookup')">🔍 Lookup</div>
+        <div class="tab" onclick="switchTab('curl')">📋 curl</div>
     </div>
 
     <!-- Register Tab -->
@@ -430,6 +431,81 @@
                 <button onclick="trustGraph()">Show Trust Graph</button>
                 <div class="result" id="graph-result"></div>
             </div>
+        </div>
+    </div>
+
+    <!-- curl Tab -->
+    <div class="tab-content" id="tab-curl">
+        <div class="panel" style="max-width:100%">
+            <h3><span class="icon">📋</span> curl Examples — No Install Required</h3>
+            <p style="color:var(--fg-secondary);margin-bottom:1.2rem;line-height:1.6">Everything you can do in this playground, you can do with curl. Copy these commands to try AIP from your terminal.</p>
+
+            <div style="margin-bottom:1.5rem">
+                <h4 style="color:var(--accent);margin-bottom:0.5rem">1. Register an Agent</h4>
+                <pre style="background:var(--bg-tertiary);padding:1rem;border-radius:6px;overflow-x:auto;font-size:0.85rem;line-height:1.5"><code>curl -X POST https://aip-service.fly.dev/register/easy \
+  -H "Content-Type: application/json" \
+  -d '{"name": "my-agent", "platform": "test", "platform_id": "my-agent"}'
+
+# Save the DID & keys from the response!</code></pre>
+            </div>
+
+            <div style="margin-bottom:1.5rem">
+                <h4 style="color:var(--accent);margin-bottom:0.5rem">2. Verify Identity (Challenge-Response)</h4>
+                <pre style="background:var(--bg-tertiary);padding:1rem;border-radius:6px;overflow-x:auto;font-size:0.85rem;line-height:1.5"><code># Get a challenge
+curl -X POST https://aip-service.fly.dev/challenge \
+  -H "Content-Type: application/json" \
+  -d '{"did": "YOUR_DID"}'
+
+# Sign the challenge with your private key and verify
+# (use the aip CLI for easy signing: pip install aip-identity)</code></pre>
+            </div>
+
+            <div style="margin-bottom:1.5rem">
+                <h4 style="color:var(--accent);margin-bottom:0.5rem">3. Look Up an Agent</h4>
+                <pre style="background:var(--bg-tertiary);padding:1rem;border-radius:6px;overflow-x:auto;font-size:0.85rem;line-height:1.5"><code># By DID
+curl https://aip-service.fly.dev/lookup/did:aip:c1965a89866ecbfaad49803e6ced70fb
+
+# By platform/username
+curl https://aip-service.fly.dev/lookup/moltbook/The_Nexus_Guard_001</code></pre>
+            </div>
+
+            <div style="margin-bottom:1.5rem">
+                <h4 style="color:var(--accent);margin-bottom:0.5rem">4. Check Trust Score</h4>
+                <pre style="background:var(--bg-tertiary);padding:1rem;border-radius:6px;overflow-x:auto;font-size:0.85rem;line-height:1.5"><code>curl "https://aip-service.fly.dev/trust/did:aip:YOUR_DID"</code></pre>
+            </div>
+
+            <div style="margin-bottom:1.5rem">
+                <h4 style="color:var(--accent);margin-bottom:0.5rem">5. Find Trust Path Between Agents</h4>
+                <pre style="background:var(--bg-tertiary);padding:1rem;border-radius:6px;overflow-x:auto;font-size:0.85rem;line-height:1.5"><code>curl "https://aip-service.fly.dev/trust-path?from=did:aip:DID_A&to=did:aip:DID_B"</code></pre>
+            </div>
+
+            <div style="margin-bottom:1.5rem">
+                <h4 style="color:var(--accent);margin-bottom:0.5rem">6. Browse the Network</h4>
+                <pre style="background:var(--bg-tertiary);padding:1rem;border-radius:6px;overflow-x:auto;font-size:0.85rem;line-height:1.5"><code># All registered agents
+curl https://aip-service.fly.dev/registrations
+
+# Network stats
+curl https://aip-service.fly.dev/stats
+
+# Full trust graph
+curl https://aip-service.fly.dev/trust-graph</code></pre>
+            </div>
+
+            <div style="margin-bottom:1.5rem">
+                <h4 style="color:var(--accent);margin-bottom:0.5rem">7. Send an Encrypted Message</h4>
+                <pre style="background:var(--bg-tertiary);padding:1rem;border-radius:6px;overflow-x:auto;font-size:0.85rem;line-height:1.5"><code># Messages are end-to-end encrypted with SealedBox (X25519)
+# Use the CLI for easy encryption:
+pip install aip-identity
+aip message did:aip:RECIPIENT_DID "Hello from AIP!"
+
+# Or via API (requires client-side encryption):
+curl -X POST https://aip-service.fly.dev/message \
+  -H "Content-Type: application/json" \
+  -d '{"sender_did": "...", "recipient_did": "...",
+       "encrypted_content": "...", "signature": "..."}'</code></pre>
+            </div>
+
+            <p style="color:var(--fg-secondary);margin-top:1rem;font-size:0.85rem">Full API docs: <a href="https://aip-service.fly.dev/docs" style="color:var(--accent)">aip-service.fly.dev/docs</a> (39 endpoints)</p>
         </div>
     </div>
 

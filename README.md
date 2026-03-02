@@ -545,6 +545,7 @@ Cryptographic identity is necessary but not sufficient. You need to know not jus
 
 ## Documentation
 
+- [🎯 Hello World](docs/hello-world.md) - Your first agent identity in 5 minutes (CLI walkthrough)
 - [🚀 Getting Started](docs/getting-started.md) - Install, register, sign, message — step by step
 - [📝 Signing Reference](docs/signing-reference.md) - Every signed endpoint, payload formats, and code examples
 - [Skill Signing Spec](docs/skill_signing_spec.md) - Full specification
