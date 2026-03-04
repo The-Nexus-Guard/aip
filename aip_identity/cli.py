@@ -363,11 +363,11 @@ def cmd_message(args):
     from datetime import datetime, timezone
 
     # Fetch recipient's public key for encryption
-    admin_resp = req.get(f"{client.service_url}/admin/registrations/{args.recipient}", timeout=10)
-    if not admin_resp.ok:
-        print(f"❌ Could not find recipient: {admin_resp.text}")
+    lookup_resp = req.get(f"{client.service_url}/lookup/{args.recipient}", timeout=10)
+    if not lookup_resp.ok:
+        print(f"❌ Could not find recipient: {lookup_resp.text}")
         sys.exit(1)
-    pub_key_b64 = admin_resp.json()["registration"]["public_key"]
+    pub_key_b64 = lookup_resp.json()["public_key"]
 
     # Encrypt with SealedBox
     from nacl.signing import VerifyKey
@@ -555,11 +555,11 @@ def cmd_reply(args):
     from datetime import datetime, timezone
 
     # Encrypt with recipient's public key
-    admin_resp = req.get(f"{service}/admin/registrations/{recipient_did}", timeout=10)
-    if not admin_resp.ok:
-        print(f"❌ Could not find recipient: {admin_resp.text}")
+    lookup_resp = req.get(f"{service}/lookup/{recipient_did}", timeout=10)
+    if not lookup_resp.ok:
+        print(f"❌ Could not find recipient: {lookup_resp.text}")
         sys.exit(1)
-    pub_key_b64 = admin_resp.json()["registration"]["public_key"]
+    pub_key_b64 = lookup_resp.json()["public_key"]
 
     from nacl.signing import VerifyKey
     from nacl.public import SealedBox
@@ -1303,18 +1303,16 @@ def cmd_import(args):
 
     # If it looks like a DID, fetch from service
     if source.startswith("did:aip:"):
-        url = f"{AIP_SERVICE}/admin/registrations/{source}"
+        url = f"{AIP_SERVICE}/lookup/{source}"
         try:
             with urllib.request.urlopen(url, timeout=10) as resp:
                 data = json.loads(resp.read().decode())
         except Exception as e:
             print(f"❌ Failed to fetch DID from service: {e}", file=sys.stderr)
             sys.exit(1)
-        # Handle nested response (admin endpoint wraps in "registration")
-        reg = data.get("registration", data)
         agent_data = {
-            "did": reg.get("did", source),
-            "public_key": reg.get("public_key", ""),
+            "did": data.get("did", source),
+            "public_key": data.get("public_key", ""),
             "fetched_from": AIP_SERVICE,
             "imported_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         }

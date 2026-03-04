@@ -91,7 +91,7 @@ class TestImport:
     def test_import_from_did(self):
         mock_response = MagicMock()
         mock_response.read.return_value = json.dumps({
-            "registration": {"did": "did:aip:remote", "public_key": "remotekey"}
+            "did": "did:aip:remote", "public_key": "remotekey", "registered_at": "2026-01-01T00:00:00Z"
         }).encode()
         mock_response.__enter__ = lambda s: s
         mock_response.__exit__ = MagicMock(return_value=False)
