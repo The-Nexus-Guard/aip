@@ -59,24 +59,27 @@ def test_changelog():
 # ── Commands that fail gracefully without credentials ──
 
 def test_whoami_no_creds(tmp_path, monkeypatch):
-    """whoami without credentials should exit with error message."""
+    """whoami without credentials should exit with helpful onboarding message."""
     monkeypatch.setenv("HOME", str(tmp_path))  # no creds here
     result = run_cli("whoami", expect_rc=1)
-    assert "credentials" in result.stdout.lower() or "register" in result.stdout.lower()
+    out = result.stdout.lower()
+    assert "identity" in out or "credentials" in out or "register" in out or "quickstart" in out
 
 
 def test_audit_no_creds(tmp_path, monkeypatch):
     """audit without credentials should mention missing creds."""
     monkeypatch.setenv("HOME", str(tmp_path))
     result = run_cli("audit", expect_rc=None)
-    assert "credentials" in result.stdout.lower() or "register" in result.stdout.lower()
+    out = result.stdout.lower()
+    assert "credentials" in out or "register" in out or "identity" in out or "quickstart" in out
 
 
 def test_export_no_creds(tmp_path, monkeypatch):
     """export without credentials should exit with error."""
     monkeypatch.setenv("HOME", str(tmp_path))
     result = run_cli("export", expect_rc=1)
-    assert "credentials" in result.stdout.lower() or "register" in result.stdout.lower()
+    out = result.stdout.lower()
+    assert "credentials" in out or "register" in out or "identity" in out or "quickstart" in out
 
 
 # ── Cache subcommands ──

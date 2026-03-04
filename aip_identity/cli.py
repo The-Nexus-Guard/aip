@@ -83,10 +83,39 @@ def save_credentials(creds, path=None):
 
 
 def require_credentials():
-    """Return credentials or exit with an error."""
+    """Return credentials or exit with an error, offering quickstart."""
     creds = find_credentials()
     if not creds:
-        print("No AIP credentials found. Run: aip register")
+        print("\n🦞 Welcome to AIP! You don't have an identity yet.")
+        print()
+        print("  Get started in 30 seconds:")
+        print("    aip quickstart              Auto-setup (fastest)")
+        print("    aip init github my_agent    Choose your platform + name")
+        print()
+        print("  Or explore first:")
+        print("    aip demo                    Interactive walkthrough")
+        print("    aip list                    See agents in the network")
+        print()
+
+        # Auto-offer quickstart for interactive terminals
+        if sys.stdin.isatty():
+            try:
+                answer = input("  Run quickstart now? [Y/n] ").strip().lower()
+                if answer in ("", "y", "yes"):
+                    # Simulate quickstart
+                    import argparse
+                    qs_args = argparse.Namespace(
+                        platform=None, username=None, service=None,
+                        name=None, bio=None, force=False
+                    )
+                    cmd_quickstart(qs_args)
+                    # Try again after quickstart
+                    creds = find_credentials()
+                    if creds:
+                        return creds
+            except (EOFError, KeyboardInterrupt):
+                print()
+
         sys.exit(1)
     return creds
 
@@ -809,10 +838,46 @@ def cmd_list(args):
     """List all registered agents on the AIP service."""
     import requests
     service = getattr(args, "service", None) or AIP_SERVICE
-    url = f"{service}/admin/registrations"
-    params = {"limit": args.limit, "offset": args.offset}
+
+    # Try public lookup first, fall back to admin endpoint
     try:
-        resp = requests.get(url, params=params, timeout=15)
+        # Try admin endpoint with auth if available
+        admin_key = None
+        try:
+            admin_path = os.path.expanduser("~/.aip/admin_key.txt")
+            if os.path.exists(admin_path):
+                admin_key = open(admin_path).read().strip()
+        except Exception:
+            pass
+
+        url = f"{service}/admin/registrations"
+        params = {"limit": args.limit, "offset": args.offset}
+        headers = {}
+        if admin_key:
+            headers["Authorization"] = f"Bearer {admin_key}"
+
+        resp = requests.get(url, params=params, headers=headers, timeout=15)
+
+        if resp.status_code == 401 or resp.status_code == 403:
+            # No admin access — show network overview from public /stats
+            print("📊 AIP Network Overview (public stats)\n")
+            stats_resp = requests.get(f"{service}/stats", timeout=10)
+            if stats_resp.ok:
+                data = stats_resp.json()
+                s = data.get("stats", {})
+                print(f"  Registered agents: {s.get('registrations', '?')}")
+                print(f"  Active vouches:    {s.get('active_vouches', '?')}")
+                print(f"  Messages sent:     {s.get('messages', '?')}")
+                by_platform = s.get("by_platform", {})
+                if by_platform:
+                    print(f"\n  By platform:")
+                    for p, c in sorted(by_platform.items(), key=lambda x: -x[1]):
+                        print(f"    {p}: {c}")
+                print(f"\n  Use 'aip search <query>' to find specific agents.")
+            else:
+                print("Could not reach AIP service.")
+            return
+
         resp.raise_for_status()
         data = resp.json()
         regs = data.get("registrations", [])
@@ -1659,26 +1724,20 @@ def cmd_demo(args):
 
     # Step 2: Agent directory
     print("━━━ Step 2: Agent Directory ━━━")
-    print("Fetching registered agents...")
+    print("Fetching network info...")
     try:
-        req = urllib.request.Request(f"{service}/admin/registrations?limit=10")
+        req = urllib.request.Request(f"{service}/stats")
         with urllib.request.urlopen(req, timeout=10) as resp:
             data = json.loads(resp.read())
-        agents = data if isinstance(data, list) else data.get("registrations", data.get("agents", []))
-        for agent in agents[:5]:
-            did = agent.get("did", "?")
-            platforms = agent.get("platforms", [])
-            if platforms:
-                platform = platforms[0].get("platform", "?")
-                username = platforms[0].get("username", "?")
-            else:
-                platform = agent.get("platform", "?")
-                username = agent.get("platform_id", agent.get("username", "?"))
-            print(f"  🤖 {username} ({platform}) — {did[:30]}...")
-        if len(agents) > 5:
-            print(f"  ... and {len(agents) - 5} more")
+        by_platform = data.get("stats", {}).get("by_platform", {})
+        if by_platform:
+            print("  Agents by platform:")
+            for p, c in sorted(by_platform.items(), key=lambda x: -x[1]):
+                print(f"    {p}: {c} agent{'s' if c != 1 else ''}")
+        print(f"\n  🔗 Explore: {service}/docs")
+        print(f"  🌐 Explorer: https://the-nexus-guard.github.io/aip/explorer.html")
     except Exception as e:
-        print(f"  ⚠️  Could not fetch agents: {e}")
+        print(f"  ⚠️  Could not fetch network info: {e}")
     print()
 
     # Step 3: Verify an agent
