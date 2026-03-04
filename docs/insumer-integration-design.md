@@ -58,7 +58,7 @@ POST /verify/onchain
   "did": "did:aip:abc",
   "conditions": [
     {"type": "token_balance", "contractAddress": "0xA0b8...", "chainId": 1, "threshold": 100, "decimals": 18},
-    {"type": "eas_attestation", "template": "coinbase_verified_account", "chainId": 8453}
+    {"type": "eas_attestation", "template": "coinbase_verified_account", "label": "Coinbase KYC verified"}
   ]
 }
 ```

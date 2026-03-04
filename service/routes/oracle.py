@@ -70,11 +70,13 @@ class WalletBindResponse(BaseModel):
 class OnchainCondition(BaseModel):
     """A single on-chain condition to verify."""
     type: str = Field(..., description="token_balance, nft_ownership, eas_attestation")
-    chain_id: int = Field(1, description="Chain ID (1=Ethereum, 8453=Base, …)")
+    chain_id: Optional[int] = Field(None, description="Chain ID (1=Ethereum, 8453=Base, …). Omit for template conditions.")
     contract_address: Optional[str] = None
     threshold: Optional[float] = None
     decimals: Optional[int] = None
     schema_uid: Optional[str] = Field(None, description="EAS schema UID")
+    template: Optional[str] = Field(None, description="InsumerAPI named template (e.g. coinbase_verified_account). Implies chain.")
+    label: Optional[str] = Field(None, description="Human-readable label for this condition")
 
 
 class OnchainVerifyRequest(BaseModel):
@@ -160,7 +162,12 @@ async def _call_insumer_attest(
 
     insumer_conditions = []
     for c in conditions:
-        cond: Dict[str, Any] = {"type": c.type, "chainId": c.chain_id}
+        cond: Dict[str, Any] = {"type": c.type}
+        # Template conditions imply chain — don't send chainId
+        if c.template:
+            cond["template"] = c.template
+        elif c.chain_id is not None:
+            cond["chainId"] = c.chain_id
         if c.contract_address:
             cond["contractAddress"] = c.contract_address
         if c.threshold is not None:
@@ -169,6 +176,8 @@ async def _call_insumer_attest(
             cond["decimals"] = c.decimals
         if c.schema_uid:
             cond["schemaUid"] = c.schema_uid
+        if c.label:
+            cond["label"] = c.label
         insumer_conditions.append(cond)
 
     payload = {"wallet": wallet, "conditions": insumer_conditions}
