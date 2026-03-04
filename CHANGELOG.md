@@ -1,5 +1,22 @@
 # Changelog
 
+## v0.5.28 (2026-03-04) — On-Chain Credential Oracle (InsumerAPI Integration)
+
+### New Features
+- **On-chain credential verification** — New `/oracle/verify/onchain` endpoint. Verifies token balances, NFT ownership, and EAS attestations across 32 blockchains via InsumerAPI. Returns ECDSA-signed boolean attestations.
+- **Wallet-DID binding** — New `/oracle/wallet/bind` endpoint. Agents prove ownership of both DID (Ed25519 signature) and wallet address. Supports EVM, Solana, and XRPL chains. Bindings are revocable.
+- **Attestation-as-vouch** — When on-chain conditions pass, the credential oracle (`did:aip:oracle:insumerapi`) automatically creates a vouch with scope `ONCHAIN_CREDENTIAL`. Keeps the trust graph unified — social trust and economic trust in one system.
+- **Attestation caching** — InsumerAPI results cached with TTL matching attestation expiry (~30 min). Automatic cleanup of expired entries.
+- **`aip wallet` CLI commands** — `aip wallet bind <address>`, `aip wallet list`, `aip wallet verify <conditions>` for command-line on-chain verification.
+
+### Architecture
+- Fourth trust signal added to AIP: Economic Trust (on-chain credentials) joins Identity, Social Trust, and Communication.
+- InsumerAPI returns privacy-preserving booleans — no raw balances exposed.
+- Oracle vouch metadata includes attestation ID, condition labels, and wallet reference.
+
+### Tests
+- 18 new tests covering wallet bindings, attestation cache, oracle vouch creation, conditions hashing, and signature verification.
+
 ## v0.5.25 (2026-02-22) — Quickstart CLI + MCP Server Launch
 
 ### New Features

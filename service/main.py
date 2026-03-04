@@ -18,7 +18,7 @@ import time
 import os
 
 # Import routes
-from routes import register, verify, challenge, vouch, messaging, skill, onboard, admin, webhooks, profile
+from routes import register, verify, challenge, vouch, messaging, skill, onboard, admin, webhooks, profile, oracle
 from rate_limit import default_limiter, check_rate_limit, rate_limit_headers
 
 @asynccontextmanager
@@ -98,6 +98,7 @@ app.include_router(onboard.router, tags=["Onboarding"])
 app.include_router(admin.router, tags=["Admin"])
 app.include_router(webhooks.router, tags=["Webhooks"])
 app.include_router(profile.router, tags=["Profiles"])
+app.include_router(oracle.router)
 
 
 logger = logging.getLogger("aip.cleanup")

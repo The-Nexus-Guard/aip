@@ -2061,6 +2061,140 @@ def cmd_doctor(args):
     print()
 
 
+def cmd_wallet(args):
+    """Manage wallet-DID bindings for on-chain credential verification."""
+    service = args.service or AIP_SERVICE
+
+    if args.wallet_action == "bind":
+        creds = _load_credentials()
+        if not creds:
+            print("  ❌ No credentials found. Run `aip register` first.")
+            sys.exit(1)
+
+        did = creds["did"]
+        wallet = args.address
+        chain_type = args.chain or "evm"
+        ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+        # Sign the binding message
+        message = f"bind:{wallet}:{ts}"
+        private_key_b64 = creds.get("private_key", "")
+        if not private_key_b64:
+            print("  ❌ Private key not found in credentials.")
+            sys.exit(1)
+
+        import base64
+        try:
+            from nacl.signing import SigningKey
+            priv_bytes = base64.b64decode(private_key_b64)
+            signing_key = SigningKey(priv_bytes)
+            sig = signing_key.sign(message.encode()).signature
+            sig_b64 = base64.b64encode(sig).decode()
+        except Exception as e:
+            print(f"  ❌ Failed to sign binding: {e}")
+            sys.exit(1)
+
+        payload = {
+            "did": did,
+            "wallet_address": wallet,
+            "chain_type": chain_type,
+            "did_signature": sig_b64,
+            "timestamp": ts,
+        }
+
+        try:
+            r = requests.post(f"{service}/oracle/wallet/bind", json=payload, timeout=15)
+            resp = r.json()
+            if resp.get("success"):
+                print(f"  ✅ Wallet {wallet[:10]}…{wallet[-4:]} bound to {did}")
+                print(f"     Chain: {chain_type}")
+                print(f"\n  Next: aip wallet verify <conditions>")
+            else:
+                print(f"  ❌ {resp.get('detail', resp.get('message', 'Unknown error'))}")
+        except Exception as e:
+            print(f"  ❌ Failed to bind wallet: {e}")
+            sys.exit(1)
+
+    elif args.wallet_action == "list":
+        creds = _load_credentials()
+        did = args.did or (creds["did"] if creds else None)
+        if not did:
+            print("  ❌ Provide --did or register first.")
+            sys.exit(1)
+
+        try:
+            r = requests.get(f"{service}/oracle/wallet/{did}", timeout=15)
+            resp = r.json()
+            wallets = resp.get("wallets", [])
+            if not wallets:
+                print(f"  No wallets bound to {did}")
+                print("  Run `aip wallet bind <address>` to bind one.")
+                return
+            print(f"  Wallets bound to {did}:\n")
+            for w in wallets:
+                print(f"    {w['wallet_address']}  ({w['chain_type']})  bound {w['bound_at'][:10]}")
+        except Exception as e:
+            print(f"  ❌ {e}")
+            sys.exit(1)
+
+    elif args.wallet_action == "verify":
+        creds = _load_credentials()
+        did = args.did or (creds["did"] if creds else None)
+        if not did:
+            print("  ❌ Provide --did or register first.")
+            sys.exit(1)
+
+        # Parse conditions from args
+        conditions = []
+        for cond_str in args.conditions:
+            parts = cond_str.split(",")
+            cond = {}
+            for part in parts:
+                k, _, v = part.partition("=")
+                if k == "chain_id":
+                    cond["chain_id"] = int(v)
+                elif k in ("threshold", "decimals"):
+                    cond[k] = float(v) if k == "threshold" else int(v)
+                else:
+                    cond[k] = v
+            if "type" not in cond:
+                cond["type"] = "token_balance"
+            conditions.append(cond)
+
+        payload = {"did": did, "conditions": conditions}
+        if args.wallet:
+            payload["wallet_address"] = args.wallet
+
+        try:
+            r = requests.post(f"{service}/oracle/verify/onchain", json=payload, timeout=30)
+            resp = r.json()
+            if resp.get("success"):
+                passed = resp.get("passed", False)
+                emoji = "✅" if passed else "❌"
+                print(f"  {emoji} On-chain verification: {'PASSED' if passed else 'FAILED'}")
+                print(f"     DID: {resp['did']}")
+                print(f"     Wallet: {resp['wallet_address']}")
+                if resp.get("attestation_id"):
+                    print(f"     Attestation: {resp['attestation_id']}")
+                if resp.get("vouch_id"):
+                    print(f"     Oracle vouch: {resp['vouch_id']}")
+                if resp.get("expires_at"):
+                    print(f"     Expires: {resp['expires_at']}")
+                for r in resp.get("results", []):
+                    met = "✓" if r.get("met") else "✗"
+                    label = r.get("label", r.get("type", "?"))
+                    print(f"       [{met}] {label}")
+            else:
+                print(f"  ❌ {resp.get('detail', 'Verification failed')}")
+        except Exception as e:
+            print(f"  ❌ {e}")
+            sys.exit(1)
+
+    else:
+        print("  Usage: aip wallet <bind|list|verify>")
+        print("  Run `aip wallet bind <address>` to get started.")
+
+
 def main():
     CATEGORIZED_HELP = """\
 AIP — Agent Identity Protocol
@@ -2085,6 +2219,11 @@ Communication:
 Artifacts:
   aip sign <path>         Sign a file or directory
   aip vouch <did>         Vouch for another agent
+
+On-Chain:
+  aip wallet bind <addr>  Bind a wallet address to your DID
+  aip wallet list         List your bound wallets
+  aip wallet verify       Verify on-chain conditions (InsumerAPI)
 
 Tools:
   aip status              Dashboard: identity + network health
@@ -2244,6 +2383,19 @@ Run 'aip commands' for the full command list.
     p_cache_sub.add_parser("clear", help="Clear local cache")
     p_cache.add_argument("--cache-dir", default=None, help="Cache directory (default: ~/.aip/cache/)")
 
+    # wallet
+    p_wallet = sub.add_parser("wallet", help="Manage wallet-DID bindings for on-chain verification")
+    p_wallet_sub = p_wallet.add_subparsers(dest="wallet_action")
+    p_wallet_bind = p_wallet_sub.add_parser("bind", help="Bind a wallet address to your DID")
+    p_wallet_bind.add_argument("address", help="Wallet address (e.g. 0x…)")
+    p_wallet_bind.add_argument("--chain", default="evm", help="Chain type: evm, solana, xrpl (default: evm)")
+    p_wallet_list = p_wallet_sub.add_parser("list", help="List your bound wallets")
+    p_wallet_list.add_argument("--did", default=None, help="DID to list wallets for (default: your own)")
+    p_wallet_verify = p_wallet_sub.add_parser("verify", help="Verify on-chain conditions")
+    p_wallet_verify.add_argument("conditions", nargs="+", help="Conditions as type=token_balance,chain_id=1,contract_address=0x…,threshold=100,decimals=18")
+    p_wallet_verify.add_argument("--did", default=None, help="DID to verify (default: your own)")
+    p_wallet_verify.add_argument("--wallet", default=None, help="Specific wallet address (if multiple bound)")
+
     # demo
     sub.add_parser("demo", help="Interactive walkthrough — explore AIP without registering")
 
@@ -2294,6 +2446,7 @@ Run 'aip commands' for the full command list.
         "cache": cmd_cache,
         "export": cmd_export,
         "import": cmd_import,
+        "wallet": cmd_wallet,
     }
 
     if args.command == "commands":

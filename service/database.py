@@ -208,6 +208,38 @@ def init_database():
         except sqlite3.OperationalError:
             pass  # Column already exists
 
+        # Wallet bindings — link DID to blockchain wallet addresses
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS wallet_bindings (
+                did TEXT NOT NULL,
+                wallet_address TEXT NOT NULL,
+                chain_type TEXT NOT NULL DEFAULT 'evm',
+                bound_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                revoked_at TIMESTAMP,
+                PRIMARY KEY (did, wallet_address)
+            )
+        """)
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_wallet_bindings_did ON wallet_bindings(did)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_wallet_bindings_wallet ON wallet_bindings(wallet_address)")
+
+        # Cached on-chain attestations (InsumerAPI results)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS onchain_attestations (
+                did TEXT NOT NULL,
+                wallet_address TEXT NOT NULL,
+                conditions_hash TEXT NOT NULL,
+                result BOOLEAN NOT NULL,
+                attestation_id TEXT,
+                results_json TEXT,
+                insumer_signature TEXT,
+                insumer_kid TEXT,
+                vouch_id TEXT,
+                queried_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                expires_at TEXT,
+                PRIMARY KEY (did, conditions_hash)
+            )
+        """)
+
         # Create indexes
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_platform_links_did ON platform_links(did)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_vouches_voucher ON vouches(voucher_did)")
@@ -1045,12 +1077,19 @@ def run_all_cleanup() -> Dict[str, int]:
     except Exception:
         pass
 
+    expired_attestations = 0
+    try:
+        expired_attestations = cleanup_expired_attestations()
+    except Exception:
+        pass
+
     return {
         "expired_challenges_removed": expired_challenges,
         "expired_vouches_removed": expired_vouches,
         "old_messages_removed": old_messages,
         "inbox_trimmed_messages": trimmed_messages,
         "replay_cache_cleaned": replay_cache_cleaned,
+        "expired_attestations_removed": expired_attestations,
     }
 
 
@@ -1231,6 +1270,120 @@ def delete_profile(did: str) -> bool:
         cursor.execute("DELETE FROM profiles WHERE did = ?", (did,))
         conn.commit()
         return cursor.rowcount > 0
+
+
+# ---------------------------------------------------------------------------
+# Wallet binding operations
+# ---------------------------------------------------------------------------
+
+def bind_wallet(did: str, wallet_address: str, chain_type: str = "evm") -> bool:
+    """Bind a wallet address to a DID. Returns False if already bound."""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        try:
+            cursor.execute(
+                """INSERT INTO wallet_bindings (did, wallet_address, chain_type, bound_at)
+                   VALUES (?, ?, ?, ?)""",
+                (did, wallet_address, chain_type,
+                 datetime.now(tz=timezone.utc).isoformat()),
+            )
+            conn.commit()
+            return True
+        except sqlite3.IntegrityError:
+            return False
+
+
+def unbind_wallet(did: str, wallet_address: str) -> bool:
+    """Revoke a wallet-DID binding."""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            """UPDATE wallet_bindings SET revoked_at = ?
+               WHERE did = ? AND wallet_address = ? AND revoked_at IS NULL""",
+            (datetime.now(tz=timezone.utc).isoformat(), did, wallet_address),
+        )
+        conn.commit()
+        return cursor.rowcount > 0
+
+
+def get_wallet_bindings(did: str) -> List[Dict[str, Any]]:
+    """Get all active wallet bindings for a DID."""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            """SELECT wallet_address, chain_type, bound_at
+               FROM wallet_bindings
+               WHERE did = ? AND revoked_at IS NULL
+               ORDER BY bound_at""",
+            (did,),
+        )
+        return [dict(row) for row in cursor.fetchall()]
+
+
+# ---------------------------------------------------------------------------
+# On-chain attestation cache
+# ---------------------------------------------------------------------------
+
+def cache_attestation(
+    did: str, wallet_address: str, conditions_hash: str,
+    result: bool, attestation_id: str, results_json: str,
+    insumer_signature: str, insumer_kid: str,
+    expires_at: str, vouch_id: Optional[str] = None,
+) -> None:
+    """Cache an on-chain attestation result."""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            """INSERT OR REPLACE INTO onchain_attestations
+               (did, wallet_address, conditions_hash, result, attestation_id,
+                results_json, insumer_signature, insumer_kid, vouch_id,
+                queried_at, expires_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (did, wallet_address, conditions_hash, result, attestation_id,
+             results_json, insumer_signature, insumer_kid, vouch_id,
+             datetime.now(tz=timezone.utc).isoformat(), expires_at),
+        )
+        conn.commit()
+
+
+def get_cached_attestation(did: str, conditions_hash: str) -> Optional[Dict[str, Any]]:
+    """Get a cached attestation if it exists and hasn't expired."""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            """SELECT * FROM onchain_attestations
+               WHERE did = ? AND conditions_hash = ?""",
+            (did, conditions_hash),
+        )
+        row = cursor.fetchone()
+        return dict(row) if row else None
+
+
+def get_attestations_for_did(did: str) -> List[Dict[str, Any]]:
+    """Get all cached attestations for a DID."""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        now = datetime.now(tz=timezone.utc).isoformat()
+        cursor.execute(
+            """SELECT * FROM onchain_attestations
+               WHERE did = ? AND (expires_at IS NULL OR expires_at > ?)
+               ORDER BY queried_at DESC""",
+            (did, now),
+        )
+        return [dict(row) for row in cursor.fetchall()]
+
+
+def cleanup_expired_attestations() -> int:
+    """Remove expired attestation cache entries."""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        now = datetime.now(tz=timezone.utc).isoformat()
+        cursor.execute(
+            "DELETE FROM onchain_attestations WHERE expires_at IS NOT NULL AND expires_at < ?",
+            (now,),
+        )
+        conn.commit()
+        return cursor.rowcount
 
 
 # Initialize on import
