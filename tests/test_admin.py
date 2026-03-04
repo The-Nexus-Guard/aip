@@ -38,8 +38,25 @@ class TestAdminEndpoints(unittest.TestCase):
         conn.commit()
         conn.close()
 
-    def test_list_registrations_empty(self):
+        # Set admin key for tests
+        import routes.admin as admin_mod
+        self._orig_key = admin_mod.AIP_ADMIN_KEY
+        admin_mod.AIP_ADMIN_KEY = "test-admin-key-123"
+
+    def tearDown(self):
+        import routes.admin as admin_mod
+        admin_mod.AIP_ADMIN_KEY = self._orig_key
+
+    def _admin_headers(self):
+        return {"Authorization": "Bearer test-admin-key-123"}
+
+    def test_list_registrations_no_auth(self):
+        """GET /admin/registrations without auth should return 401."""
         resp = client.get("/admin/registrations")
+        self.assertEqual(resp.status_code, 401)
+
+    def test_list_registrations_empty(self):
+        resp = client.get("/admin/registrations", headers=self._admin_headers())
         self.assertEqual(resp.status_code, 200)
         data = resp.json()
         self.assertIn("registrations", data)
@@ -56,7 +73,7 @@ class TestAdminEndpoints(unittest.TestCase):
         database.register_did(did, pk_b64)
         database.add_platform_link(did, "moltbook", "TestAgent")
 
-        resp = client.get("/admin/registrations")
+        resp = client.get("/admin/registrations", headers=self._admin_headers())
         self.assertEqual(resp.status_code, 200)
         data = resp.json()
         self.assertGreaterEqual(data["count"], 1)
@@ -64,8 +81,13 @@ class TestAdminEndpoints(unittest.TestCase):
         self.assertEqual(len(found), 1)
         self.assertEqual(found[0]["platforms"][0]["username"], "TestAgent")
 
-    def test_get_registration_not_found(self):
+    def test_get_registration_no_auth(self):
+        """GET /admin/registrations/{did} without auth should return 401."""
         resp = client.get("/admin/registrations/did:aip:nonexistent")
+        self.assertEqual(resp.status_code, 401)
+
+    def test_get_registration_not_found(self):
+        resp = client.get("/admin/registrations/did:aip:nonexistent", headers=self._admin_headers())
         self.assertEqual(resp.status_code, 404)
 
     def test_get_registration_detail(self):
@@ -77,7 +99,7 @@ class TestAdminEndpoints(unittest.TestCase):
         pk_b64 = base64.b64encode(pk).decode()
         database.register_did(did, pk_b64)
 
-        resp = client.get(f"/admin/registrations/{did}")
+        resp = client.get(f"/admin/registrations/{did}", headers=self._admin_headers())
         self.assertEqual(resp.status_code, 200)
         data = resp.json()
         self.assertIn("registration", data)
@@ -120,7 +142,7 @@ class TestAdminEndpoints(unittest.TestCase):
         self.assertIn("moltbook", stats["by_platform"])
 
     def test_pagination(self):
-        resp = client.get("/admin/registrations?limit=1&offset=0")
+        resp = client.get("/admin/registrations?limit=1&offset=0", headers=self._admin_headers())
         self.assertEqual(resp.status_code, 200)
         data = resp.json()
         self.assertEqual(data["limit"], 1)

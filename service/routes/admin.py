@@ -34,8 +34,10 @@ def _require_admin(authorization: str | None):
 async def list_registrations(
     limit: int = Query(default=50, ge=1, le=200, description="Max results"),
     offset: int = Query(default=0, ge=0, description="Pagination offset"),
+    authorization: str | None = Header(default=None),
 ):
-    """List all registrations with platform links. Read-only monitoring endpoint."""
+    """List all registrations with platform links. Requires admin bearer token."""
+    _require_admin(authorization)
     registrations = database.list_registrations(limit=limit, offset=offset)
     return JSONResponse(content={
         "registrations": registrations,
@@ -76,8 +78,9 @@ async def get_stats():
 
 
 @router.get("/admin/registrations/{did}")
-async def get_registration(did: str):
-    """Get details for a specific DID registration."""
+async def get_registration(did: str, authorization: str | None = Header(default=None)):
+    """Get details for a specific DID registration. Requires admin bearer token."""
+    _require_admin(authorization)
     reg = database.get_registration(did)
     if not reg:
         return JSONResponse(status_code=404, content={"error": "DID not found"})
