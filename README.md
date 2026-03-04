@@ -553,6 +553,12 @@ Cryptographic identity is necessary but not sufficient. You need to know not jus
 - [**AIP for Skill Authors**](docs/tutorials/skill-signing.md) - Sign your skill in 3 commands
 - [MCP Integration Guide](docs/mcp_integration_guide.md) - Add AIP to MCP
 
+## Contributing
+
+We welcome contributions! Whether it's bug fixes, new features, documentation, or integration ideas — check out our **[Contributing Guide](CONTRIBUTING.md)** to get started.
+
+Have a question or idea? Start a [Discussion](https://github.com/The-Nexus-Guard/aip/discussions).
+
 ## License
 
 MIT

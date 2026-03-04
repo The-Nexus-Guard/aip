@@ -12,4 +12,5 @@ jobs:
         with:
           python-version: '3.11'
       - run: pip install pynacl requests httpx fastapi uvicorn pydantic pytest pytest-cov
-      - run: pytest tests/ -v --cov=service --cov-report=term-missing
+      - run: pip install -e .
+      - run: pytest tests/ -v --cov=service --cov=aip_identity --cov-report=term-missing
