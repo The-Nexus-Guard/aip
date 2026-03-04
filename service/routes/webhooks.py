@@ -192,8 +192,8 @@ async def delete_webhook(webhook_id: str, request: WebhookDeleteRequest, req: Re
 
 
 @router.get("/webhooks/{webhook_id}/deliveries")
-async def get_webhook_deliveries(webhook_id: str, req: Request, owner_did: str = None, limit: int = 20):
-    """Get delivery logs for a webhook. Requires owner_did for ownership verification."""
+async def get_webhook_deliveries(webhook_id: str, req: Request, owner_did: str = None, signature: str = None, limit: int = 20):
+    """Get delivery logs for a webhook. Requires owner_did + signature for ownership verification."""
     client_ip = req.client.host if req.client else "unknown"
     allowed, retry_after = default_limiter.is_allowed(client_ip)
     if not allowed:
@@ -201,6 +201,13 @@ async def get_webhook_deliveries(webhook_id: str, req: Request, owner_did: str =
 
     if not owner_did:
         raise HTTPException(status_code=400, detail="owner_did query parameter required")
+
+    if not signature:
+        raise HTTPException(status_code=400, detail="signature query parameter required (sign 'get-deliveries:{webhook_id}')")
+
+    # Verify cryptographic ownership
+    if not _verify_signature(owner_did, f"get-deliveries:{webhook_id}", signature):
+        raise HTTPException(status_code=403, detail="Invalid signature")
 
     # Verify the webhook belongs to this DID
     owner_hooks = database.get_webhooks_by_owner(owner_did)

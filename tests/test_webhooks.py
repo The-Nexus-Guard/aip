@@ -128,7 +128,8 @@ class TestWebhookDeliveries:
         assert resp.status_code == 200, f"Webhook create failed: {resp.status_code} {resp.text}"
         wh_id = resp.json()["id"]
 
-        resp = requests.get(f"{local_service}/webhooks/{wh_id}/deliveries?owner_did={did}")
+        del_sig = _sign(key, f"get-deliveries:{wh_id}")
+        resp = requests.get(f"{local_service}/webhooks/{wh_id}/deliveries", params={"owner_did": did, "signature": del_sig})
         assert resp.status_code == 200
         data = resp.json()
         assert data["webhook_id"] == wh_id
@@ -155,7 +156,8 @@ class TestWebhookDeliveries:
         # Give async webhook time to fire
         time.sleep(1)
 
-        resp = requests.get(f"{local_service}/webhooks/{wh_id}/deliveries?owner_did={did}")
+        del_sig = _sign(key, f"get-deliveries:{wh_id}")
+        resp = requests.get(f"{local_service}/webhooks/{wh_id}/deliveries", params={"owner_did": did, "signature": del_sig})
         assert resp.status_code == 200
         data = resp.json()
         assert data["webhook_id"] == wh_id
@@ -171,6 +173,19 @@ class TestWebhookDeliveries:
         resp = requests.get(f"{local_service}/webhooks/fake-id/deliveries")
         assert resp.status_code == 400
 
+    def test_delivery_log_requires_signature(self, local_service):
+        """Delivery log rejects requests without signature."""
+        did, pub, key = _make_agent()
+        requests.post(f"{local_service}/register", json={"did": did, "public_key": pub, "platform": "test", "username": "whsig1"})
+        url = "https://example.com/hook-sig-test"
+        sig = _sign(key, f"webhook:{url}")
+        resp = requests.post(f"{local_service}/webhooks", json={"owner_did": did, "url": url, "events": ["registration"], "signature": sig})
+        wh_id = resp.json()["id"]
+
+        # Request with owner_did but no signature
+        resp = requests.get(f"{local_service}/webhooks/{wh_id}/deliveries", params={"owner_did": did})
+        assert resp.status_code == 400
+
     def test_delivery_log_wrong_owner(self, local_service):
         """Delivery log rejects requests from non-owner."""
         did, pub, key = _make_agent()
@@ -180,7 +195,11 @@ class TestWebhookDeliveries:
         resp = requests.post(f"{local_service}/webhooks", json={"owner_did": did, "url": url, "events": ["registration"], "signature": sig})
         wh_id = resp.json()["id"]
 
-        resp = requests.get(f"{local_service}/webhooks/{wh_id}/deliveries?owner_did=did:aip:wrong")
+        # Wrong DID with a valid signature from a different agent
+        did2, pub2, key2 = _make_agent()
+        requests.post(f"{local_service}/register", json={"did": did2, "public_key": pub2, "platform": "test", "username": "whown2"})
+        bad_sig = _sign(key2, f"get-deliveries:{wh_id}")
+        resp = requests.get(f"{local_service}/webhooks/{wh_id}/deliveries", params={"owner_did": did2, "signature": bad_sig})
         assert resp.status_code == 403
 
     def test_ssrf_private_ip_rejected(self, local_service):
