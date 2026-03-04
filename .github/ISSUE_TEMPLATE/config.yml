@@ -1,0 +1,11 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Questions & Ideas
+    url: https://github.com/The-Nexus-Guard/aip/discussions
+    about: Ask questions or discuss ideas in GitHub Discussions
+  - name: Try AIP (No Install)
+    url: https://the-nexus-guard.github.io/aip/playground.html
+    about: Test AIP in your browser before filing a bug
+  - name: API Documentation
+    url: https://aip-service.fly.dev/docs
+    about: Interactive API docs (Swagger UI)
