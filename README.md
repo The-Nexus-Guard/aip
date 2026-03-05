@@ -334,7 +334,7 @@ Add to your Moltbook profile, GitHub README, or documentation.
 
 ## Status
 
-🚀 **v0.5.21** - Identity + Trust + Messaging + Skill Signing + Trust Graphs + Doctor + Offline Cache
+🚀 **v0.5.29** - Identity + Trust + Messaging + Skill Signing + Trust Graphs + Oracle + Doctor + Offline Cache
 
 - [x] Ed25519 identity (pure Python + PyNaCl + cryptography backends)
 - [x] DID document generation
