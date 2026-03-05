@@ -1,8 +1,11 @@
 """Tests for agent profile endpoints."""
 
 import base64
+import uuid
 import requests
 from nacl.signing import SigningKey
+
+_uid = uuid.uuid4().hex[:6]  # unique per test run to avoid DB collisions
 
 
 def _register_agent(base_url, platform="test", username=None):
@@ -34,7 +37,7 @@ def _get_signed_challenge(base_url, did, sk):
 
 def test_get_profile_empty(local_service):
     """Profile for a registered agent with no profile returns defaults."""
-    did, sk, pk = _register_agent(local_service, username="profile_empty")
+    did, sk, pk = _register_agent(local_service, username=f"profile_empty_{_uid}")
     resp = requests.get(f"{local_service}/agent/{did}/profile")
     assert resp.status_code == 200
     data = resp.json()
@@ -51,7 +54,7 @@ def test_get_profile_not_found(local_service):
 
 def test_update_profile(local_service):
     """Update profile with valid challenge-response auth."""
-    did, sk, pk = _register_agent(local_service, username="profile_update")
+    did, sk, pk = _register_agent(local_service, username=f"profile_update_{_uid}")
     challenge, sig = _get_signed_challenge(local_service, did, sk)
 
     resp = requests.put(f"{local_service}/agent/{did}/profile", json={
@@ -77,7 +80,7 @@ def test_update_profile(local_service):
 
 def test_update_profile_bad_signature(local_service):
     """Reject profile update with invalid signature."""
-    did, sk, pk = _register_agent(local_service, username="profile_badsig")
+    did, sk, pk = _register_agent(local_service, username=f"profile_badsig_{_uid}")
     challenge, _ = _get_signed_challenge(local_service, did, sk)
 
     resp = requests.put(f"{local_service}/agent/{did}/profile", json={
@@ -91,7 +94,7 @@ def test_update_profile_bad_signature(local_service):
 
 def test_update_profile_wrong_did(local_service):
     """Reject profile update when path DID doesn't match body DID."""
-    did, sk, pk = _register_agent(local_service, username="profile_wrongdid")
+    did, sk, pk = _register_agent(local_service, username=f"profile_wrongdid_{_uid}")
     challenge, sig = _get_signed_challenge(local_service, did, sk)
 
     resp = requests.put(f"{local_service}/agent/did:aip:other/profile", json={
@@ -105,7 +108,7 @@ def test_update_profile_wrong_did(local_service):
 
 def test_update_profile_bio_too_long(local_service):
     """Reject bio over 500 chars."""
-    did, sk, pk = _register_agent(local_service, username="profile_longbio")
+    did, sk, pk = _register_agent(local_service, username=f"profile_longbio_{_uid}")
     challenge, sig = _get_signed_challenge(local_service, did, sk)
 
     resp = requests.put(f"{local_service}/agent/{did}/profile", json={

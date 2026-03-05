@@ -26,6 +26,7 @@ os.environ["AIP_DATABASE_PATH"] = _test_db_path
 
 from fastapi.testclient import TestClient
 
+_run_id = uuid.uuid4().hex[:6]  # unique per test run to avoid DB collisions
 _client = None
 
 def get_test_client():
@@ -93,19 +94,21 @@ class TestRegistration:
 
     def test_easy_register_duplicate_fails(self):
         """Cannot register same platform+username twice."""
+        import uuid
         client = get_test_client()
+        unique_dupe = f"DupeAgent_{uuid.uuid4().hex[:8]}"
 
         # First registration succeeds
         response1 = client.post(
             "/register/easy",
-            json={"platform": "moltbook", "username": "DupeAgent"}
+            json={"platform": "moltbook", "username": unique_dupe}
         )
         assert response1.status_code == 200
 
         # Second registration fails
         response2 = client.post(
             "/register/easy",
-            json={"platform": "moltbook", "username": "DupeAgent"}
+            json={"platform": "moltbook", "username": unique_dupe}
         )
         assert response2.status_code in (400, 409)
 
@@ -130,7 +133,7 @@ class TestVerification:
         # Register first
         reg_response = client.post(
             "/register/easy",
-            json={"platform": "moltbook", "username": "VerifyMe"}
+            json={"platform": "moltbook", "username": f"VerifyMe_{_run_id}"}
         )
         assert reg_response.status_code == 200
         did = reg_response.json()["did"]
@@ -138,7 +141,7 @@ class TestVerification:
         # Now verify
         verify_response = client.get(
             "/verify",
-            params={"platform": "moltbook", "username": "VerifyMe"}
+            params={"platform": "moltbook", "username": f"VerifyMe_{_run_id}"}
         )
         assert verify_response.status_code == 200
         data = verify_response.json()
@@ -151,7 +154,7 @@ class TestVerification:
 
         response = client.get(
             "/verify",
-            params={"platform": "moltbook", "username": "NotRegistered"}
+            params={"platform": "moltbook", "username": f"NotRegistered_{_run_id}"}
         )
         # Unregistered agent returns 404 with verified=false message
         assert response.status_code in (200, 404)
@@ -167,7 +170,7 @@ class TestLookup:
         # Register first
         reg_response = client.post(
             "/register/easy",
-            json={"platform": "moltbook", "username": "LookupTest"}
+            json={"platform": "moltbook", "username": f"LookupTest_{_run_id}"}
         )
         did = reg_response.json()["did"]
         public_key = reg_response.json()["public_key"]
@@ -195,7 +198,7 @@ class TestChallenge:
         client = get_test_client()
 
         # Register first to get a DID
-        reg = client.post("/register/easy", json={"platform": "moltbook", "username": "ChallengeCreate"})
+        reg = client.post("/register/easy", json={"platform": "moltbook", "username": f"ChallengeCreate_{_run_id}"})
         assert reg.status_code == 200
         did = reg.json()["did"]
 
@@ -214,7 +217,7 @@ class TestChallenge:
         # Register to get keys
         reg_response = client.post(
             "/register/easy",
-            json={"platform": "moltbook", "username": "ChallengeTest"}
+            json={"platform": "moltbook", "username": f"ChallengeTest_{_run_id}"}
         )
         assert reg_response.status_code == 200
         did = reg_response.json()["did"]
@@ -270,7 +273,7 @@ class TestSkillSigning:
         # Register to get keys
         reg_response = client.post(
             "/register/easy",
-            json={"platform": "moltbook", "username": "SkillSigner"}
+            json={"platform": "moltbook", "username": f"SkillSigner_{_run_id}"}
         )
         assert reg_response.status_code == 200
         did = reg_response.json()["did"]
@@ -332,7 +335,7 @@ class TestSkillSigning:
         # Register first
         reg_response = client.post(
             "/register/easy",
-            json={"platform": "moltbook", "username": "BadSigner"}
+            json={"platform": "moltbook", "username": f"BadSigner_{_run_id}"}
         )
         assert reg_response.status_code == 200
         did = reg_response.json()["did"]
@@ -1310,10 +1313,10 @@ class TestCleanup:
 
         # Register two agents
         resp1 = client.post("/register/easy", json={
-            "platform": "test", "username": "cleanup_sender", "display_name": "Sender"
+            "platform": "test", "username": f"cleanup_sender_{_run_id}", "display_name": "Sender"
         })
         resp2 = client.post("/register/easy", json={
-            "platform": "test", "username": "cleanup_recipient", "display_name": "Recipient"
+            "platform": "test", "username": f"cleanup_recipient_{_run_id}", "display_name": "Recipient"
         })
         sender_did = resp1.json()["did"]
         recipient_did = resp2.json()["did"]
@@ -1441,7 +1444,7 @@ class TestVerifyEndpointCoverage:
         client = get_test_client()
         did, _, _ = self._register("proof")
         resp = client.post("/generate-proof", json={
-            "did": did, "platform": "test", "username": "proofuser"
+            "did": did, "platform": "test", "username": f"proofuser_{_run_id}"
         })
         assert resp.status_code == 200
         data = resp.json()
@@ -2098,7 +2101,7 @@ class TestVerifyPlatformEndpoint:
         resp = client.post("/verify-platform", json={
             "did": "did:aip:nonexistent_verify_plat",
             "platform": "moltbook",
-            "username": "noone",
+            "username": f"noone_{_run_id}",
             "proof_post_id": "fake"
         })
         assert resp.status_code == 404
@@ -2113,7 +2116,7 @@ class TestVerifyPlatformEndpoint:
         resp = client.post("/verify-platform", json={
             "did": did,
             "platform": "moltbook",
-            "username": "different_user",
+            "username": f"different_user_{_run_id}",
             "proof_post_id": "fake"
         })
         assert resp.status_code == 404
@@ -2313,7 +2316,7 @@ class TestBatchVerify:
         """Batch verify with registered and unregistered DIDs."""
         client = get_test_client()
         # Register one agent
-        resp = client.post("/register/easy", json={"platform": "test", "username": "batchuser1"})
+        resp = client.post("/register/easy", json={"platform": "test", "username": f"batchuser1_{_run_id}"})
         assert resp.status_code == 200
         did = resp.json()["did"]
 

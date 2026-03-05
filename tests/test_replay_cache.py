@@ -30,7 +30,8 @@ def test_replay_cache_persists_across_restart():
     # Initialize database
     database.init_database()
     
-    sig_hash = "test_sig_hash_12345"
+    import uuid
+    sig_hash = f"test_sig_hash_{uuid.uuid4().hex[:8]}"
     expires_at = time.time() + 300  # 5 minutes from now
     
     # First check - should insert and return False (not a replay)
