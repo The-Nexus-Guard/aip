@@ -1020,7 +1020,7 @@ def cmd_status(args):
         except Exception:
             pass
     else:
-        print("\n  Identity: not configured (run `aip register` first)")
+        print("\n  Identity: not configured (run `aip quickstart` to get started)")
 
     print()
 
@@ -1165,7 +1165,7 @@ def cmd_audit(args):
     service = args.service or AIP_SERVICE
     creds = find_credentials()
     if not creds:
-        print("No AIP credentials found. Run: aip register")
+        print("No AIP credentials found. Run: aip quickstart")
         return
 
     did = creds["did"]
@@ -2077,7 +2077,7 @@ def cmd_doctor(args):
                     warnings.append("No vouches received — ask a trusted agent to vouch for you")
             except urllib.request.HTTPError as e:
                 if e.code == 404:
-                    check("  Registered on service", False, "DID not found — run `aip register`")
+                    check("  Registered on service", False, "DID not found — run `aip quickstart`")
                 else:
                     check("  Registered on service", False, f"HTTP {e.code}")
             except Exception as e:
@@ -2127,7 +2127,7 @@ def cmd_wallet(args):
     if args.wallet_action == "bind":
         creds = _load_credentials()
         if not creds:
-            print("  ❌ No credentials found. Run `aip register` first.")
+            print("  ❌ No credentials found. Run `aip quickstart` to get started.")
             sys.exit(1)
 
         did = creds["did"]
@@ -2513,7 +2513,22 @@ Run 'aip commands' for the full command list.
     elif args.command in commands:
         commands[args.command](args)
     else:
-        print(CATEGORIZED_HELP)
+        # First-run experience: if no credentials exist, show welcome + quickstart
+        creds = find_credentials()
+        if not creds:
+            print("🦞 Welcome to AIP — Agent Identity Protocol\n")
+            print("You don't have an agent identity yet. Let's fix that!\n")
+            print("  Quick setup (30 seconds):")
+            print("    aip quickstart                        — auto-generate identity")
+            print("    aip init github my_agent --name 'Me'  — register with a profile\n")
+            print("  Just exploring?")
+            print("    aip demo     — interactive walkthrough (no registration needed)")
+            print("    aip stats    — see the live network")
+            print("    aip list     — browse registered agents\n")
+            print(f"  Docs: https://the-nexus-guard.github.io/aip/")
+            print(f"  Playground: https://the-nexus-guard.github.io/aip/playground.html\n")
+        else:
+            print(CATEGORIZED_HELP)
 
 
 if __name__ == "__main__":
