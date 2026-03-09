@@ -93,7 +93,7 @@ def require_credentials():
         print("    aip init github my_agent    Choose your platform + name")
         print()
         print("  Or explore first:")
-        print("    aip demo                    Interactive walkthrough")
+        print("    aip demo                    See AIP in action (60-second demo)")
         print("    aip list                    See agents in the network")
         print()
 
@@ -1694,20 +1694,134 @@ def cmd_init(args):
     print()
 
 
-def cmd_demo(args):
-    """Interactive demo: explore AIP features without registering."""
+def _demo_interactive(args):
+    """Interactive demo: create identities, sign, encrypt — all local."""
+    import time
+    from .identity import AgentIdentity
+
+    print("╔══════════════════════════════════════════════════════════╗")
+    print("║  🔐 AIP in 60 Seconds — Live Cryptographic Demo        ║")
+    print("║  Everything below runs locally. No server needed.       ║")
+    print("╚══════════════════════════════════════════════════════════╝")
+    print()
+
+    # Step 1: Create two agent identities
+    print("━━━ Step 1: Create Agent Identities ━━━")
+    print("  Generating Ed25519 keypairs...")
+    time.sleep(0.3)
+    alice = AgentIdentity.create("Alice", {"role": "code-reviewer"})
+    bob = AgentIdentity.create("Bob", {"role": "developer"})
+    print(f"  🤖 Alice: {alice.did}")
+    print(f"     Public key: {alice.public_key[:32]}...")
+    print(f"  🤖 Bob:   {bob.did}")
+    print(f"     Public key: {bob.public_key[:32]}...")
+    print(f"  ✅ Two unique identities created from keypairs")
+    print()
+
+    # Step 2: Sign and verify
+    print("━━━ Step 2: Digital Signatures ━━━")
+    message = "I reviewed commit abc123 and approve it."
+    print(f'  Alice signs: "{message}"')
+    time.sleep(0.2)
+    signature = alice.sign(message.encode())
+    sig_preview = signature[:40] + "..." if len(signature) > 40 else signature
+    print(f"  ✍️  Signature: {sig_preview}")
+    time.sleep(0.2)
+
+    # Verify with correct key
+    valid = AgentIdentity.verify(alice.public_key, message.encode(), signature)
+    print(f"  🔍 Verify with Alice's key: {'✅ VALID' if valid else '❌ INVALID'}")
+
+    # Verify with wrong key (should fail)
+    wrong = AgentIdentity.verify(bob.public_key, message.encode(), signature)
+    print(f"  🔍 Verify with Bob's key:   {'❌ INVALID (expected)' if not wrong else '⚠️ unexpected'}")
+    print(f"  ✅ Only the signer's identity can produce a valid signature")
+    print()
+
+    # Step 3: Encrypted messaging
+    print("━━━ Step 3: End-to-End Encrypted Messaging ━━━")
+    try:
+        from nacl.public import SealedBox
+        from nacl.signing import VerifyKey
+        from nacl.encoding import Base64Encoder
+
+        secret_msg = "API key rotation: new key is sk-abc123xyz"
+        print(f'  Alice encrypts for Bob: "{secret_msg}"')
+        time.sleep(0.2)
+
+        # Encrypt for Bob using his public key
+        bob_vk = VerifyKey(base64.b64decode(bob.public_key))
+        box = SealedBox(bob_vk.to_curve25519_public_key())
+        encrypted = box.encrypt(secret_msg.encode())
+        enc_b64 = base64.b64encode(encrypted).decode()
+        print(f"  🔒 Encrypted: {enc_b64[:48]}...")
+        print(f"     ({len(encrypted)} bytes — original was {len(secret_msg)} bytes)")
+        time.sleep(0.2)
+
+        # Bob decrypts
+        from nacl.signing import SigningKey
+        bob_sk = bob._key  # SigningKey
+        bob_curve_priv = bob_sk.to_curve25519_private_key()
+        bob_box = SealedBox(bob_curve_priv)
+        decrypted = bob_box.decrypt(encrypted).decode()
+        print(f'  🔓 Bob decrypts: "{decrypted}"')
+        print(f"  ✅ Only Bob can read it — not even Alice can decrypt")
+    except ImportError:
+        print("  ⚠️  Encryption demo requires PyNaCl: pip install pynacl")
+        print("  (Signatures above work with pure Python — no dependencies needed)")
+    print()
+
+    # Step 4: Trust vouching
+    print("━━━ Step 4: Trust & Vouching ━━━")
+    vouch_statement = f"vouch:{alice.did}:{bob.did}:CODE_REVIEW"
+    print(f"  Alice vouches for Bob's CODE_REVIEW ability")
+    time.sleep(0.2)
+    vouch_sig = alice.sign(vouch_statement.encode())
+    vouch_preview = vouch_sig[:40] + "..." if len(vouch_sig) > 40 else vouch_sig
+    print(f"  ✍️  Vouch signature: {vouch_preview}")
+    print(f"  🔗 Vouch chain: Alice → Bob (CODE_REVIEW)")
+    print(f"  ✅ Trust is cryptographic — can't be faked or transferred")
+    print()
+
+    # Summary
+    print("━━━ What Just Happened ━━━")
+    print("  In under 60 seconds, you saw:")
+    print("  • 2 unique agent identities created (Ed25519 keypairs → DIDs)")
+    print("  • A message signed and verified (tamper-proof provenance)")
+    print("  • An encrypted message only the recipient could read (SealedBox)")
+    print("  • A cryptographic trust vouch (verifiable reputation)")
+    print()
+    print("  All of this ran locally — no server, no accounts, no API keys.")
+    print()
+
+    # CTA
+    print("━━━ Ready to Join the Network? ━━━")
+    print()
+    print("  Connect your identity to the live AIP network:")
+    print("    aip init <platform> <username>")
+    print()
+    print("  Then other agents can find you, verify you, and message you.")
+    print()
+    print("  📖 Docs:     https://the-nexus-guard.github.io/aip/")
+    print("  🌐 Explorer: https://the-nexus-guard.github.io/aip/explorer.html")
+    print("  📦 PyPI:     https://pypi.org/project/aip-identity/")
+    print()
+
+
+def _demo_network(args):
+    """Network overview demo: show live stats from the AIP service."""
     import urllib.request
 
     service = getattr(args, "service", None) or AIP_SERVICE
 
     print("╔══════════════════════════════════════════════════════╗")
     print("║     🔐 AIP — Agent Identity Protocol Demo          ║")
-    print("║     Interactive walkthrough (no registration needed) ║")
+    print("║     Live network overview                           ║")
     print("╚══════════════════════════════════════════════════════╝")
     print()
 
     # Step 1: Network stats
-    print("━━━ Step 1: Network Overview ━━━")
+    print("━━━ Network Overview ━━━")
     print(f"Querying {service}/stats ...")
     try:
         req = urllib.request.Request(f"{service}/stats")
@@ -1722,8 +1836,8 @@ def cmd_demo(args):
         print(f"  ⚠️  Could not reach service: {e}")
     print()
 
-    # Step 2: Agent directory
-    print("━━━ Step 2: Agent Directory ━━━")
+    # Agent directory
+    print("━━━ Agent Directory ━━━")
     print("Fetching network info...")
     try:
         req = urllib.request.Request(f"{service}/stats")
@@ -1740,10 +1854,10 @@ def cmd_demo(args):
         print(f"  ⚠️  Could not fetch network info: {e}")
     print()
 
-    # Step 3: Verify an agent
-    print("━━━ Step 3: Trust Verification ━━━")
+    # Trust verification
+    print("━━━ Trust Verification ━━━")
     sample_did = "did:aip:c1965a89866ecbfaad49803e6ced70fb"
-    print(f"Checking trust for {sample_did[:40]}...")
+    print(f"Checking trust for {sample_did}...")
     try:
         req = urllib.request.Request(f"{service}/trust/{sample_did}")
         with urllib.request.urlopen(req, timeout=10) as resp:
@@ -1760,44 +1874,27 @@ def cmd_demo(args):
         print(f"  ⚠️  Could not verify: {e}")
     print()
 
-    # Step 4: Badge
-    print("━━━ Step 4: Trust Badge ━━━")
-    print(f"Fetching badge for The_Nexus_Guard_001...")
-    try:
-        req = urllib.request.Request(f"{service}/badge/{sample_did}")
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            content_type = resp.headers.get("Content-Type", "")
-            if "svg" in content_type or "xml" in content_type:
-                print(f"  🏅 Badge: {service}/badge/{sample_did}")
-                print(f"  (SVG badge — embed in your README or profile)")
-            else:
-                badge = json.loads(resp.read())
-                level = badge.get("level", badge.get("trust_level", "?"))
-                score = badge.get("score", badge.get("trust_score", "?"))
-                print(f"  🏅 Level: {level}")
-                print(f"  📈 Score: {score}")
-    except Exception as e:
-        print(f"  ⚠️  Could not fetch badge: {e}")
+    # Next steps
+    print("━━━ Try the Interactive Demo ━━━")
     print()
-
-    # Step 5: What's next
-    print("━━━ Ready to join? ━━━")
+    print("  See AIP in action (no registration needed):")
+    print("    aip demo --interactive")
     print()
-    print("  Quick setup (one command):")
-    print("    pip install aip-identity")
+    print("  Ready to join?")
     print("    aip init <platform> <username>")
     print()
-    print("  Or step by step:")
-    print("    aip register <platform> <username> --secure")
-    print("    aip profile set --name 'My Agent' --bio 'What I do'")
-    print("    aip vouch <did> --scope GENERAL")
-    print("    aip sign ./my-skill/")
-    print("    aip message <did> 'Hello!'")
-    print()
     print("  📖 Docs: https://the-nexus-guard.github.io/aip/")
-    print("  🔍 Explorer: https://the-nexus-guard.github.io/aip/explorer.html")
     print("  📦 PyPI: https://pypi.org/project/aip-identity/")
     print()
+
+
+def cmd_demo(args):
+    """Demo command: default is interactive crypto demo, --network for live stats."""
+    network = getattr(args, "network", False)
+    if network:
+        _demo_network(args)
+    else:
+        _demo_interactive(args)
 
 
 def cmd_migrate(args):
@@ -2456,7 +2553,11 @@ Run 'aip commands' for the full command list.
     p_wallet_verify.add_argument("--wallet", default=None, help="Specific wallet address (if multiple bound)")
 
     # demo
-    sub.add_parser("demo", help="Interactive walkthrough — explore AIP without registering")
+    p_demo = sub.add_parser("demo", help="See AIP in action — identity, signatures, encryption")
+    p_demo.add_argument("--interactive", "-i", action="store_true", default=False,
+                         help="Local crypto demo (default)")
+    p_demo.add_argument("--network", "-n", action="store_true", default=False,
+                         help="Show live network stats instead")
 
     # audit
     sub.add_parser("audit", help="Self-audit: trust, vouches, messages, profile completeness")
