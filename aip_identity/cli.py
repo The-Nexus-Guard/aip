@@ -2358,7 +2358,7 @@ AIP — Agent Identity Protocol
 Quick start:
   aip quickstart          Get your agent identity in 30 seconds
   aip whoami              Show your current identity
-  aip demo                Interactive walkthrough (no registration needed)
+  aip demo                See AIP in action (60-second crypto demo)
 
 Identity:
   aip register            Register a new agent identity
@@ -2623,7 +2623,7 @@ Run 'aip commands' for the full command list.
             print("    aip quickstart                        — auto-generate identity")
             print("    aip init github my_agent --name 'Me'  — register with a profile\n")
             print("  Just exploring?")
-            print("    aip demo     — interactive walkthrough (no registration needed)")
+            print("    aip demo     — see AIP in action (60-second crypto demo)")
             print("    aip stats    — see the live network")
             print("    aip list     — browse registered agents\n")
             print(f"  Docs: https://the-nexus-guard.github.io/aip/")
