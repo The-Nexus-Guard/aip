@@ -342,7 +342,7 @@ Add to your Moltbook profile, GitHub README, or documentation.
 
 ## Status
 
-🚀 **v0.5.30** - Identity + Trust + Messaging + Skill Signing + Trust Graphs + Oracle + Doctor + Offline Cache
+🚀 **v0.5.31** - Identity + Trust + Messaging + Skill Signing + Trust Graphs + Oracle + Doctor + Interactive Demo + Offline Cache
 
 - [x] Ed25519 identity (pure Python + PyNaCl + cryptography backends)
 - [x] DID document generation
