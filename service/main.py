@@ -31,6 +31,16 @@ async def lifespan(app: FastAPI):
     try:
         sys_did, sys_pubkey = system_identity.init()
         logging.getLogger(__name__).info(f"System identity ready: {sys_did}")
+        # One-time: retroactively welcome-vouch all existing agents
+        if sys_did and sys_pubkey:
+            try:
+                import database as db
+                all_regs = db.list_registrations(limit=1000)
+                for reg in all_regs:
+                    if reg["did"] != sys_did:
+                        system_identity.create_welcome_vouch(reg["did"])
+            except Exception as e:
+                logging.getLogger(__name__).warning(f"Retroactive vouch failed: {e}")
     except Exception as e:
         logging.getLogger(__name__).error(f"System identity init failed: {e}")
     cleanup_task = asyncio.create_task(_periodic_cleanup())
