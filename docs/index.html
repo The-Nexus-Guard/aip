@@ -676,6 +676,29 @@ pip install aip-mcp-server
                     &nbsp;·&nbsp;
                     <a href="https://github.com/The-Nexus-Guard/aip/tree/main/mcp-server" style="color: var(--accent);">Source →</a>
                 </div>
+
+                <div id="frameworks" style="margin-top: 3rem; padding: 2rem; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 12px;">
+                    <h3 style="margin-bottom: 1rem;">⚡ Framework Integration — One Line of Code</h3>
+                    <p style="color: var(--fg-secondary); margin-bottom: 1rem;">Add cryptographic identity to any Python agent framework. <code style="color: var(--accent); background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px;">ensure_identity()</code> handles everything: key generation, registration, credential storage. First run registers, every subsequent run loads instantly.</p>
+                    <div class="code-section" style="margin-bottom: 1rem;">
+                        <div class="code-block">
+<pre><span class="keyword">from</span> aip_identity.integrations.auto <span class="keyword">import</span> ensure_identity
+
+<span class="comment"># One line: your agent gets a persistent cryptographic identity</span>
+client = <span class="function">ensure_identity</span>(<span class="string">"my-agent"</span>, platform=<span class="string">"langchain"</span>)
+
+<span class="comment"># Now use it</span>
+client.<span class="function">sign</span>(data)              <span class="comment"># Sign outputs to prove authorship</span>
+client.<span class="function">verify</span>(other_did)       <span class="comment"># Verify another agent's identity</span>
+client.<span class="function">send_message</span>(did, msg)  <span class="comment"># End-to-end encrypted messaging</span>
+client.<span class="function">get_trust</span>(did)          <span class="comment"># Check trust scores</span></pre>
+                        </div>
+                    </div>
+                    <p style="color: var(--fg-secondary); margin-bottom: 0.5rem;"><strong>Works with:</strong> LangChain, CrewAI, AutoGen, or any Python framework</p>
+                    <a href="https://github.com/The-Nexus-Guard/aip/tree/main/examples/frameworks" style="color: var(--accent);">Examples →</a>
+                    &nbsp;·&nbsp;
+                    <a href="https://github.com/The-Nexus-Guard/aip/blob/main/docs/tutorials/zero-to-trusted-agent.md" style="color: var(--accent);">Tutorial →</a>
+                </div>
             </div>
         </section>
 
