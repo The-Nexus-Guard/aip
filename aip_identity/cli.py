@@ -1729,16 +1729,56 @@ def cmd_init(args):
             print(f"   ⚠️  Profile update failed: {e}")
             print(f"   You can set it later with: aip profile set --name '...'")
 
+    # Check for welcome vouch
+    welcome_vouch = False
+    try:
+        trust_resp = requests.get(f"{service_url}/trust/{did}", timeout=5)
+        if trust_resp.ok:
+            trust_data = trust_resp.json()
+            score = trust_data.get("trust_score", 0)
+            vouches = trust_data.get("vouches_received", 0)
+            if score > 0 or vouches > 0:
+                welcome_vouch = True
+    except Exception:
+        pass
+
     # Summary
     print(f"\n{'=' * 40}")
     print(f"🎉 You're on AIP!")
     print(f"   DID:      {did}")
     print(f"   Platform: {platform}/{username}")
+
+    if welcome_vouch:
+        print(f"\n   🤝 Welcome vouch received! Trust score: {score:.2f}")
+        print(f"      You already have {vouches} vouch(es) from the network.")
+
+    # Show a peek at the directory
+    try:
+        dir_resp = requests.get(f"{service_url}/directory?limit=5", timeout=5)
+        if dir_resp.ok:
+            dir_data = dir_resp.json()
+            agents = dir_data.get("agents", [])
+            total = dir_data.get("total", 0)
+            system_did = dir_data.get("system_identity")
+            others = [a for a in agents if a["did"] != did and a["did"] != system_did]
+            if others:
+                print(f"\n   📡 {total} agents on the network. Here are some:")
+                for a in others[:3]:
+                    aname = a.get("display_name") or (
+                        a["platforms"][0]["username"] if a.get("platforms") else a["did"][:20]
+                    )
+                    abio = a.get("bio", "")
+                    bio_str = f" — {abio[:50]}" if abio else ""
+                    print(f"      • {aname}{bio_str}")
+                    print(f"        {a['did']}")
+    except Exception:
+        pass
+
     print(f"\n   Next steps:")
-    print(f"   • aip whoami          — view your identity")
-    print(f"   • aip sign <dir>      — sign a skill")
-    print(f"   • aip message <did>   — send encrypted message")
-    print(f"   • aip status          — full dashboard")
+    print(f"   • aip directory       — discover agents to connect with")
+    print(f"   • aip message <did>   — send an encrypted message")
+    print(f"   • aip sign <dir>      — sign a skill or artifact")
+    print(f"   • aip status          — your full dashboard")
     print()
 
 
