@@ -497,9 +497,18 @@ See [docs/skill_signing_tutorial.md](docs/skill_signing_tutorial.md) for the ful
 └─────────────────────────────────────────────┘
 ```
 
-## Framework Integrations (LangChain / CrewAI)
+## Framework Integrations (LangChain / CrewAI / AutoGen)
 
-AIP provides ready-made tools for LangChain and CrewAI agents:
+**Auto-registration** — one line to give any agent a cryptographic identity:
+
+```python
+from aip_identity.integrations import ensure_identity
+
+client = ensure_identity("my-agent", platform="langchain")
+# Loads existing credentials or registers a new agent automatically
+```
+
+**LangChain/CrewAI tools** — drop-in identity tools for your agents:
 
 ```python
 from aip_identity.integrations.langchain_tools import get_aip_tools
@@ -507,15 +516,15 @@ from aip_identity.integrations.langchain_tools import get_aip_tools
 tools = get_aip_tools()
 
 # LangChain
-from langchain.agents import create_agent
-agent = create_agent(model="claude-sonnet-4-5-20250929", tools=tools)
+agent = create_tool_calling_agent(llm, tools + your_tools, prompt)
 
-# CrewAI
-from crewai import Agent
+# CrewAI (uses LangChain tools natively)
 agent = Agent(role="Security Analyst", tools=tools)
 ```
 
 Available tools: `aip_whoami`, `aip_lookup_agent`, `aip_verify_agent`, `aip_get_trust`, `aip_is_trusted`, `aip_sign_message`, `aip_vouch_for_agent`, `aip_get_profile`, `aip_get_trust_path`.
+
+**[→ Full framework integration guide with examples](examples/frameworks/README.md)** (LangChain, CrewAI, AutoGen, standalone)
 
 Requires: `pip install langchain-core` (optional dependency).
 
@@ -553,6 +562,7 @@ Cryptographic identity is necessary but not sufficient. You need to know not jus
 
 ## Documentation
 
+- [🎯 Zero to Trusted Agent](docs/tutorials/zero-to-trusted-agent.md) - pip install → verified, trusted agent in 5 minutes
 - [🎯 Hello World](docs/hello-world.md) - Your first agent identity in 5 minutes (CLI walkthrough)
 - [🚀 Getting Started](docs/getting-started.md) - Install, register, sign, message — step by step
 - [📝 Signing Reference](docs/signing-reference.md) - Every signed endpoint, payload formats, and code examples
