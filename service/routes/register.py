@@ -212,6 +212,13 @@ async def register(request: RegistrationRequest, req: Request):
         except Exception:
             pass  # Webhook failures should never block registration
 
+        # Auto-welcome vouch from system identity
+        try:
+            import system_identity
+            system_identity.create_welcome_vouch(request.did)
+        except Exception:
+            pass  # Welcome vouch failures should never block registration
+
     return RegistrationResponse(
         success=True,
         did=request.did,
@@ -277,6 +284,13 @@ async def register_easy(request: EasyRegistrationRequest, req: Request):
             status_code=500,
             detail="Failed to add platform link"
         )
+
+    # Auto-welcome vouch from system identity
+    try:
+        import system_identity
+        system_identity.create_welcome_vouch(did)
+    except Exception:
+        pass  # Welcome vouch failures should never block registration
 
     response_data = EasyRegistrationResponse(
         success=True,

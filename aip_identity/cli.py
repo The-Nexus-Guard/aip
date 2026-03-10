@@ -937,6 +937,52 @@ def cmd_search(args):
         sys.exit(1)
 
 
+def cmd_directory(args):
+    """Discover other agents on the AIP network."""
+    import urllib.request
+    service = getattr(args, 'service', None) or AIP_SERVICE
+    limit = getattr(args, 'limit', 10)
+
+    print("🦞 AIP Agent Directory\n")
+    try:
+        url = f"{service}/directory?limit={limit}"
+        with urllib.request.urlopen(url, timeout=10) as resp:
+            data = json.loads(resp.read().decode())
+    except Exception as e:
+        print(f"  ❌ Could not reach AIP service: {e}")
+        return
+
+    agents = data.get("agents", [])
+    total = data.get("total", 0)
+    system_did = data.get("system_identity")
+
+    print(f"  {total} agents registered\n")
+
+    for agent in agents:
+        did = agent["did"]
+        # Skip system identity in listing
+        if did == system_did:
+            continue
+
+        platforms = agent.get("platforms", [])
+        name = agent.get("display_name") or (
+            f"{platforms[0]['username']}@{platforms[0]['platform']}" if platforms else did[:24]
+        )
+        vouch_count = agent.get("vouch_count", 0)
+        bio = agent.get("bio", "")
+
+        print(f"  {name}")
+        print(f"    DID: {did}")
+        if bio:
+            print(f"    Bio: {bio[:80]}")
+        print(f"    Vouches: {vouch_count}  Scopes: {', '.join(agent.get('scopes', []))}")
+        print()
+
+    if total > limit:
+        print(f"  Showing {min(limit, len(agents))} of {total}. Use --limit to see more.")
+    print(f"  Send a message: aip message <did> \"Hello!\"")
+
+
 def cmd_whoami(args):
     """Show your current identity."""
     creds = require_credentials()
@@ -1549,18 +1595,20 @@ def cmd_quickstart(args):
     except Exception:
         print("  ⚠️  Could not verify (offline)")
 
-    # Step 4: Trust score
+    # Step 4: Trust score (should now show 1 vouch from welcome)
     print("\nStep 4: Checking your trust score...")
     try:
         import requests
         resp = requests.get(f"{service_url}/trust/{did}", timeout=5)
         if resp.ok:
             data = resp.json()
-            score = data.get("trust_score", 0.0)
-            print(f"  ✓ Trust score: {score} (new agent — get vouched to increase!)")
-            print(f"  ✓ Trust badge: {service_url}/trust/did/aip:{did.split(':')[-1]}/badge")
+            vouch_count = data.get("vouch_count", 0)
+            if vouch_count > 0:
+                print(f"  ✓ Welcome vouch received! You have {vouch_count} vouch(es)")
+            else:
+                print(f"  ✓ Trust score: 0.0 (new agent — get vouched to increase!)")
     except Exception:
-        print("  ✓ Trust score: 0.0 (new agent — get vouched to increase!)")
+        print("  ✓ Checking trust score... (service may be slow)")
 
     print("\n🎉 You're set up! Your agent now has a cryptographic identity.")
     _print_quickstart_next_steps()
@@ -1570,7 +1618,7 @@ def _print_quickstart_next_steps():
     """Print the 'what's next' section for quickstart."""
     print("\nWhat's next:")
     print("  aip whoami          — see your identity")
-    print("  aip trust-score     — check your trust level")
+    print("  aip directory       — discover other agents")
     print("  aip message <did>   — send an encrypted message")
     print("  aip sign <file>     — sign an artifact")
     print("  aip vouch <did>     — vouch for another agent")
@@ -2492,6 +2540,10 @@ Run 'aip commands' for the full command list.
 
     sub.add_parser("whoami", help="Show your current identity")
 
+    # directory
+    p_dir = sub.add_parser("directory", help="Discover other agents on the AIP network")
+    p_dir.add_argument("--limit", type=int, default=10, help="Number of agents to show")
+
     # status
     sub.add_parser("status", help="Dashboard: identity + network health + unread messages")
 
@@ -2592,6 +2644,7 @@ Run 'aip commands' for the full command list.
         "rotate-key": cmd_rotate_key,
         "badge": cmd_badge,
         "whoami": cmd_whoami,
+        "directory": cmd_directory,
         "list": cmd_list,
         "trust-score": cmd_trust_score,
         "trust-graph": cmd_trust_graph,

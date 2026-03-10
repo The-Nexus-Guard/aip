@@ -34,3 +34,5 @@ htmlcov/
 __pycache__/
 .pytest_cache/
 aip.db
+aip.db
+data/system_key.b64

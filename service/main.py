@@ -20,12 +20,19 @@ import os
 # Import routes
 from routes import register, verify, challenge, vouch, messaging, skill, onboard, admin, webhooks, profile, oracle
 from rate_limit import default_limiter, check_rate_limit, rate_limit_headers
+import system_identity
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Manage startup and shutdown lifecycle."""
     app.state.start_time = int(time.time())
     app.state.last_cleanup_stats = {}
+    # Initialize system identity for welcome vouches
+    try:
+        sys_did, sys_pubkey = system_identity.init()
+        logging.getLogger(__name__).info(f"System identity ready: {sys_did}")
+    except Exception as e:
+        logging.getLogger(__name__).error(f"System identity init failed: {e}")
     cleanup_task = asyncio.create_task(_periodic_cleanup())
     yield
     cleanup_task.cancel()
@@ -182,7 +189,73 @@ async def health():
             "active_vouches": db_stats.get("active_vouches", 0),
             "uptime_seconds": uptime_seconds
         },
-        "cleanup": cleanup_stats
+        "cleanup": cleanup_stats,
+        "system_identity": system_identity.get_did(),
+    }
+
+
+@app.get("/directory")
+async def agent_directory(
+    req: Request,
+    limit: int = 20,
+    offset: int = 0,
+):
+    """
+    Public agent directory - discover registered agents.
+
+    Returns agents with their platform identities, vouch counts, and profiles.
+    Excludes private keys and internal data. Useful for finding agents to interact with.
+    """
+    import database
+    from rate_limit import default_limiter
+
+    client_ip = req.client.host if req.client else "unknown"
+    allowed, retry_after = default_limiter.is_allowed(client_ip)
+    if not allowed:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Rate limit exceeded. Try again in {retry_after} seconds.",
+            headers={"Retry-After": str(retry_after)}
+        )
+
+    # Clamp limit
+    limit = min(max(1, limit), 50)
+
+    registrations = database.list_registrations(limit=limit, offset=offset)
+
+    # Strip public keys and enrich with vouch counts
+    agents = []
+    for reg in registrations:
+        vouches = database.get_vouches_for(reg["did"])
+        profile = database.get_profile(reg["did"]) if hasattr(database, 'get_profile') else None
+
+        agent = {
+            "did": reg["did"],
+            "platforms": [
+                {"platform": p["platform"], "username": p["username"]}
+                for p in reg.get("platforms", [])
+            ],
+            "vouch_count": len(vouches),
+            "scopes": list(set(v["scope"] for v in vouches)),
+            "registered_at": reg.get("created_at"),
+            "last_active": reg.get("last_activity"),
+        }
+
+        if profile:
+            agent["display_name"] = profile.get("display_name")
+            agent["bio"] = profile.get("bio")
+
+        agents.append(agent)
+
+    # Get total count
+    stats = database.get_stats()
+
+    return {
+        "agents": agents,
+        "total": stats.get("registrations", 0),
+        "limit": limit,
+        "offset": offset,
+        "system_identity": system_identity.get_did(),
     }
 
 
