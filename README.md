@@ -594,6 +594,29 @@ mcp_client.request(url, headers=headers)
 
 See [docs/mcp_integration_guide.md](docs/mcp_integration_guide.md) for full details.
 
+## W3C Interoperability (did:key / MCP-I)
+
+AIP agents now have W3C-compatible `did:key` identifiers alongside their `did:aip:` identifiers, enabling interoperability with MCP-I and DIF standards:
+
+```python
+from aip_identity import public_key_to_did_key, did_key_to_public_key, resolve_did
+
+# Every AIP agent has a did:key
+identity = AgentIdentity.create("my-agent")
+print(identity.did)      # did:aip:c1965a89...
+print(identity.did_key)  # did:key:z6MkhaXg...
+
+# Resolve any did:key to its public key
+resolved = resolve_did("did:key:z6MkhaXg...")
+# → {"public_key_bytes": b"...", "public_key_b64": "...", "method": "key"}
+
+# DID documents include alsoKnownAs for cross-resolution
+doc = identity.create_did_document()
+# doc["alsoKnownAs"] = ["did:key:z6MkhaXg..."]
+```
+
+`aip whoami` now shows both identifiers. This bridges AIP's peer identity with MCP-I's delegation model — same cryptographic key, two resolution paths.
+
 ## Why Three Layers?
 
 **Identity** tells you "this is the same agent I talked to before."
