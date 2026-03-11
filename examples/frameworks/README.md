@@ -34,6 +34,22 @@ client = ensure_identity("my-autogen-agent", platform="autogen")
 # Register AIP functions with your AutoGen agent
 ```
 
+### FastAPI (Agent Service)
+
+```python
+from aip_identity.middleware import AIPMiddleware
+
+mw = AIPMiddleware("my-service", platform="fastapi")
+
+@app.middleware("http")
+async def verify_identity(request, call_next):
+    identity = mw.verify_request(dict(request.headers), request.method, request.url.path)
+    if not identity.verified:
+        return JSONResponse(status_code=401, content={"error": "unverified"})
+    request.state.identity = identity
+    return await call_next(request)
+```
+
 ### Any Framework
 
 ```python
@@ -58,6 +74,9 @@ pip install aip-identity crewai
 
 # For AutoGen integration:
 pip install aip-identity pyautogen
+
+# For FastAPI middleware:
+pip install aip-identity fastapi uvicorn
 ```
 
 ## What You Get
@@ -79,6 +98,7 @@ pip install aip-identity pyautogen
 - [`langchain_identity.py`](langchain_identity.py) — LangChain agent with AIP identity tools
 - [`crewai_signed_workflow.py`](crewai_signed_workflow.py) — CrewAI crew with signed, verified outputs
 - [`autogen_verified_chat.py`](autogen_verified_chat.py) — AutoGen agents that verify each other
+- [`fastapi_middleware.py`](fastapi_middleware.py) — FastAPI service with AIP identity verification middleware
 - [`standalone_identity.py`](standalone_identity.py) — No framework, just AIP as a library
 
 ## How Auto-Registration Works
