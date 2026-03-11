@@ -186,6 +186,29 @@ identity = ensure_identity("my-agent")
 
 Works with LangChain, CrewAI, AutoGen, and any Python agent. See [examples/frameworks/](examples/frameworks/) for complete integration examples.
 
+### Identity Middleware
+
+For agent-to-agent HTTP communication with automatic request signing and peer verification:
+
+```python
+from aip_identity.middleware import AIPMiddleware
+
+mw = AIPMiddleware("my-agent")
+
+# Sign outgoing requests
+headers = mw.sign_request("POST", "/api/task", body='{"instruction": "analyze"}')
+
+# Verify incoming requests
+identity = mw.verify_request(request.headers, method="POST", path="/api/task")
+if identity.verified and identity.trust_score > 0.3:
+    process(request)  # verified and trusted
+
+# Discover trusted peers
+peers = mw.discover_peers(min_trust=0.3)
+```
+
+See [docs/design/identity-middleware.md](docs/design/identity-middleware.md) for the full design.
+
 ## A2A Protocol Integration
 
 AIP provides the missing identity layer for [Google's A2A protocol](https://github.com/a2aproject/A2A). Add DIDs to AgentCards, verify agents before delegating tasks, and sign every message:
