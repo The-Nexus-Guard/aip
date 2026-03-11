@@ -172,6 +172,30 @@ if count["unread"] > 0:
 
 The AIP service never sees your message content - only encrypted blobs.
 
+## Framework Integrations
+
+Add cryptographic identity to any Python agent framework with one line:
+
+```python
+from aip_identity.integrations.auto import ensure_identity
+
+identity = ensure_identity("my-agent")
+# First run: generates keys, registers with AIP network
+# Every subsequent run: loads existing credentials instantly
+```
+
+Works with LangChain, CrewAI, AutoGen, and any Python agent. See [examples/frameworks/](examples/frameworks/) for complete integration examples.
+
+## A2A Protocol Integration
+
+AIP provides the missing identity layer for [Google's A2A protocol](https://github.com/a2aproject/A2A). Add DIDs to AgentCards, verify agents before delegating tasks, and sign every message:
+
+```bash
+python3 examples/a2a_identity_demo.py
+```
+
+See our [A2A identity extension proposal](https://github.com/a2aproject/A2A/pull/1511).
+
 ## Demos
 
 ```bash
@@ -180,6 +204,9 @@ python3 examples/multi_agent_workflow.py
 
 # Full trust network demo
 python3 examples/trust_network_demo.py
+
+# A2A + AIP identity integration
+python3 examples/a2a_identity_demo.py
 
 # Verify a signed skill (no account needed!)
 python3 examples/verify_skill.py ./my-skill/
