@@ -151,9 +151,15 @@ def _conditions_hash(conditions: List[OnchainCondition]) -> str:
 
 
 async def _call_insumer_attest(
-    wallet: str, conditions: List[OnchainCondition]
+    wallet: str, conditions: List[OnchainCondition], max_retries: int = 2
 ) -> Dict[str, Any]:
-    """Call InsumerAPI /v1/attest."""
+    """Call InsumerAPI /v1/attest with retry on transient RPC failures.
+
+    InsumerAPI returns 503 with error.code="rpc_failure" and a failedConditions
+    array when an RPC provider is temporarily unavailable.  No credits are
+    charged for these.  We retry up to *max_retries* times with a short back-off
+    before surfacing the error.
+    """
     if not INSUMER_API_KEY:
         raise HTTPException(
             status_code=503,
@@ -182,30 +188,64 @@ async def _call_insumer_attest(
 
     payload = {"wallet": wallet, "conditions": insumer_conditions}
 
-    async with httpx.AsyncClient(timeout=30) as client:
-        resp = await client.post(
-            f"{INSUMER_API_BASE}/v1/attest",
-            headers={
-                "x-api-key": INSUMER_API_KEY,
-                "Content-Type": "application/json",
-            },
-            json=payload,
-        )
+    import asyncio
 
-    if resp.status_code != 200:
-        raise HTTPException(
-            status_code=502,
-            detail=f"InsumerAPI returned {resp.status_code}: {resp.text[:200]}",
-        )
+    last_error = None
+    for attempt in range(1 + max_retries):
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.post(
+                f"{INSUMER_API_BASE}/v1/attest",
+                headers={
+                    "x-api-key": INSUMER_API_KEY,
+                    "Content-Type": "application/json",
+                },
+                json=payload,
+            )
 
-    data = resp.json()
-    if not data.get("ok"):
-        raise HTTPException(
-            status_code=502,
-            detail=f"InsumerAPI attestation failed: {data.get('error', 'unknown')}",
-        )
+        # ---- handle transient RPC failures (503) with retry ----
+        if resp.status_code == 503:
+            try:
+                err_data = resp.json()
+            except Exception:
+                err_data = {}
 
-    return data
+            err_code = (err_data.get("error") or {}).get("code", "") if isinstance(err_data.get("error"), dict) else ""
+            failed_conds = (err_data.get("error") or {}).get("failedConditions", []) if isinstance(err_data.get("error"), dict) else []
+
+            if err_code == "rpc_failure" and attempt < max_retries:
+                last_error = f"RPC failure on attempt {attempt + 1}: {failed_conds}"
+                await asyncio.sleep(2 * (attempt + 1))  # 2s, 4s back-off
+                continue
+
+            # Final attempt or non-rpc 503
+            raise HTTPException(
+                status_code=503,
+                detail={
+                    "message": "InsumerAPI RPC provider temporarily unavailable",
+                    "code": "rpc_failure",
+                    "failedConditions": failed_conds,
+                    "retries_attempted": attempt,
+                    "hint": "Retry later — no credits were charged for this request.",
+                },
+            )
+
+        if resp.status_code != 200:
+            raise HTTPException(
+                status_code=502,
+                detail=f"InsumerAPI returned {resp.status_code}: {resp.text[:200]}",
+            )
+
+        data = resp.json()
+        if not data.get("ok"):
+            raise HTTPException(
+                status_code=502,
+                detail=f"InsumerAPI attestation failed: {data.get('error', 'unknown')}",
+            )
+
+        return data
+
+    # Should not reach here, but just in case
+    raise HTTPException(status_code=502, detail=f"InsumerAPI call failed after retries: {last_error}")
 
 
 # ---------------------------------------------------------------------------
