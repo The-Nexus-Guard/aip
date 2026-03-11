@@ -987,6 +987,16 @@ def cmd_whoami(args):
     """Show your current identity."""
     creds = require_credentials()
     print(f"DID: {creds['did']}")
+
+    # Show did:key (W3C interoperable identifier)
+    try:
+        from .identity import public_key_to_did_key
+        pub_bytes = base64.b64decode(creds.get("public_key", ""))
+        if len(pub_bytes) == 32:
+            print(f"DID (key): {public_key_to_did_key(pub_bytes)}")
+    except Exception:
+        pass  # base58 not installed or key issue — skip silently
+
     print(f"Platform: {creds.get('platform', '?')}/{creds.get('username', '?')}")
     pub = creds.get("public_key", "")
     print(f"Public key: {pub[:16]}..." if len(pub) > 16 else f"Public key: {pub}")

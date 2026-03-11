@@ -15,6 +15,7 @@ authors = [
 dependencies = [
     "pynacl>=1.5.0",
     "requests>=2.28.0",
+    "base58>=2.1.0",
 ]
 keywords = [
     "ai", "agent", "identity", "trust", "cryptography", "did",
