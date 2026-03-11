@@ -1,0 +1,31 @@
+name: E2E Oracle Tests
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 8 * * 1'  # Weekly Monday 8am UTC
+
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install pynacl requests pytest
+
+      - name: Run E2E tests
+        env:
+          AIP_E2E: "1"
+          AIP_SERVICE_URL: "https://aip-service.fly.dev"
+          AIP_ADMIN_KEY: ${{ secrets.AIP_ADMIN_KEY }}
+        run: |
+          pytest tests/test_oracle_e2e.py -v --tb=short
