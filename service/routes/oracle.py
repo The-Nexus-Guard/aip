@@ -21,7 +21,12 @@ from pydantic import BaseModel, Field
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import database
-from rate_limit import default_limiter, check_rate_limit
+from rate_limit import RateLimiter, check_rate_limit
+
+# Custom rate limiters for oracle endpoints
+_oracle_bind_limiter = RateLimiter(max_requests=10, window_seconds=3600)
+_oracle_unbind_limiter = RateLimiter(max_requests=10, window_seconds=3600)
+_oracle_verify_limiter = RateLimiter(max_requests=20, window_seconds=3600)
 
 router = APIRouter(prefix="/oracle", tags=["Oracle"])
 
@@ -266,8 +271,7 @@ async def bind_wallet(req: Request, body: WalletBindRequest):
     """
     # Rate limit
     client_ip = req.client.host if req.client else "unknown"
-    if not check_rate_limit(client_ip, "oracle_bind", max_requests=10, window_seconds=3600):
-        raise HTTPException(status_code=429, detail="Rate limit exceeded for wallet binding")
+    check_rate_limit(_oracle_bind_limiter, f"oracle_bind:{client_ip}")
 
     # Verify DID exists
     reg = database.get_registration(body.did)
@@ -318,8 +322,7 @@ async def bind_wallet(req: Request, body: WalletBindRequest):
 async def unbind_wallet(req: Request, did: str, wallet_address: str):
     """Revoke a wallet-DID binding."""
     client_ip = req.client.host if req.client else "unknown"
-    if not check_rate_limit(client_ip, "oracle_unbind", max_requests=10, window_seconds=3600):
-        raise HTTPException(status_code=429, detail="Rate limit exceeded")
+    check_rate_limit(_oracle_unbind_limiter, f"oracle_unbind:{client_ip}")
 
     # TODO: require DID signature for unbinding too
     success = database.unbind_wallet(did, wallet_address)
@@ -351,8 +354,7 @@ async def verify_onchain(req: Request, body: OnchainVerifyRequest):
     Returns the attestation result and (if passed) the vouch ID.
     """
     client_ip = req.client.host if req.client else "unknown"
-    if not check_rate_limit(client_ip, "oracle_verify", max_requests=20, window_seconds=3600):
-        raise HTTPException(status_code=429, detail="Rate limit exceeded for on-chain verification")
+    check_rate_limit(_oracle_verify_limiter, f"oracle_verify:{client_ip}")
 
     # Resolve wallet
     wallets = database.get_wallet_bindings(body.did)
