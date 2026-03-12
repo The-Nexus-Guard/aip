@@ -707,8 +707,12 @@ async def get_vouch_vc(vouch_id: str, req: Request = None):
         )
 
     # Build the Vouch object for VC conversion
-    from aip_identity.trust import Vouch as VouchObj, TrustLevel
-    from aip_identity.vc import vouch_to_vc, vc_to_json
+    try:
+        from aip_identity.trust import Vouch as VouchObj, TrustLevel
+        from aip_identity.vc import vouch_to_vc, vc_to_json
+    except ImportError:
+        from trust import Vouch as VouchObj, TrustLevel
+        from vc import vouch_to_vc, vc_to_json
 
     vouch_obj = VouchObj(
         voucher_did=vouch_data["voucher_did"],
@@ -769,8 +773,12 @@ async def list_vouches_as_vc(
     if scope:
         vouches = [v for v in vouches if v["scope"] == scope]
 
-    from aip_identity.trust import Vouch as VouchObj, TrustLevel
-    from aip_identity.vc import vouch_to_vc
+    try:
+        from aip_identity.trust import Vouch as VouchObj, TrustLevel
+        from aip_identity.vc import vouch_to_vc
+    except ImportError:
+        from trust import Vouch as VouchObj, TrustLevel
+        from vc import vouch_to_vc
 
     credentials = []
     for v in vouches:

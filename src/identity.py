@@ -71,6 +71,17 @@ class AgentIdentity:
         key_hash = hashlib.sha256(self.public_key_bytes).hexdigest()[:32]
         return f"did:aip:{key_hash}"
 
+    @property
+    def did_key(self) -> str:
+        """
+        W3C did:key identifier for this agent.
+        Format: did:key:z<base58btc(multicodec-ed25519-pub + public-key-bytes)>
+
+        This provides interoperability with MCP-I, DIF standards, and any
+        system that supports the did:key method (W3C CCG specification).
+        """
+        return public_key_to_did_key(self.public_key_bytes)
+
     @classmethod
     def create(cls, name: str, metadata: Optional[Dict] = None) -> 'AgentIdentity':
         """Create a new agent identity with fresh keypair."""
@@ -150,7 +161,7 @@ class AgentIdentity:
 
         Follows W3C DID Core spec structure, adapted for agents.
         """
-        return {
+        doc = {
             "@context": [
                 "https://www.w3.org/ns/did/v1",
                 "https://w3id.org/security/suites/ed25519-2020/v1"
@@ -175,6 +186,14 @@ class AgentIdentity:
                 }
             }]
         }
+
+        # Add alsoKnownAs with did:key for W3C/MCP-I interoperability
+        try:
+            doc["alsoKnownAs"] = [self.did_key]
+        except Exception:
+            pass  # base58 not available — skip did:key alias
+
+        return doc
 
     def export_private_key(self) -> str:
         """Export private key as base64. KEEP THIS SECRET."""
@@ -271,3 +290,103 @@ def verify_signature(public_key: str, message: bytes, signature: str) -> bool:
 def get_backend() -> str:
     """Return which crypto backend is in use."""
     return CRYPTO_BACKEND or "none"
+
+
+# --- did:key support (W3C CCG / MCP-I interoperability) ---
+
+# Multicodec varint prefix for ed25519-pub: 0xed 0x01
+_ED25519_MULTICODEC_PREFIX = bytes([0xed, 0x01])
+
+
+def public_key_to_did_key(public_key_bytes: bytes) -> str:
+    """
+    Convert an Ed25519 public key to a did:key identifier.
+
+    Uses the W3C CCG did:key method specification:
+    - Multicodec prefix 0xed01 for ed25519-pub
+    - Multibase 'z' prefix for base58btc encoding
+
+    Args:
+        public_key_bytes: Raw 32-byte Ed25519 public key
+
+    Returns:
+        did:key:z... string
+    """
+    try:
+        import base58
+    except ImportError:
+        raise RuntimeError("base58 package required for did:key support. Install: pip install base58")
+
+    if len(public_key_bytes) != 32:
+        raise ValueError(f"Ed25519 public key must be 32 bytes, got {len(public_key_bytes)}")
+
+    multicodec_key = _ED25519_MULTICODEC_PREFIX + public_key_bytes
+    encoded = base58.b58encode(multicodec_key).decode('ascii')
+    return f"did:key:z{encoded}"
+
+
+def did_key_to_public_key(did_key: str) -> bytes:
+    """
+    Extract an Ed25519 public key from a did:key identifier.
+
+    Args:
+        did_key: did:key:z... string
+
+    Returns:
+        Raw 32-byte Ed25519 public key
+
+    Raises:
+        ValueError: If the DID is not a valid did:key with Ed25519 key
+    """
+    try:
+        import base58
+    except ImportError:
+        raise RuntimeError("base58 package required for did:key support. Install: pip install base58")
+
+    if not did_key.startswith("did:key:z"):
+        raise ValueError(f"Invalid did:key format: must start with 'did:key:z', got '{did_key[:20]}...'")
+
+    encoded = did_key[len("did:key:z"):]
+    decoded = base58.b58decode(encoded)
+
+    if len(decoded) < 2:
+        raise ValueError("did:key payload too short")
+
+    if decoded[:2] != _ED25519_MULTICODEC_PREFIX:
+        raise ValueError(
+            f"Unsupported key type. Expected Ed25519 multicodec prefix "
+            f"(0xed01), got 0x{decoded[0]:02x}{decoded[1]:02x}"
+        )
+
+    public_key_bytes = decoded[2:]
+    if len(public_key_bytes) != 32:
+        raise ValueError(f"Expected 32-byte Ed25519 key, got {len(public_key_bytes)} bytes")
+
+    return public_key_bytes
+
+
+def resolve_did(did: str) -> Optional[Dict[str, Any]]:
+    """
+    Resolve a DID to its public key information.
+
+    Supports:
+    - did:aip:<hash> — requires API lookup (returns None, use client.verify)
+    - did:key:z<base58btc> — self-resolving, extracts key directly
+
+    Returns:
+        Dict with 'public_key_bytes' and 'public_key_b64', or None if not resolvable locally.
+    """
+    if did.startswith("did:key:z"):
+        pk_bytes = did_key_to_public_key(did)
+        return {
+            "did": did,
+            "public_key_bytes": pk_bytes,
+            "public_key_b64": base64.b64encode(pk_bytes).decode('utf-8'),
+            "method": "key",
+            "key_type": "Ed25519"
+        }
+    elif did.startswith("did:aip:"):
+        # did:aip requires server lookup — not locally resolvable
+        return None
+    else:
+        return None
