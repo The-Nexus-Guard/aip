@@ -13,6 +13,11 @@ from .vc import (
     vc_to_json,
     vc_from_json,
 )
+from .pdr import (
+    PDRScore,
+    composite_trust_score,
+    divergence_alert,
+)
 
 try:
     from importlib.metadata import version as _pkg_version
@@ -31,4 +36,7 @@ __all__ = [
     "verify_vc",
     "vc_to_json",
     "vc_from_json",
+    "PDRScore",
+    "composite_trust_score",
+    "divergence_alert",
 ]
