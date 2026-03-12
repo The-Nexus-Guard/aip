@@ -834,6 +834,88 @@ def cmd_trust_graph(args):
     print(f"  Total: {len(all_names)} agents, {len(edges)} vouches")
 
 
+def cmd_vouch_vc(args):
+    """Export vouches as W3C Verifiable Credentials."""
+    import requests
+    from .vc import vouch_to_vc, vc_to_json
+
+    creds = require_credentials()
+    service = getattr(args, "service", None) or AIP_SERVICE
+    my_did = creds["did"]
+
+    # Fetch trust graph for our DID
+    try:
+        resp = requests.get(f"{service}/trust-graph", params={"did": my_did}, timeout=15)
+        resp.raise_for_status()
+        data = resp.json()
+    except requests.RequestException as e:
+        print(f"Error fetching trust graph: {e}")
+        sys.exit(1)
+
+    # Get vouches we've made (or all if --received)
+    vouch_key = "vouches_received" if getattr(args, "received", False) else "vouches_for"
+    vouches_data = data.get(vouch_key, [])
+
+    if not vouches_data:
+        direction = "received" if getattr(args, "received", False) else "issued"
+        print(f"No vouches {direction} found.")
+        return
+
+    # Filter by target DID if specified
+    target = getattr(args, "target", None)
+    if target:
+        vouches_data = [v for v in vouches_data if v.get("target_did") == target or v.get("voucher_did") == target]
+        if not vouches_data:
+            print(f"No vouches found involving {target}")
+            return
+
+    # Convert each to a Vouch object and then to VC
+    from .trust import Vouch, TrustLevel
+    vcs = []
+    for v in vouches_data:
+        try:
+            level_val = v.get("level", v.get("trust_level", 3))
+            if isinstance(level_val, str):
+                level_val = getattr(TrustLevel, level_val, TrustLevel.STRONG).value
+            vouch = Vouch(
+                voucher_did=v.get("voucher_did", ""),
+                voucher_pubkey=v.get("voucher_pubkey", v.get("public_key", "")),
+                target_did=v.get("target_did", ""),
+                target_pubkey=v.get("target_pubkey", v.get("target_public_key", "")),
+                scope=v.get("scope", "GENERAL"),
+                level=TrustLevel(level_val) if level_val in [l.value for l in TrustLevel] else TrustLevel.STRONG,
+                statement=v.get("statement", v.get("reason", "")),
+                created_at=v.get("created_at", ""),
+                expires_at=v.get("expires_at"),
+                signature=v.get("signature", ""),
+            )
+            vc = vouch_to_vc(vouch)
+            vcs.append(vc)
+        except Exception as e:
+            print(f"⚠ Skipped vouch: {e}", file=sys.stderr)
+
+    if not vcs:
+        print("No vouches could be converted to VCs.")
+        return
+
+    # Output
+    output_file = getattr(args, "output", None)
+    if len(vcs) == 1:
+        result = vc_to_json(vcs[0])
+    else:
+        result = json.dumps(vcs, indent=2, ensure_ascii=False)
+
+    if output_file:
+        with open(output_file, "w") as f:
+            f.write(result)
+        print(f"✅ Exported {len(vcs)} vouch(es) as Verifiable Credential(s) → {output_file}")
+    else:
+        print(result)
+
+    if not output_file:
+        print(f"\n--- {len(vcs)} vouch(es) exported as W3C Verifiable Credentials ---", file=sys.stderr)
+
+
 def cmd_list(args):
     """List all registered agents on the AIP service."""
     import requests
@@ -2655,6 +2737,11 @@ Run 'aip commands' for the full command list.
     p_wallet_verify.add_argument("--wallet", default=None, help="Specific wallet address (if multiple bound)")
 
     # demo
+    p_vouch_vc = sub.add_parser("vouch-vc", help="Export vouches as W3C Verifiable Credentials (MCP-I interop)")
+    p_vouch_vc.add_argument("--target", help="Filter by target DID")
+    p_vouch_vc.add_argument("--received", action="store_true", help="Export received vouches instead of issued")
+    p_vouch_vc.add_argument("--output", "-o", help="Write to file instead of stdout")
+
     p_demo = sub.add_parser("demo", help="See AIP in action — identity, signatures, encryption")
     p_demo.add_argument("--interactive", "-i", action="store_true", default=False,
                          help="Local crypto demo (default)")
@@ -2686,6 +2773,7 @@ Run 'aip commands' for the full command list.
         "profile": cmd_profile,
         "verify": cmd_verify,
         "vouch": cmd_vouch,
+        "vouch-vc": cmd_vouch_vc,
         "revoke": cmd_revoke,
         "sign": cmd_sign,
         "message": cmd_message,

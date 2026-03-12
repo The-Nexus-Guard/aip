@@ -6,6 +6,13 @@ from .identity import (
     did_key_to_public_key,
     resolve_did,
 )
+from .vc import (
+    vouch_to_vc,
+    vc_to_vouch,
+    verify_vc,
+    vc_to_json,
+    vc_from_json,
+)
 
 try:
     from importlib.metadata import version as _pkg_version
@@ -19,4 +26,9 @@ __all__ = [
     "public_key_to_did_key",
     "did_key_to_public_key",
     "resolve_did",
+    "vouch_to_vc",
+    "vc_to_vouch",
+    "verify_vc",
+    "vc_to_json",
+    "vc_from_json",
 ]
