@@ -471,7 +471,24 @@ async def get_trust_path(
     pdr_provided = all(x is not None for x in [pdr_calibration, pdr_adaptation, pdr_robustness])
     pdr_info = None
     if pdr_provided:
-        from aip_identity.pdr import PDRScore, composite_trust_score as compute_composite, divergence_alert
+        # Import pdr module directly to avoid aip_identity.__init__ pulling in 'requests'
+        import importlib.util
+        _pdr_paths = [
+            os.path.join(os.path.dirname(__file__), '..', '..', 'aip_identity', 'pdr.py'),
+            os.path.join(os.path.dirname(__file__), '..', '..', 'src', 'aip_identity', 'pdr.py'),
+        ]
+        _pdr_mod = None
+        for _p in _pdr_paths:
+            if os.path.exists(_p):
+                _spec = importlib.util.spec_from_file_location("aip_identity.pdr", _p)
+                _pdr_mod = importlib.util.module_from_spec(_spec)
+                _spec.loader.exec_module(_pdr_mod)
+                break
+        if _pdr_mod is None:
+            raise HTTPException(status_code=500, detail="PDR module not found")
+        PDRScore = _pdr_mod.PDRScore
+        compute_composite = _pdr_mod.composite_trust_score
+        divergence_alert = _pdr_mod.divergence_alert
         pdr_score = PDRScore(
             calibration=pdr_calibration,
             adaptation=pdr_adaptation,
