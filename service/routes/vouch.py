@@ -654,6 +654,169 @@ async def get_vouch_certificate(vouch_id: str, req: Request = None):
     )
 
 
+@router.get("/vouch-vc/{vouch_id}")
+async def get_vouch_vc(vouch_id: str, req: Request = None):
+    """
+    Export a vouch as a W3C Verifiable Credential.
+
+    Returns the vouch in VC Data Model format with Ed25519Signature2020 proof,
+    enabling interoperability with MCP-I, DIF standards, and any VC-compatible system.
+
+    The returned credential uses did:key identifiers for W3C interop alongside
+    did:aip identifiers for AIP-native resolution.
+    """
+    # Rate limit
+    client_ip = req.client.host if req and req.client else "unknown"
+    allowed, retry_after = default_limiter.is_allowed(client_ip)
+    if not allowed:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Rate limit exceeded. Try again in {retry_after} seconds.",
+            headers={"Retry-After": str(retry_after)}
+        )
+
+    # Get vouch from database
+    with database.get_connection() as conn:
+        cursor = conn.cursor()
+        now = datetime.now(tz=timezone.utc).isoformat()
+        cursor.execute(
+            """SELECT id, voucher_did, target_did, scope, statement, signature, created_at, expires_at
+               FROM vouches
+               WHERE id = ? AND revoked_at IS NULL
+               AND (expires_at IS NULL OR expires_at > ?)""",
+            (vouch_id, now)
+        )
+        row = cursor.fetchone()
+
+    if not row:
+        raise HTTPException(
+            status_code=404,
+            detail="Vouch not found, expired, or revoked"
+        )
+
+    vouch_data = dict(row)
+
+    # Get both registrations for public keys
+    voucher = database.get_registration(vouch_data["voucher_did"])
+    target = database.get_registration(vouch_data["target_did"])
+
+    if not voucher or not target:
+        raise HTTPException(
+            status_code=404,
+            detail="Voucher or target registration not found"
+        )
+
+    # Build the Vouch object for VC conversion
+    from aip_identity.trust import Vouch as VouchObj, TrustLevel
+    from aip_identity.vc import vouch_to_vc, vc_to_json
+
+    vouch_obj = VouchObj(
+        voucher_did=vouch_data["voucher_did"],
+        voucher_pubkey=voucher["public_key"],
+        target_did=vouch_data["target_did"],
+        target_pubkey=target["public_key"],
+        scope=vouch_data["scope"],
+        level=TrustLevel.MODERATE,  # Default level for DB vouches
+        statement=vouch_data["statement"] or "",
+        created_at=str(vouch_data["created_at"]),
+        expires_at=str(vouch_data["expires_at"]) if vouch_data.get("expires_at") else None,
+        signature=vouch_data["signature"],
+    )
+
+    vc = vouch_to_vc(vouch_obj, include_proof=True)
+    return vc
+
+
+@router.get("/vouch-vc")
+async def list_vouches_as_vc(
+    req: Request,
+    did: str = Query(..., description="DID to get vouches for (as subject)"),
+    scope: Optional[str] = Query(None, description="Filter by trust scope"),
+    direction: str = Query("received", description="'received' (vouched_by) or 'given' (vouches_for)"),
+):
+    """
+    List all vouches for/by a DID as W3C Verifiable Credentials.
+
+    Returns an array of VCs, enabling bulk VC export for MCP-I and DIF interop.
+    """
+    # Rate limit
+    client_ip = req.client.host if req and req.client else "unknown"
+    allowed, retry_after = default_limiter.is_allowed(client_ip)
+    if not allowed:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Rate limit exceeded. Try again in {retry_after} seconds.",
+            headers={"Retry-After": str(retry_after)}
+        )
+
+    if direction not in ("received", "given"):
+        raise HTTPException(status_code=400, detail="direction must be 'received' or 'given'")
+
+    if scope and scope not in VALID_SCOPES:
+        raise HTTPException(status_code=400, detail=f"Invalid scope. Must be one of: {VALID_SCOPES}")
+
+    # Check DID exists
+    registration = database.get_registration(did)
+    if not registration:
+        raise HTTPException(status_code=404, detail="DID is not registered")
+
+    # Get vouches
+    if direction == "received":
+        vouches = database.get_vouches_for(did)
+    else:
+        vouches = database.get_vouches_by(did)
+
+    if scope:
+        vouches = [v for v in vouches if v["scope"] == scope]
+
+    from aip_identity.trust import Vouch as VouchObj, TrustLevel
+    from aip_identity.vc import vouch_to_vc
+
+    credentials = []
+    for v in vouches:
+        # get_vouches_for returns voucher_did (target is the queried DID)
+        # get_vouches_by returns target_did (voucher is the queried DID)
+        voucher_did_val = v.get("voucher_did", did)
+        target_did_val = v.get("target_did", did)
+
+        voucher_reg = database.get_registration(voucher_did_val)
+        target_reg = database.get_registration(target_did_val)
+        if not voucher_reg or not target_reg:
+            continue
+
+        # Fetch signature from full vouch record
+        sig = ""
+        with database.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT signature FROM vouches WHERE id = ?", (v["id"],))
+            row = cursor.fetchone()
+            if row:
+                sig = dict(row).get("signature", "")
+
+        vouch_obj = VouchObj(
+            voucher_did=voucher_did_val,
+            voucher_pubkey=voucher_reg["public_key"],
+            target_did=target_did_val,
+            target_pubkey=target_reg["public_key"],
+            scope=v["scope"],
+            level=TrustLevel.MODERATE,
+            statement=v.get("statement", "") or "",
+            created_at=str(v["created_at"]),
+            expires_at=str(v["expires_at"]) if v.get("expires_at") else None,
+            signature=sig,
+        )
+        vc = vouch_to_vc(vouch_obj, include_proof=bool(sig))
+        credentials.append(vc)
+
+    return {
+        "did": did,
+        "direction": direction,
+        "scope": scope,
+        "count": len(credentials),
+        "verifiableCredentials": credentials,
+    }
+
+
 @router.post("/vouch/verify-certificate")
 async def verify_vouch_certificate(certificate: VouchCertificate, req: Request = None):
     """
