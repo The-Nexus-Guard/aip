@@ -13,6 +13,7 @@ import json
 from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'src'))
 
 import database
@@ -66,6 +67,17 @@ class RevokeRequest(BaseModel):
     signature: str = Field(..., description="Base64 Ed25519 signature of 'revoke:{vouch_id}' (domain-separated, UTF-8 encoded)")
 
 
+class PDRInfo(BaseModel):
+    """PDR (Probabilistic Delegation Reliability) score breakdown."""
+    calibration: float = Field(..., description="How well the agent delivers on promises [0-1]")
+    adaptation: float = Field(..., description="How well the agent handles novel situations [0-1]")
+    robustness: float = Field(..., description="How consistent the agent is under stress [0-1]")
+    composite: float = Field(..., description="Weighted composite PDR score [0-1]")
+    is_provisional: bool = Field(..., description="True if measurement window < 14 days")
+    confidence: str = Field(..., description="Confidence level: very_low/low/moderate/high/unknown")
+    measurement_window_days: Optional[int] = None
+
+
 class TrustPathResponse(BaseModel):
     """Response for trust path query."""
     source_did: str
@@ -76,6 +88,11 @@ class TrustPathResponse(BaseModel):
     path: Optional[List[str]] = None
     trust_chain: Optional[List[VouchInfo]] = None
     trust_score: Optional[float] = None  # 1.0 = direct trust, decays with each hop
+    # PDR-enhanced fields (present when PDR parameters are provided)
+    composite_trust_score: Optional[float] = None  # social × behavioral
+    behavioral_reliability: Optional[float] = None  # PDR composite
+    pdr: Optional[PDRInfo] = None
+    trust_divergence_alert: Optional[str] = None  # Warning if social >> behavioral
 
 
 class VouchCertificate(BaseModel):
@@ -379,7 +396,11 @@ async def get_trust_path(
     target_did: str = Query(..., description="DID being verified"),
     scope: Optional[str] = Query(None, description="Filter by trust scope"),
     max_depth: int = Query(5, ge=1, le=10, description="Maximum path length to search"),
-    decay_factor: float = Query(0.8, ge=0.1, le=1.0, description="Trust decay per hop (0.8 = 80% retained per hop)")
+    decay_factor: float = Query(0.8, ge=0.1, le=1.0, description="Trust decay per hop (0.8 = 80% retained per hop)"),
+    pdr_calibration: Optional[float] = Query(None, ge=0.0, le=1.0, description="PDR calibration score for target agent [0-1]"),
+    pdr_adaptation: Optional[float] = Query(None, ge=0.0, le=1.0, description="PDR adaptation score for target agent [0-1]"),
+    pdr_robustness: Optional[float] = Query(None, ge=0.0, le=1.0, description="PDR robustness score for target agent [0-1]"),
+    pdr_window_days: Optional[int] = Query(None, ge=0, description="PDR measurement window in days"),
 ):
     """
     Find a trust path between two DIDs with transitive trust decay.
@@ -393,11 +414,26 @@ async def get_trust_path(
     - 2 hops: trust_score = decay_factor^2 (default 0.64)
     - N hops: trust_score = decay_factor^N
 
+    **PDR (Probabilistic Delegation Reliability) integration:**
+    When pdr_calibration, pdr_adaptation, and pdr_robustness are all provided,
+    the response includes a composite_trust_score that combines social trust
+    (vouch chain) with behavioral reliability (PDR):
+
+        composite = social_trust × behavioral_reliability
+
+    This means an agent needs BOTH social vouches AND good behavioral track
+    record to achieve high composite trust. Social trust sets the ceiling;
+    behavioral reliability determines how much of that ceiling is realized.
+
+    A trust_divergence_alert is included when social trust significantly exceeds
+    behavioral reliability (gap > 0.3), signaling potential over-vouching.
+
     Example use cases:
     - Check if an MCP server is trusted via chain of vouches
     - Verify an agent before accepting their code
     - Find how two agents are connected in the trust network
     - Implement "trust but verify more for distant connections"
+    - Combine vouch-based trust with observed behavioral metrics
     """
     # Rate limit
     client_ip = req.client.host if req.client else "unknown"
@@ -431,6 +467,41 @@ async def get_trust_path(
             detail="Target DID is not registered"
         )
 
+    # Compute PDR fields if all three scores are provided
+    pdr_provided = all(x is not None for x in [pdr_calibration, pdr_adaptation, pdr_robustness])
+    pdr_info = None
+    if pdr_provided:
+        from aip_identity.pdr import PDRScore, composite_trust_score as compute_composite, divergence_alert
+        pdr_score = PDRScore(
+            calibration=pdr_calibration,
+            adaptation=pdr_adaptation,
+            robustness=pdr_robustness,
+            measurement_window_days=pdr_window_days,
+            agent_did=target_did,
+        )
+        pdr_info = PDRInfo(
+            calibration=pdr_score.calibration,
+            adaptation=pdr_score.adaptation,
+            robustness=pdr_score.robustness,
+            composite=round(pdr_score.composite, 4),
+            is_provisional=pdr_score.is_provisional,
+            confidence=pdr_score.confidence,
+            measurement_window_days=pdr_score.measurement_window_days,
+        )
+
+    def _build_pdr_fields(social_trust: float):
+        """Compute PDR-enhanced fields for a given social trust score."""
+        if not pdr_provided:
+            return {}
+        composite_score, details = compute_composite(social_trust, pdr_score)
+        alert = divergence_alert(social_trust, pdr_score)
+        return {
+            "composite_trust_score": composite_score,
+            "behavioral_reliability": details["behavioral_reliability"],
+            "pdr": pdr_info,
+            "trust_divergence_alert": alert["recommendation"] if alert else None,
+        }
+
     # Same DID - trivially trusted
     if source_did == target_did:
         return TrustPathResponse(
@@ -441,7 +512,8 @@ async def get_trust_path(
             path_length=0,
             path=[source_did],
             trust_chain=[],
-            trust_score=1.0
+            trust_score=1.0,
+            **_build_pdr_fields(1.0),
         )
 
     # Find path
@@ -456,7 +528,8 @@ async def get_trust_path(
             path_length=None,
             path=None,
             trust_chain=None,
-            trust_score=0.0
+            trust_score=0.0,
+            **_build_pdr_fields(0.0),
         )
 
     # Build path of DIDs
@@ -490,7 +563,8 @@ async def get_trust_path(
         path_length=len(path_vouches),
         path=did_path,
         trust_chain=trust_chain,
-        trust_score=round(trust_score, 4)
+        trust_score=round(trust_score, 4),
+        **_build_pdr_fields(round(trust_score, 4)),
     )
 
 
