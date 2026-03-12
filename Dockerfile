@@ -10,6 +10,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy source code
 COPY pyproject.toml ./pyproject.toml
 COPY src/ ./src/
+COPY aip_identity/ ./aip_identity/
 COPY service/ ./service/
 
 WORKDIR /app/service
