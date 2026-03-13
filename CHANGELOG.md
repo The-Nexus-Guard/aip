@@ -1,5 +1,20 @@
 # Changelog
 
+## v0.5.36 (2026-03-13) — Observation-Based PDR Scoring
+
+### New Features
+- **`compute_pdr()` function** — Compute PDR scores from behavioral observation history. Based on Nanook's 28-day pilot data (13 agents).
+- **`Observation` dataclass** — Structured behavioral observation records with self-reported/externally-verified outcomes, feedback tracking, and task type classification.
+- **Chain hash tamper detection** — SHA-256 hash chain across observation sequences for integrity verification.
+- **Bridge functions** — `observed_to_pdr_score()` and `scores_to_trust_path_params()` for clean integration with existing trust composition and `/trust-path` API.
+
+### Changes
+- **Updated PDR default weights** to 0.5/0.2/0.3 (calibration/adaptation/robustness) based on pilot data. Calibration (honest self-assessment) weighted highest; adaptation weighted lowest (requires feedback loops many deployments lack).
+- 19 new tests (48 total PDR tests, 470 total).
+
+### Collaboration
+- Nanook (did:aip:3f4e654a91c4568a5d0da109986ceee2) contributed the scoring function design and pilot data analysis.
+
 ## v0.5.28 (2026-03-04) — On-Chain Credential Oracle (InsumerAPI Integration)
 
 ### New Features
