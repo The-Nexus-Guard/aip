@@ -438,10 +438,12 @@ async def resolve_did(did: str, req: Request, include_trust: bool = True):
         return await _resolve_did_key(did, req)
     elif did.startswith("did:web:"):
         return await _resolve_did_web(did, req)
+    elif did.startswith("did:aps:"):
+        return await _resolve_did_aps(did, req)
     elif not did.startswith("did:aip:"):
         raise HTTPException(
             status_code=400,
-            detail="Unsupported DID method. Supported: did:aip, did:key, did:web"
+            detail="Unsupported DID method. Supported: did:aip, did:key, did:web, did:aps"
         )
 
     registration = database.get_registration(did)
@@ -642,3 +644,90 @@ async def _resolve_did_web(did: str, req: Request) -> ResolveResponse:
     except Exception as e:
         logger.error(f"Failed to resolve did:web: {e}")
         raise HTTPException(status_code=400, detail=f"Failed to resolve did:web: {str(e)}")
+
+
+# APS (Agent Passport System) endpoint for cross-protocol bridge
+APS_API_BASE = "https://api.aeoess.com"
+
+
+async def _resolve_did_aps(did: str, req: Request) -> ResolveResponse:
+    """
+    Resolve a did:aps identifier by querying the AEOESS Agent Passport System.
+
+    did:aps:<agentId> -> proxy to api.aeoess.com for agent resolution.
+
+    This is part of the AIP ↔ APS cross-protocol identity bridge.
+    APS uses Ed25519 keys (hex-encoded) and a tiered reputation system (0-4)
+    with Bayesian scoring (mu/sigma).
+    """
+    logger = logging.getLogger("aip.resolve")
+
+    try:
+        agent_id = did[len("did:aps:"):]
+        if not agent_id:
+            raise HTTPException(status_code=400, detail="did:aps requires an agent ID")
+
+        # Query AEOESS API for the agent's card
+        async with httpx.AsyncClient(timeout=5.0, follow_redirects=True) as client:
+            resp = await client.get(f"{APS_API_BASE}/api/cards/{agent_id}")
+
+        base_url = str(req.base_url).rstrip("/")
+
+        if resp.status_code == 200:
+            card = resp.json()
+            # Extract public key from card (APS uses hex-encoded Ed25519)
+            pubkey_hex = card.get("publicKey", "")
+            pubkey_b64 = None
+            if pubkey_hex:
+                try:
+                    raw_key = bytes.fromhex(pubkey_hex)
+                    pubkey_b64 = base64.b64encode(raw_key).decode()
+                except ValueError:
+                    pubkey_b64 = pubkey_hex  # Pass through if not valid hex
+
+            # Extract trust/reputation info
+            reputation = card.get("reputation", {})
+            tier = card.get("tier")
+            trust_info = {
+                "source": "did:aps",
+                "aps_agent_id": agent_id,
+                "aps_tier": tier,
+                "cross_referenced": False,
+            }
+            if reputation:
+                trust_info["aps_reputation"] = reputation
+
+            # Build trust summary in unified bridge format
+            if reputation.get("mu") is not None:
+                trust_info["trust_summary"] = {
+                    "behavioral": reputation["mu"],
+                    "behavioral_uncertainty": reputation.get("sigma"),
+                }
+
+            return ResolveResponse(
+                did=did,
+                public_key=pubkey_b64 or "",
+                public_key_type="Ed25519VerificationKey2020",
+                registered_at=card.get("createdAt"),
+                last_active=card.get("updatedAt"),
+                platforms=None,
+                trust=trust_info,
+                verification_endpoint=f"{APS_API_BASE}/api/cards/{agent_id}",
+                challenge_endpoint=f"{base_url}/challenge/create",
+            )
+        elif resp.status_code == 404 or "No active card" in resp.text:
+            # Agent exists but has no active card — return minimal info
+            raise HTTPException(
+                status_code=404,
+                detail=f"APS agent '{agent_id}' not found or has no active card"
+            )
+        else:
+            raise HTTPException(
+                status_code=502,
+                detail=f"Failed to query APS API (status: {resp.status_code})"
+            )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to resolve did:aps: {e}")
+        raise HTTPException(status_code=400, detail=f"Failed to resolve did:aps: {str(e)}")
