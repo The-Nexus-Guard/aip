@@ -382,3 +382,100 @@ IMPORTANT: The ```aip-proof``` code block is required. Posts without it will be 
         post_template=post_template,
         instructions=instructions
     )
+
+
+# --- Cross-Protocol DID Resolution ---
+
+class ResolveResponse(BaseModel):
+    """W3C DID Document-inspired response for cross-protocol identity resolution."""
+    did: str
+    public_key: str
+    public_key_type: str = "Ed25519VerificationKey2020"
+    registered_at: str
+    last_active: Optional[str] = None
+    platforms: Optional[List[PlatformLink]] = None
+    trust: Optional[dict] = None
+    verification_endpoint: str
+    challenge_endpoint: str
+
+
+@router.get("/resolve/{did}", response_model=ResolveResponse)
+async def resolve_did(did: str, req: Request, include_trust: bool = True):
+    """
+    Resolve a DID to its identity document.
+
+    Returns public key, platform links, trust metadata, and verification endpoints.
+    Designed for cross-protocol identity resolution (e.g., APS ↔ AIP bridge).
+
+    The response format is inspired by W3C DID Documents but simplified for
+    practical agent-to-agent use.
+
+    Examples:
+    - GET /resolve/did:aip:abc123
+    - GET /resolve/did:aip:abc123?include_trust=false
+    """
+    # Rate limit
+    client_ip = req.client.host if req.client else "unknown"
+    allowed, retry_after = default_limiter.is_allowed(client_ip)
+    if not allowed:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Rate limit exceeded. Try again in {retry_after} seconds.",
+            headers={"Retry-After": str(retry_after)}
+        )
+
+    # Validate DID format
+    if not did.startswith("did:aip:"):
+        raise HTTPException(status_code=400, detail="Invalid DID format. Expected did:aip:<hash>")
+
+    registration = database.get_registration(did)
+    if not registration:
+        raise HTTPException(status_code=404, detail="DID not found")
+
+    # Get platform links
+    platform_links = database.get_platform_links(did) if hasattr(database, 'get_platform_links') else []
+    platforms = None
+    if platform_links:
+        platforms = [
+            PlatformLink(
+                platform=link.get("platform", ""),
+                username=link.get("username", ""),
+                proof_post_id=link.get("proof_post_id"),
+                verified=link.get("verified", False),
+                registered_at=link.get("registered_at", "")
+            )
+            for link in platform_links
+        ]
+
+    # Get trust info if requested
+    trust_info = None
+    if include_trust:
+        vouches = database.get_vouches_for(did)
+        vouch_summary = []
+        for v in vouches[:10]:  # Limit to 10 most recent
+            vouch_summary.append({
+                "voucher_did": v["voucher_did"],
+                "scope": v.get("scope", "IDENTITY"),
+                "created_at": v["created_at"],
+            })
+
+        trust_info = {
+            "vouch_count": len(vouches),
+            "vouches": vouch_summary,
+            "trust_query_endpoint": f"/trust-path?target_did={did}",
+        }
+
+    # Build base URL from request
+    base_url = str(req.base_url).rstrip("/")
+
+    return ResolveResponse(
+        did=did,
+        public_key=registration["public_key"],
+        public_key_type="Ed25519VerificationKey2020",
+        registered_at=registration["created_at"],
+        last_active=registration.get("last_active"),
+        platforms=platforms,
+        trust=trust_info,
+        verification_endpoint=f"{base_url}/verify?did={did}",
+        challenge_endpoint=f"{base_url}/challenge/create",
+    )

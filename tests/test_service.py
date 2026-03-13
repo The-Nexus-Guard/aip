@@ -1453,6 +1453,43 @@ class TestVerifyEndpointCoverage:
         assert "post_template" in data
         assert "instructions" in data
 
+    def test_resolve_did_success(self):
+        """GET /resolve/{did} returns identity document with trust info."""
+        client = get_test_client()
+        did, _, _ = self._register("resolve")
+        resp = client.get(f"/resolve/{did}")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["did"] == did
+        assert data["public_key"]
+        assert data["public_key_type"] == "Ed25519VerificationKey2020"
+        assert data["registered_at"]
+        assert "verification_endpoint" in data
+        assert "challenge_endpoint" in data
+        assert data["trust"]["vouch_count"] >= 0
+
+    def test_resolve_did_not_found(self):
+        """GET /resolve/{did} for unknown DID returns 404."""
+        client = get_test_client()
+        resp = client.get("/resolve/did:aip:nonexistent_resolve_test")
+        assert resp.status_code == 404
+
+    def test_resolve_did_invalid_format(self):
+        """GET /resolve/{did} with wrong prefix returns 400."""
+        client = get_test_client()
+        resp = client.get("/resolve/did:key:abc123")
+        assert resp.status_code == 400
+
+    def test_resolve_did_no_trust(self):
+        """GET /resolve/{did}?include_trust=false omits trust info."""
+        client = get_test_client()
+        did, _, _ = self._register("resolve_notrust")
+        resp = client.get(f"/resolve/{did}", params={"include_trust": "false"})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["did"] == did
+        assert data["trust"] is None
+
 
 class TestVouchEdgeCases:
     """Cover missing lines in vouch.py - error branches."""
