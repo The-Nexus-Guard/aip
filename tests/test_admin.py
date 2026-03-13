@@ -18,6 +18,8 @@ from fastapi.testclient import TestClient
 import database
 import unittest
 
+# Ensure database uses our temp path (may have been imported earlier with different path)
+database.DATABASE_PATH = _test_db_path
 database.init_database()
 
 from main import app
@@ -28,6 +30,11 @@ class TestAdminEndpoints(unittest.TestCase):
 
     def setUp(self):
         """Reset database before each test."""
+        # Ensure database module points to our test DB
+        os.environ["AIP_DATABASE_PATH"] = _test_db_path
+        database.DATABASE_PATH = _test_db_path
+        database.init_database()
+
         import sqlite3
         conn = sqlite3.connect(_test_db_path)
         for table in ["registrations", "vouches", "platform_links", "key_history", "messages", "skill_signatures"]:
@@ -154,6 +161,11 @@ class TestAdminDelete(unittest.TestCase):
 
     def setUp(self):
         """Reset database and set admin key."""
+        # Ensure database module points to our test DB
+        os.environ["AIP_DATABASE_PATH"] = _test_db_path
+        database.DATABASE_PATH = _test_db_path
+        database.init_database()
+
         import sqlite3
         conn = sqlite3.connect(_test_db_path)
         for table in ["registrations", "vouches", "platform_links", "key_history", "messages", "profiles", "webhooks"]:

@@ -15,7 +15,8 @@ DATABASE_PATH = os.environ.get("AIP_DATABASE_PATH", "aip.db")
 
 
 def get_db_path():
-    return DATABASE_PATH
+    """Return the database path, checking env var for test overrides."""
+    return os.environ.get("AIP_DATABASE_PATH", DATABASE_PATH)
 
 
 @contextmanager

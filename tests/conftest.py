@@ -35,6 +35,12 @@ def local_service():
     # Import app inside fixture so env is set first
     from main import app  # service/main.py
 
+    # Ensure database tables are created in the temp DB
+    # (database.py may have been imported before env var was set)
+    import database
+    database.DATABASE_PATH = db_path
+    database.init_database()
+
     config = uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning")
     server = uvicorn.Server(config)
 
