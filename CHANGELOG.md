@@ -1,5 +1,22 @@
 # Changelog
 
+## v0.5.38 (2026-03-13) — Full Cross-Protocol DID Resolution
+
+### New Features
+- **did:key resolution** — Resolve Ed25519 `did:key:z...` identifiers to their public keys. Automatically cross-references with AIP registry to surface trust data for known agents.
+- **did:web resolution** — Fetch DID documents from `https://{domain}/.well-known/did.json` (or custom paths), extract Ed25519 public keys from W3C-format verification methods.
+- **Cross-reference discovery** — When a `did:key` maps to a registered AIP agent, the response includes the AIP DID and trust graph link.
+
+### Changes
+- `ResolveResponse.registered_at` is now optional (null for unregistered did:key/did:web identities)
+- 12 new tests (452 total)
+
+## v0.5.37 (2026-03-13) — Cross-Protocol DID Resolution (Initial)
+
+### New Features
+- `GET /resolve/{did}` endpoint for cross-protocol identity resolution
+- Initial did:aip resolution support
+
 ## v0.5.36 (2026-03-13) — Observation-Based PDR Scoring
 
 ### New Features

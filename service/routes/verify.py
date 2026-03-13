@@ -1,7 +1,14 @@
 """
 Verification endpoint - Check if a DID is registered.
+Cross-protocol DID resolution for did:aip, did:key, did:web.
 """
 
+import base64
+import base58
+import hashlib
+import logging
+
+import httpx
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel
 from typing import Optional, List
@@ -391,7 +398,7 @@ class ResolveResponse(BaseModel):
     did: str
     public_key: str
     public_key_type: str = "Ed25519VerificationKey2020"
-    registered_at: str
+    registered_at: Optional[str] = None
     last_active: Optional[str] = None
     platforms: Optional[List[PlatformLink]] = None
     trust: Optional[dict] = None
@@ -424,9 +431,18 @@ async def resolve_did(did: str, req: Request, include_trust: bool = True):
             headers={"Retry-After": str(retry_after)}
         )
 
-    # Validate DID format
-    if not did.startswith("did:aip:"):
-        raise HTTPException(status_code=400, detail="Invalid DID format. Expected did:aip:<hash>")
+    # Cross-protocol DID resolution
+    logger = logging.getLogger("aip.resolve")
+
+    if did.startswith("did:key:"):
+        return await _resolve_did_key(did, req)
+    elif did.startswith("did:web:"):
+        return await _resolve_did_web(did, req)
+    elif not did.startswith("did:aip:"):
+        raise HTTPException(
+            status_code=400,
+            detail="Unsupported DID method. Supported: did:aip, did:key, did:web"
+        )
 
     registration = database.get_registration(did)
     if not registration:
@@ -479,3 +495,150 @@ async def resolve_did(did: str, req: Request, include_trust: bool = True):
         verification_endpoint=f"{base_url}/verify?did={did}",
         challenge_endpoint=f"{base_url}/challenge/create",
     )
+
+
+async def _resolve_did_key(did: str, req: Request) -> ResolveResponse:
+    """
+    Resolve a did:key identifier.
+
+    did:key encodes a public key directly in the identifier using multicodec.
+    Format: did:key:z<multibase-encoded-multicodec-key>
+
+    For Ed25519: multicodec prefix is 0xed01, multibase is z (base58btc).
+    """
+    logger = logging.getLogger("aip.resolve")
+
+    try:
+        # Extract the multibase-encoded key (z = base58btc)
+        key_part = did[len("did:key:"):]
+        if not key_part.startswith("z"):
+            raise HTTPException(
+                status_code=400,
+                detail="did:key must use z (base58btc) multibase encoding"
+            )
+
+        decoded = base58.b58decode(key_part[1:])  # Skip 'z' prefix
+
+        # Check multicodec prefix for Ed25519 (0xed 0x01)
+        if len(decoded) < 34 or decoded[0] != 0xed or decoded[1] != 0x01:
+            raise HTTPException(
+                status_code=400,
+                detail="Only Ed25519 did:key identifiers are supported (multicodec 0xed01)"
+            )
+
+        raw_pubkey = decoded[2:]  # 32 bytes Ed25519 public key
+        pubkey_b64 = base64.b64encode(raw_pubkey).decode()
+
+        # Check if this key is registered in AIP (cross-reference)
+        pubkey_hash = hashlib.md5(raw_pubkey).hexdigest()
+        aip_did = f"did:aip:{pubkey_hash}"
+        aip_registration = database.get_registration(aip_did)
+
+        base_url = str(req.base_url).rstrip("/")
+
+        trust_info = None
+        if aip_registration:
+            vouches = database.get_vouches_for(aip_did)
+            trust_info = {
+                "vouch_count": len(vouches),
+                "aip_did": aip_did,
+                "cross_referenced": True,
+                "trust_query_endpoint": f"/trust-path?target_did={aip_did}",
+            }
+
+        return ResolveResponse(
+            did=did,
+            public_key=pubkey_b64,
+            public_key_type="Ed25519VerificationKey2020",
+            registered_at=aip_registration["created_at"] if aip_registration else None,
+            last_active=aip_registration.get("last_active") if aip_registration else None,
+            platforms=None,
+            trust=trust_info,
+            verification_endpoint=f"{base_url}/verify?did={aip_did}" if aip_registration else f"{base_url}/resolve/{did}",
+            challenge_endpoint=f"{base_url}/challenge/create",
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to resolve did:key: {e}")
+        raise HTTPException(status_code=400, detail=f"Invalid did:key format: {str(e)}")
+
+
+async def _resolve_did_web(did: str, req: Request) -> ResolveResponse:
+    """
+    Resolve a did:web identifier by fetching the DID document from the web.
+
+    did:web:example.com -> https://example.com/.well-known/did.json
+    did:web:example.com:path:to:doc -> https://example.com/path/to/doc/did.json
+    """
+    logger = logging.getLogger("aip.resolve")
+
+    try:
+        # Parse did:web to URL
+        parts = did[len("did:web:"):].split(":")
+        domain = parts[0].replace("%3A", ":")  # Handle port encoding
+        path_parts = parts[1:] if len(parts) > 1 else [".well-known"]
+
+        url = f"https://{domain}/{'/'.join(path_parts)}/did.json"
+
+        # Fetch DID document with timeout and safety checks
+        async with httpx.AsyncClient(timeout=5.0, follow_redirects=True) as client:
+            resp = await client.get(url)
+
+        if resp.status_code != 200:
+            raise HTTPException(
+                status_code=502,
+                detail=f"Failed to fetch DID document from {url} (status: {resp.status_code})"
+            )
+
+        did_doc = resp.json()
+
+        # Extract Ed25519 public key from DID document
+        pubkey_b64 = None
+        pubkey_type = "Unknown"
+
+        verification_methods = did_doc.get("verificationMethod", [])
+        for vm in verification_methods:
+            vm_type = vm.get("type", "")
+            if "Ed25519" in vm_type:
+                # Try publicKeyBase64, publicKeyMultibase, publicKeyBase58
+                if "publicKeyBase64" in vm:
+                    pubkey_b64 = vm["publicKeyBase64"]
+                elif "publicKeyMultibase" in vm:
+                    mb = vm["publicKeyMultibase"]
+                    if mb.startswith("z"):
+                        raw = base58.b58decode(mb[1:])
+                        # Skip multicodec prefix if present
+                        if len(raw) > 32 and raw[0] == 0xed and raw[1] == 0x01:
+                            raw = raw[2:]
+                        pubkey_b64 = base64.b64encode(raw).decode()
+                elif "publicKeyBase58" in vm:
+                    raw = base58.b58decode(vm["publicKeyBase58"])
+                    pubkey_b64 = base64.b64encode(raw).decode()
+                pubkey_type = "Ed25519VerificationKey2020"
+                break
+
+        if not pubkey_b64:
+            raise HTTPException(
+                status_code=422,
+                detail="No Ed25519 verification method found in DID document"
+            )
+
+        base_url = str(req.base_url).rstrip("/")
+
+        return ResolveResponse(
+            did=did,
+            public_key=pubkey_b64,
+            public_key_type=pubkey_type,
+            registered_at=did_doc.get("created"),
+            last_active=did_doc.get("updated"),
+            platforms=None,
+            trust={"source": "did:web", "document_url": url},
+            verification_endpoint=f"{base_url}/resolve/{did}",
+            challenge_endpoint=f"{base_url}/challenge/create",
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to resolve did:web: {e}")
+        raise HTTPException(status_code=400, detail=f"Failed to resolve did:web: {str(e)}")
