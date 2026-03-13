@@ -103,11 +103,11 @@ class TestTrustPathPDRIntegration:
         assert data["behavioral_reliability"] is not None
         assert data["pdr"] is not None
 
-        # Behavioral = 0.4*0.9 + 0.35*0.8 + 0.25*0.85 = 0.36 + 0.28 + 0.2125 = 0.8525
-        assert abs(data["behavioral_reliability"] - 0.8525) < 0.001
+        # Behavioral = 0.5*0.9 + 0.2*0.8 + 0.3*0.85 = 0.45 + 0.16 + 0.255 = 0.865
+        assert abs(data["behavioral_reliability"] - 0.865) < 0.001
 
-        # Composite = 0.8 × 0.8525 = 0.682
-        assert abs(data["composite_trust_score"] - 0.682) < 0.001
+        # Composite = 0.8 × 0.865 = 0.692
+        assert abs(data["composite_trust_score"] - 0.692) < 0.001
 
         # PDR breakdown
         pdr = data["pdr"]
@@ -177,9 +177,9 @@ class TestTrustPathPDRIntegration:
         data = resp.json()
 
         assert data["trust_score"] == 1.0
-        # Behavioral = 0.4*0.7 + 0.35*0.6 + 0.25*0.5 = 0.28 + 0.21 + 0.125 = 0.615
-        assert abs(data["behavioral_reliability"] - 0.615) < 0.001
-        assert abs(data["composite_trust_score"] - 0.615) < 0.001
+        # Behavioral = 0.5*0.7 + 0.2*0.6 + 0.3*0.5 = 0.35 + 0.12 + 0.15 = 0.62
+        assert abs(data["behavioral_reliability"] - 0.62) < 0.001
+        assert abs(data["composite_trust_score"] - 0.62) < 0.001
 
     def test_divergence_alert_high_social_low_behavioral(self):
         """High social trust + low behavioral → divergence alert."""

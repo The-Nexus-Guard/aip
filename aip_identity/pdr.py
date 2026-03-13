@@ -22,8 +22,10 @@ Usage:
     composite = composite_trust_score(social_trust=0.8, pdr_score=pdr)
 """
 
+import hashlib
 from dataclasses import dataclass, asdict
-from typing import Optional, Dict, Any, Tuple
+from datetime import datetime, timedelta
+from typing import Optional, Dict, Any, List, Tuple
 
 
 @dataclass
@@ -61,16 +63,17 @@ class PDRScore:
 
     def compute_composite(
         self,
-        w_calibration: float = 0.4,
-        w_adaptation: float = 0.35,
-        w_robustness: float = 0.25
+        w_calibration: float = 0.5,
+        w_adaptation: float = 0.2,
+        w_robustness: float = 0.3
     ) -> float:
         """
         Compute weighted composite score.
 
-        Default weights reflect that calibration (delivering on promises) is
-        most important for trust, followed by adaptation (handling novelty),
-        then robustness (consistency under stress).
+        Default weights (Nanook's recommendation based on 28-day pilot):
+        - calibration 0.5: most important — is the agent honest about performance?
+        - robustness 0.3: second — is the agent consistent across sessions?
+        - adaptation 0.2: last — requires feedback loops, often None in practice
 
         Weights must sum to 1.0.
         """
@@ -136,9 +139,9 @@ class PDRScore:
 def composite_trust_score(
     social_trust: float,
     pdr_score: PDRScore,
-    w_calibration: float = 0.4,
-    w_adaptation: float = 0.35,
-    w_robustness: float = 0.25,
+    w_calibration: float = 0.5,
+    w_adaptation: float = 0.2,
+    w_robustness: float = 0.3,
 ) -> Tuple[float, Dict[str, Any]]:
     """
     Compute composite trust score combining social trust and behavioral reliability.
@@ -208,3 +211,167 @@ def divergence_alert(
         }
 
     return None
+
+
+# ---------------------------------------------------------------------------
+# Observation-based PDR scoring (Nanook's compute_pdr integration)
+# Based on 28-day pilot data (13 agents, OpenClaw production):
+#   - Median stability window: 14 days (range 7-28)
+#   - Self-reported vs external gap: ~7% (widens under load)
+#   - Same-model agents diverged 15+ points within 7 days
+# ---------------------------------------------------------------------------
+
+@dataclass
+class Observation:
+    """Single behavioral observation for PDR scoring."""
+    timestamp: datetime
+    task_type: str                                  # e.g. "code", "email", "research"
+    self_reported_success: bool                     # agent's own assessment
+    externally_verified: Optional[bool]             # external verification (None if unverified)
+    scope_hash: str                                 # hash of task specification
+    outcome_hash: str                               # hash of delivered artifact
+    feedback_received: bool = False
+    post_feedback_improved: Optional[bool] = None
+
+
+@dataclass
+class ObservedPDRScores:
+    """Three-dimensional behavioral reliability scores computed from observations."""
+    calibration: Optional[float]    # self-report vs external agreement
+    adaptation: Optional[float]     # improvement rate after feedback
+    robustness: Optional[float]     # cross-session consistency
+    observation_count: int = 0
+    window_days: int = 0
+    chain_hash: str = ""
+
+
+def compute_pdr(
+    observations: List[Observation],
+    min_observations: int = 10,
+    min_window_days: int = 7,
+    recency_weight: float = 0.7,
+) -> ObservedPDRScores:
+    """
+    Compute PDR scores from a list of behavioral observations.
+
+    Recency weighting (default 0.7): Splits observations into older/recent halves,
+    weights recent 70%. From pilot data: self-reported gap widened over time — early
+    observations were better calibrated than later ones.
+
+    Minimum thresholds: Won't score with <10 observations or <7 days. Below that,
+    the scores are noise.
+
+    Robustness via coefficient of variation: CV=0 means identical success rates
+    across all 7-day windows (robustness=1.0). CV>=1 means wildly inconsistent
+    (robustness=0.0).
+
+    Returns ObservedPDRScores with None for dimensions with insufficient data.
+    """
+    if not observations:
+        return ObservedPDRScores(calibration=None, adaptation=None, robustness=None)
+
+    obs = sorted(observations, key=lambda o: o.timestamp)
+    window = (obs[-1].timestamp - obs[0].timestamp).days
+    chain = _compute_chain_hash(obs)
+
+    scores = ObservedPDRScores(
+        calibration=None, adaptation=None, robustness=None,
+        observation_count=len(obs), window_days=window, chain_hash=chain,
+    )
+
+    if len(obs) < min_observations or window < min_window_days:
+        return scores
+
+    # Calibration: self-reported vs externally-verified agreement
+    verified = [(o.self_reported_success, o.externally_verified)
+                for o in obs if o.externally_verified is not None]
+    if len(verified) >= 5:
+        mid = len(verified) // 2
+        older_rate = sum(1 for s, e in verified[:mid] if s == e) / mid
+        recent_rate = sum(1 for s, e in verified[mid:] if s == e) / len(verified[mid:])
+        scores.calibration = round(
+            (1 - recency_weight) * older_rate + recency_weight * recent_rate, 4
+        )
+
+    # Adaptation: improvement rate after negative feedback
+    fb = [o for o in obs if o.feedback_received and o.post_feedback_improved is not None]
+    if len(fb) >= 3:
+        mid = len(fb) // 2
+        older_rate = sum(1 for o in fb[:mid] if o.post_feedback_improved) / mid
+        recent_rate = sum(1 for o in fb[mid:] if o.post_feedback_improved) / len(fb[mid:])
+        scores.adaptation = round(
+            (1 - recency_weight) * older_rate + recency_weight * recent_rate, 4
+        )
+
+    # Robustness: inverse CV of per-bucket success rates (7-day windows)
+    task_types = set(o.task_type for o in obs)
+    if len(task_types) >= 2:
+        buckets: List[float] = []
+        current = obs[0].timestamp
+        while current < obs[-1].timestamp:
+            bucket_end = current + timedelta(days=7)
+            bucket_obs = [o for o in obs
+                         if current <= o.timestamp < bucket_end
+                         and o.externally_verified is not None]
+            if len(bucket_obs) >= 3:
+                buckets.append(
+                    sum(1 for o in bucket_obs if o.externally_verified) / len(bucket_obs)
+                )
+            current = bucket_end
+
+        if len(buckets) >= 2:
+            mean = sum(buckets) / len(buckets)
+            if mean > 0:
+                cv = (sum((b - mean)**2 for b in buckets) / len(buckets))**0.5 / mean
+                scores.robustness = round(max(0.0, 1.0 - cv), 4)
+
+    return scores
+
+
+def _compute_chain_hash(observations: List[Observation]) -> str:
+    """Compute tamper-detection hash chain for observation sequence."""
+    h = hashlib.sha256(b"pdr-chain-v1")
+    for obs in observations:
+        h.update(
+            f"{obs.timestamp.isoformat()}|{obs.task_type}|"
+            f"{obs.scope_hash}|{obs.outcome_hash}".encode()
+        )
+    return h.hexdigest()[:16]
+
+
+def observed_to_pdr_score(
+    observed: ObservedPDRScores,
+    agent_did: Optional[str] = None,
+    default_score: float = 0.5,
+) -> PDRScore:
+    """
+    Convert ObservedPDRScores to PDRScore for use with composite_trust_score.
+
+    Dimensions with insufficient data (None) are filled with default_score
+    to avoid penalizing agents with incomplete observation coverage.
+    """
+    return PDRScore(
+        calibration=observed.calibration if observed.calibration is not None else default_score,
+        adaptation=observed.adaptation if observed.adaptation is not None else default_score,
+        robustness=observed.robustness if observed.robustness is not None else default_score,
+        measurement_window_days=observed.window_days if observed.window_days > 0 else None,
+        agent_did=agent_did,
+    )
+
+
+def scores_to_trust_path_params(observed: ObservedPDRScores) -> Dict[str, Any]:
+    """
+    Convert ObservedPDRScores to /trust-path endpoint query parameters.
+
+    Only includes dimensions that have been scored (non-None).
+    """
+    params: Dict[str, Any] = {}
+    if observed.calibration is not None:
+        params["pdr_calibration"] = observed.calibration
+    if observed.adaptation is not None:
+        params["pdr_adaptation"] = observed.adaptation
+    if observed.robustness is not None:
+        params["pdr_robustness"] = observed.robustness
+    if observed.window_days > 0:
+        params["pdr_window_days"] = observed.window_days
+    return params
