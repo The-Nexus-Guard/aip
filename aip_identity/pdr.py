@@ -223,15 +223,50 @@ def divergence_alert(
 
 @dataclass
 class Observation:
-    """Single behavioral observation for PDR scoring."""
+    """Single behavioral observation for PDR scoring.
+
+    Supports two formats:
+    1. Verification-based (original): task_type, self_reported_success, externally_verified
+    2. Promise-based (Nanook pilot): promised, delivered, conditions
+
+    Use from_promises() classmethod to create promise-based observations.
+    """
     timestamp: datetime
-    task_type: str                                  # e.g. "code", "email", "research"
-    self_reported_success: bool                     # agent's own assessment
-    externally_verified: Optional[bool]             # external verification (None if unverified)
-    scope_hash: str                                 # hash of task specification
-    outcome_hash: str                               # hash of delivered artifact
+    task_type: str = ""                             # e.g. "code", "email", "research"
+    self_reported_success: bool = True              # agent's own assessment
+    externally_verified: Optional[bool] = None      # external verification (None if unverified)
+    scope_hash: str = ""                            # hash of task specification
+    outcome_hash: str = ""                          # hash of delivered artifact
     feedback_received: bool = False
     post_feedback_improved: Optional[bool] = None
+    # Promise-based fields (Nanook pilot format)
+    agent_id: str = ""                              # agent identifier
+    promised: Optional[List[str]] = None            # what the agent committed to deliver
+    delivered: Optional[List[str]] = None           # what the agent actually delivered
+    conditions: Optional[Dict[str, Any]] = None     # environmental context
+
+    @classmethod
+    def from_promises(
+        cls,
+        agent_id: str,
+        timestamp: datetime,
+        promised: List[str],
+        delivered: List[str],
+        conditions: Optional[Dict[str, Any]] = None,
+    ) -> "Observation":
+        """Create an observation from promise/delivery data (Nanook pilot format)."""
+        delivery_rate = len(set(delivered) & set(promised)) / len(promised) if promised else 1.0
+        return cls(
+            timestamp=timestamp,
+            agent_id=agent_id,
+            promised=promised,
+            delivered=delivered,
+            conditions=conditions,
+            self_reported_success=True,  # agent promised, so they expected success
+            externally_verified=delivery_rate >= 1.0,  # full delivery = verified
+            scope_hash=hashlib.sha256(",".join(sorted(promised)).encode()).hexdigest()[:16],
+            outcome_hash=hashlib.sha256(",".join(sorted(delivered)).encode()).hexdigest()[:16],
+        )
 
 
 @dataclass
@@ -324,6 +359,66 @@ def compute_pdr(
             if mean > 0:
                 cv = (sum((b - mean)**2 for b in buckets) / len(buckets))**0.5 / mean
                 scores.robustness = round(max(0.0, 1.0 - cv), 4)
+
+    return scores
+
+
+def compute_pdr_from_promises(
+    observations: List[Observation],
+    min_observations: int = 5,
+    min_window_days: int = 3,
+) -> ObservedPDRScores:
+    """
+    Compute PDR scores from promise-based observations (Nanook pilot format).
+
+    Unlike compute_pdr() which needs self_reported_success/externally_verified,
+    this operates on promised/delivered lists directly:
+    - Calibration: ratio of delivered items to promised items (delivery rate)
+    - Robustness: consistency of delivery rate across time windows
+    - Adaptation: not computed (would need feedback data)
+
+    Lower thresholds than compute_pdr() since promise-based data is denser.
+    """
+    if not observations:
+        return ObservedPDRScores(calibration=None, adaptation=None, robustness=None)
+
+    # Filter to observations that have promise data
+    obs = [o for o in observations if o.promised is not None and o.delivered is not None]
+    if not obs:
+        return ObservedPDRScores(calibration=None, adaptation=None, robustness=None)
+
+    obs = sorted(obs, key=lambda o: o.timestamp)
+    window = (obs[-1].timestamp - obs[0].timestamp).days
+    chain = _compute_chain_hash(obs)
+
+    scores = ObservedPDRScores(
+        calibration=None, adaptation=None, robustness=None,
+        observation_count=len(obs), window_days=window, chain_hash=chain,
+    )
+
+    if len(obs) < min_observations or window < min_window_days:
+        return scores
+
+    # Calibration: average delivery rate (|delivered ∩ promised| / |promised|)
+    delivery_rates = []
+    for o in obs:
+        if o.promised:
+            rate = len(set(o.delivered or []) & set(o.promised)) / len(o.promised)
+        else:
+            rate = 1.0  # no promises = trivially calibrated
+        delivery_rates.append(rate)
+
+    scores.calibration = round(sum(delivery_rates) / len(delivery_rates), 4)
+
+    # Robustness: coefficient of variation of delivery rates
+    # Group by conditions (dependencies_stable True vs False)
+    if len(delivery_rates) >= 3:
+        mean = sum(delivery_rates) / len(delivery_rates)
+        if mean > 0:
+            cv = (sum((r - mean)**2 for r in delivery_rates) / len(delivery_rates))**0.5 / mean
+            scores.robustness = round(max(0.0, 1.0 - cv), 4)
+        else:
+            scores.robustness = 0.0
 
     return scores
 
