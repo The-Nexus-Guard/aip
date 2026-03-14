@@ -1,5 +1,19 @@
 # Changelog
 
+## v0.5.43 (2026-03-14) — PDR Observation Enhancements
+
+### New Features
+- **Promise schema versioning** — Typed observation schemas: `task_completion`, `response_time`, `quality_threshold`, `uptime`, `generic`. Validated on submission, stored per-observation.
+- **`GET /pdr/{did}`** — Cleaner URL alias for `/observations/{did}/scores`.
+- **`GET /pdr/{did}/history`** — PDR score progression over time via automatic snapshots.
+- **`GET /pdr/schemas`** — List available promise schema types with field descriptions.
+- **Score snapshots** — PDR scores are automatically saved as snapshots when computed, enabling history tracking and divergence detection.
+- **Schema validation** — Unknown schema types are rejected with 400 error.
+
+### Changes
+- DB migration: adds `schema_type` column to existing observations table (backward-compatible).
+- 6 new tests (529 total, 7 skipped).
+
 ## v0.5.38 (2026-03-13) — Full Cross-Protocol DID Resolution
 
 ### New Features
