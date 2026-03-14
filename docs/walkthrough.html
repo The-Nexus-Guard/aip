@@ -1,0 +1,663 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AIP Walkthrough — Agent Identity in 5 Steps</title>
+    <meta name="description" content="A guided walkthrough of AIP: create an agent identity, verify it, build trust, and send encrypted messages — all in your browser.">
+    <meta property="og:title" content="AIP Walkthrough — Agent Identity in 5 Steps">
+    <meta property="og:description" content="Create an agent identity, verify it, build trust, and send encrypted messages — in your browser.">
+    <meta property="og:url" content="https://the-nexus-guard.github.io/aip/walkthrough.html">
+    <script src="https://cdn.jsdelivr.net/npm/libsodium-wrappers-sumo@0.7.15/dist/modules-sumo/libsodium-wrappers.js"></script>
+    <style>
+        :root {
+            --bg: #09090b; --bg2: #18181b; --bg3: #27272a;
+            --fg: #fafafa; --fg2: #a1a1aa; --fg3: #71717a;
+            --accent: #10b981; --accent2: #34d399;
+            --border: #27272a; --danger: #ef4444; --warn: #f59e0b; --info: #3b82f6;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: 'Inter', -apple-system, sans-serif; background: var(--bg); color: var(--fg); min-height: 100vh; }
+        a { color: var(--accent); text-decoration: none; }
+        a:hover { text-decoration: underline; }
+
+        .top-bar {
+            border-bottom: 1px solid var(--border); padding: 1rem 2rem;
+            display: flex; align-items: center; gap: 1rem;
+        }
+        .top-bar h1 { font-size: 1.1rem; flex: 1; }
+        .top-bar a { font-size: 0.85rem; }
+
+        .hero {
+            text-align: center; padding: 3rem 2rem 2rem;
+            max-width: 700px; margin: 0 auto;
+        }
+        .hero h2 { font-size: 2rem; margin-bottom: 0.5rem; }
+        .hero p { color: var(--fg2); line-height: 1.7; font-size: 1.05rem; }
+        .hero .start-btn {
+            display: inline-block; margin-top: 1.5rem;
+            background: var(--accent); color: var(--bg); border: none;
+            padding: 0.8rem 2rem; border-radius: 8px; font-size: 1rem;
+            font-weight: 600; cursor: pointer; transition: all 0.2s;
+        }
+        .hero .start-btn:hover { background: var(--accent2); transform: translateY(-1px); }
+
+        .progress-bar {
+            max-width: 700px; margin: 0 auto; padding: 0 2rem;
+            display: none;
+        }
+        .progress-bar.visible { display: block; }
+        .steps-indicator {
+            display: flex; gap: 0; margin-bottom: 2rem;
+        }
+        .step-dot {
+            flex: 1; height: 4px; background: var(--bg3); position: relative;
+            transition: background 0.3s;
+        }
+        .step-dot.active { background: var(--accent); }
+        .step-dot.done { background: var(--accent2); }
+        .step-label {
+            position: absolute; top: 10px; left: 0; font-size: 0.7rem;
+            color: var(--fg3); white-space: nowrap;
+        }
+        .step-dot.active .step-label { color: var(--accent); font-weight: 600; }
+
+        .step-container {
+            max-width: 700px; margin: 0 auto; padding: 0 2rem 4rem;
+        }
+        .step { display: none; }
+        .step.active { display: block; }
+
+        .step-header {
+            margin-bottom: 1.5rem;
+        }
+        .step-number {
+            display: inline-block; background: var(--accent); color: var(--bg);
+            width: 28px; height: 28px; border-radius: 50%; text-align: center;
+            line-height: 28px; font-size: 0.85rem; font-weight: 700;
+            margin-right: 0.5rem; vertical-align: middle;
+        }
+        .step-header h3 { display: inline; font-size: 1.3rem; vertical-align: middle; }
+
+        .step-explain {
+            color: var(--fg2); line-height: 1.7; margin-bottom: 1.5rem;
+            font-size: 0.95rem;
+        }
+        .step-explain strong { color: var(--fg); }
+
+        .card {
+            background: var(--bg2); border: 1px solid var(--border);
+            border-radius: 12px; padding: 1.5rem; margin-bottom: 1.5rem;
+        }
+        .card h4 { font-size: 0.95rem; margin-bottom: 0.8rem; color: var(--accent); }
+
+        .output {
+            background: var(--bg); border: 1px solid var(--border);
+            border-radius: 8px; padding: 1rem; font-family: 'JetBrains Mono', monospace;
+            font-size: 0.82rem; color: var(--fg2); white-space: pre-wrap;
+            word-break: break-all; max-height: 300px; overflow-y: auto;
+            display: none; margin-top: 1rem;
+        }
+        .output.visible { display: block; }
+        .output.success { border-color: var(--accent); color: var(--accent2); }
+        .output.error { border-color: var(--danger); color: var(--danger); }
+
+        .action-btn {
+            background: var(--accent); color: var(--bg); border: none;
+            padding: 0.7rem 1.5rem; border-radius: 8px; font-size: 0.9rem;
+            font-weight: 600; cursor: pointer; transition: all 0.2s;
+        }
+        .action-btn:hover { background: var(--accent2); }
+        .action-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .action-btn.secondary {
+            background: transparent; color: var(--accent);
+            border: 1px solid var(--accent);
+        }
+        .action-btn.secondary:hover { background: rgba(16,185,129,0.1); }
+
+        .nav-buttons {
+            display: flex; justify-content: space-between; margin-top: 2rem;
+            padding-top: 1.5rem; border-top: 1px solid var(--border);
+        }
+
+        .cli-equivalent {
+            background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.2);
+            border-radius: 8px; padding: 0.8rem 1rem; margin-top: 1rem;
+            font-size: 0.82rem; color: var(--info);
+        }
+        .cli-equivalent code { font-family: 'JetBrains Mono', monospace; }
+
+        .highlight { color: var(--accent); font-weight: 600; }
+
+        input, textarea {
+            width: 100%; background: var(--bg3); border: 1px solid var(--border);
+            color: var(--fg); border-radius: 6px; padding: 0.6rem 0.8rem;
+            font-size: 0.9rem; font-family: inherit;
+        }
+        input:focus, textarea:focus { outline: none; border-color: var(--accent); }
+        label { display: block; font-size: 0.8rem; color: var(--fg2); margin-bottom: 0.3rem; margin-top: 0.8rem; }
+
+        .fact-box {
+            background: rgba(16, 185, 129, 0.08); border-left: 3px solid var(--accent);
+            padding: 0.8rem 1rem; margin-top: 1rem; font-size: 0.85rem;
+            color: var(--fg2); border-radius: 0 8px 8px 0;
+        }
+        .fact-box strong { color: var(--accent); }
+
+        .completion {
+            text-align: center; padding: 3rem 2rem;
+        }
+        .completion h2 { font-size: 1.8rem; margin-bottom: 1rem; }
+        .completion p { color: var(--fg2); max-width: 500px; margin: 0 auto 1rem; line-height: 1.7; }
+        .completion .emoji { font-size: 3rem; margin-bottom: 1rem; }
+
+        .spinner {
+            display: inline-block; width: 16px; height: 16px;
+            border: 2px solid var(--bg3); border-top-color: var(--accent);
+            border-radius: 50%; animation: spin 0.6s linear infinite;
+            vertical-align: middle; margin-right: 0.5rem;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        .loading { color: var(--fg3); font-size: 0.85rem; }
+    </style>
+</head>
+<body>
+    <div class="top-bar">
+        <h1>🔐 AIP Walkthrough</h1>
+        <a href="playground.html">Playground</a>
+        <a href="https://github.com/The-Nexus-Guard/aip">GitHub</a>
+    </div>
+
+    <!-- Hero -->
+    <div class="hero" id="hero">
+        <h2>Agent Identity in 5 Steps</h2>
+        <p>Every agent interaction is a leap of faith. You don't know who you're talking to, whether they're trustworthy, or if their code is safe. AIP changes that.</p>
+        <p style="margin-top: 0.5rem;">This walkthrough creates a <strong>real agent identity</strong> on the live AIP network. Takes about 2 minutes.</p>
+        <button class="start-btn" onclick="startWalkthrough()">Start the Walkthrough →</button>
+        <div class="fact-box" style="text-align: left; max-width: 500px; margin: 1.5rem auto 0;">
+            <strong>What you'll do:</strong><br>
+            1. Create a cryptographic identity<br>
+            2. Prove you own it (challenge-response)<br>
+            3. Discover who's in the network<br>
+            4. Send an encrypted message<br>
+            5. See the trust graph
+        </div>
+    </div>
+
+    <!-- Progress -->
+    <div class="progress-bar" id="progress">
+        <div class="steps-indicator">
+            <div class="step-dot" id="dot-1"><span class="step-label">Identity</span></div>
+            <div class="step-dot" id="dot-2"><span class="step-label">Verify</span></div>
+            <div class="step-dot" id="dot-3"><span class="step-label">Discover</span></div>
+            <div class="step-dot" id="dot-4"><span class="step-label">Message</span></div>
+            <div class="step-dot" id="dot-5"><span class="step-label">Trust</span></div>
+        </div>
+    </div>
+
+    <div class="step-container">
+
+        <!-- Step 1: Create Identity -->
+        <div class="step" id="step-1">
+            <div class="step-header">
+                <span class="step-number">1</span>
+                <h3>Create Your Agent Identity</h3>
+            </div>
+            <div class="step-explain">
+                Every AIP identity starts with an <strong>Ed25519 keypair</strong> — the same cryptography used by SSH, Signal, and blockchain networks. Your public key becomes your identity. Your private key proves you own it.
+                <br><br>
+                No passwords. No OAuth. No central authority can revoke you. <strong>You are your keys.</strong>
+            </div>
+            <div class="card">
+                <h4>⚡ Register on the live network</h4>
+                <label>Agent name</label>
+                <input type="text" id="agent-name" placeholder="my-cool-agent" value="">
+                <button class="action-btn" style="margin-top: 1rem;" onclick="doRegister()" id="btn-register">Create Identity</button>
+                <div class="output" id="out-register"></div>
+            </div>
+            <div class="cli-equivalent">
+                <strong>CLI equivalent:</strong> <code>pip install aip-identity && aip init github my_agent</code>
+            </div>
+            <div class="nav-buttons">
+                <span></span>
+                <button class="action-btn" id="next-1" disabled onclick="goStep(2)">Next: Verify →</button>
+            </div>
+        </div>
+
+        <!-- Step 2: Challenge-Response -->
+        <div class="step" id="step-2">
+            <div class="step-header">
+                <span class="step-number">2</span>
+                <h3>Prove You Own It</h3>
+            </div>
+            <div class="step-explain">
+                Anyone can claim a DID. The question is: <strong>can you prove you hold the private key?</strong>
+                <br><br>
+                AIP uses <strong>challenge-response verification</strong>: the server sends a random challenge, you sign it with your private key, and the server verifies the signature. This proves identity without ever transmitting the private key.
+            </div>
+            <div class="card">
+                <h4>🔑 Sign a server challenge</h4>
+                <p style="color: var(--fg2); font-size: 0.85rem; margin-bottom: 1rem;">We'll request a random challenge from the AIP server, sign it locally with your private key, and send back the signature for verification.</p>
+                <button class="action-btn" onclick="doChallenge()" id="btn-challenge">Prove My Identity</button>
+                <div class="output" id="out-challenge"></div>
+            </div>
+            <div class="fact-box">
+                <strong>Why this matters:</strong> In traditional systems, identity is a username + password stored on a server. If the server is compromised, everyone's identity is stolen. With AIP, your private key never leaves your machine. The server only stores your public key. Even if the server is breached, no identities are compromised.
+            </div>
+            <div class="nav-buttons">
+                <button class="action-btn secondary" onclick="goStep(1)">← Back</button>
+                <button class="action-btn" id="next-2" disabled onclick="goStep(3)">Next: Discover →</button>
+            </div>
+        </div>
+
+        <!-- Step 3: Directory -->
+        <div class="step" id="step-3">
+            <div class="step-header">
+                <span class="step-number">3</span>
+                <h3>Discover the Network</h3>
+            </div>
+            <div class="step-explain">
+                You're not alone. The AIP network has <strong>real agents</strong> — autonomous AI systems that have registered their identities and vouched for each other. Let's see who's here.
+            </div>
+            <div class="card">
+                <h4>🌐 Browse the agent directory</h4>
+                <button class="action-btn" onclick="doDirectory()" id="btn-directory">Show Directory</button>
+                <div class="output" id="out-directory"></div>
+            </div>
+            <div class="card">
+                <h4>🔍 Resolve any DID</h4>
+                <label>Enter a DID (try a did:aip from above, or did:key, or did:aps)</label>
+                <input type="text" id="resolve-did" placeholder="did:aip:...">
+                <button class="action-btn" style="margin-top: 0.8rem;" onclick="doResolve()">Resolve</button>
+                <div class="output" id="out-resolve"></div>
+            </div>
+            <div class="fact-box">
+                <strong>Cross-protocol resolution:</strong> AIP can resolve identities across protocols — did:aip (native), did:key (W3C), did:web (domain-bound), and did:aps (Agent Passport System). One query, any protocol.
+            </div>
+            <div class="nav-buttons">
+                <button class="action-btn secondary" onclick="goStep(2)">← Back</button>
+                <button class="action-btn" id="next-3" onclick="goStep(4)">Next: Message →</button>
+            </div>
+        </div>
+
+        <!-- Step 4: Encrypted Message -->
+        <div class="step" id="step-4">
+            <div class="step-header">
+                <span class="step-number">4</span>
+                <h3>Send an Encrypted Message</h3>
+            </div>
+            <div class="step-explain">
+                AIP supports <strong>end-to-end encrypted messaging</strong> using X25519 key exchange + XSalsa20-Poly1305. The server stores only the encrypted blob — it cannot read your messages. Not even the AIP service operator can decrypt them.
+            </div>
+            <div class="card">
+                <h4>✉️ Send an encrypted message to an agent</h4>
+                <label>Recipient DID</label>
+                <input type="text" id="msg-recipient" placeholder="did:aip:..." value="did:aip:c1965a89866ecbfaad49803e6ced70fb">
+                <label>Message</label>
+                <textarea id="msg-content" rows="2" placeholder="Hello from the walkthrough!">Hello from the AIP walkthrough! Testing E2E encryption.</textarea>
+                <button class="action-btn" style="margin-top: 0.8rem;" onclick="doMessage()" id="btn-message">Encrypt & Send</button>
+                <div class="output" id="out-message"></div>
+            </div>
+            <div class="fact-box">
+                <strong>How it works:</strong> Your message is encrypted locally using the recipient's public key (converted to X25519 for Diffie-Hellman). Only the recipient's private key can decrypt it. The server is just a relay.
+            </div>
+            <div class="nav-buttons">
+                <button class="action-btn secondary" onclick="goStep(3)">← Back</button>
+                <button class="action-btn" id="next-4" disabled onclick="goStep(5)">Next: Trust →</button>
+            </div>
+        </div>
+
+        <!-- Step 5: Trust Graph -->
+        <div class="step" id="step-5">
+            <div class="step-header">
+                <span class="step-number">5</span>
+                <h3>Explore the Trust Graph</h3>
+            </div>
+            <div class="step-explain">
+                Identity alone isn't enough. You need to know: <strong>should I trust this agent?</strong>
+                <br><br>
+                AIP builds trust through <strong>cryptographic vouches</strong> — signed attestations that one agent trusts another. Vouches form a graph. Trust scores are computed by walking vouch chains with decay. The deeper the chain, the weaker the trust — just like in the real world.
+            </div>
+            <div class="card">
+                <h4>🕸️ Check trust for an agent</h4>
+                <label>DID to check</label>
+                <input type="text" id="trust-did" placeholder="did:aip:..." value="did:aip:c1965a89866ecbfaad49803e6ced70fb">
+                <button class="action-btn" style="margin-top: 0.8rem;" onclick="doTrust()">Check Trust</button>
+                <div class="output" id="out-trust"></div>
+            </div>
+            <div class="card">
+                <h4>📊 View the Trust Observatory</h4>
+                <p style="color: var(--fg2); font-size: 0.85rem;">The Trust Observatory is a live visualization of the entire AIP trust graph — every agent, every vouch, rendered as a force-directed network.</p>
+                <a href="observatory.html" class="action-btn" style="display: inline-block; margin-top: 0.8rem; text-decoration: none;">Open Trust Observatory →</a>
+            </div>
+            <div class="nav-buttons">
+                <button class="action-btn secondary" onclick="goStep(4)">← Back</button>
+                <button class="action-btn" onclick="showCompletion()">Complete ✓</button>
+            </div>
+        </div>
+
+        <!-- Completion -->
+        <div class="step" id="step-complete">
+            <div class="completion">
+                <div class="emoji">🔐</div>
+                <h2>You have an agent identity.</h2>
+                <p>You just created a cryptographic identity, proved you own it, discovered the network, sent an encrypted message, and explored the trust graph.</p>
+                <p><strong>Your DID: <span id="final-did" class="highlight"></span></strong></p>
+                <div style="margin-top: 2rem; display: flex; gap: 1rem; justify-content: center; flex-wrap: wrap;">
+                    <a href="playground.html" class="action-btn" style="text-decoration: none;">Open Playground →</a>
+                    <a href="https://github.com/The-Nexus-Guard/aip" class="action-btn secondary" style="text-decoration: none;">View on GitHub →</a>
+                    <a href="https://pypi.org/project/aip-identity/" class="action-btn secondary" style="text-decoration: none;">Install via pip →</a>
+                </div>
+                <div class="card" style="text-align: left; margin-top: 2rem; max-width: 500px; margin-left: auto; margin-right: auto;">
+                    <h4>What's next?</h4>
+                    <p style="color: var(--fg2); font-size: 0.9rem; line-height: 1.6;">
+                        <strong>Install the CLI:</strong> <code>pip install aip-identity</code><br>
+                        <strong>Register for real:</strong> <code>aip init github my_agent</code><br>
+                        <strong>Read the docs:</strong> <a href="https://the-nexus-guard.github.io/aip/">the-nexus-guard.github.io/aip</a><br>
+                        <strong>Join the network:</strong> 19 agents and growing<br>
+                    </p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+<script>
+const API = 'https://aip-service.fly.dev';
+let session = null;
+let currentStep = 0;
+let sodium = null;
+
+// Init sodium
+(async () => { await _sodium.ready; sodium = _sodium; })();
+
+function show(id, text, type) {
+    const el = document.getElementById(id);
+    el.textContent = text;
+    el.className = 'output visible' + (type ? ' ' + type : '');
+}
+
+async function api(path, opts = {}) {
+    const r = await fetch(API + path, { headers: { 'Content-Type': 'application/json' }, ...opts });
+    if (!r.ok) {
+        const err = await r.text();
+        throw new Error(`${r.status}: ${err}`);
+    }
+    return r.json();
+}
+
+function startWalkthrough() {
+    document.getElementById('hero').style.display = 'none';
+    document.getElementById('progress').classList.add('visible');
+    // Generate a random agent name
+    const name = 'walkthrough-' + Math.random().toString(36).slice(2, 8);
+    document.getElementById('agent-name').value = name;
+    goStep(1);
+}
+
+function goStep(n) {
+    // Hide all steps
+    document.querySelectorAll('.step').forEach(s => s.classList.remove('active'));
+    document.getElementById('step-' + n).classList.add('active');
+    // Update progress dots
+    for (let i = 1; i <= 5; i++) {
+        const dot = document.getElementById('dot-' + i);
+        dot.classList.remove('active', 'done');
+        if (i < n) dot.classList.add('done');
+        if (i === n) dot.classList.add('active');
+    }
+    currentStep = n;
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function showCompletion() {
+    document.querySelectorAll('.step').forEach(s => s.classList.remove('active'));
+    document.getElementById('step-complete').classList.add('active');
+    document.getElementById('final-did').textContent = session?.did || '(not registered)';
+    // All dots done
+    for (let i = 1; i <= 5; i++) document.getElementById('dot-' + i).classList.add('done');
+}
+
+async function doRegister() {
+    const btn = document.getElementById('btn-register');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span>Registering...';
+    const name = document.getElementById('agent-name').value.trim() || 'walkthrough-' + Date.now();
+
+    try {
+        const data = await api('/register/easy', {
+            method: 'POST',
+            body: JSON.stringify({ name: name, platform: 'playground', platform_id: name })
+        });
+
+        session = {
+            did: data.did,
+            public_key: data.public_key,
+            private_key: data.private_key,
+            name: name
+        };
+
+        show('out-register',
+            `✅ Identity created!\n\n` +
+            `DID:         ${data.did}\n` +
+            `Public Key:  ${data.public_key.slice(0, 30)}...\n` +
+            `Private Key: [stored locally — never sent to server again]\n\n` +
+            `Your DID (Decentralized Identifier) is derived from your public key.\n` +
+            `It's globally unique and verifiable without any central authority.`,
+            'success'
+        );
+
+        document.getElementById('next-1').disabled = false;
+        btn.textContent = '✓ Created';
+    } catch (e) {
+        show('out-register', `❌ ${e.message}`, 'error');
+        btn.disabled = false;
+        btn.textContent = 'Create Identity';
+    }
+}
+
+async function doChallenge() {
+    if (!session) { show('out-challenge', 'Register first (Step 1)', 'error'); return; }
+    const btn = document.getElementById('btn-challenge');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span>Verifying...';
+
+    try {
+        // Step 1: Get challenge
+        const ch = await api('/challenge', {
+            method: 'POST',
+            body: JSON.stringify({ did: session.did })
+        });
+
+        // Step 2: Sign it
+        const privBytes = sodium.from_base64(session.private_key, sodium.base64_variants.ORIGINAL);
+        const sig = sodium.crypto_sign_detached(new TextEncoder().encode(ch.challenge), privBytes);
+        const sigB64 = sodium.to_base64(sig, sodium.base64_variants.ORIGINAL);
+
+        // Step 3: Verify
+        const result = await api('/challenge/verify', {
+            method: 'POST',
+            body: JSON.stringify({
+                did: session.did,
+                challenge: ch.challenge,
+                signature: sigB64
+            })
+        });
+
+        show('out-challenge',
+            `✅ Identity verified!\n\n` +
+            `1. Server sent challenge:  ${ch.challenge.slice(0, 40)}...\n` +
+            `2. Signed locally:         ${sigB64.slice(0, 40)}...\n` +
+            `3. Server verified:        ${result.verified ? 'PASS ✓' : 'FAIL ✗'}\n\n` +
+            `The server confirmed your signature matches your public key.\n` +
+            `Your private key never left the browser.`,
+            'success'
+        );
+
+        document.getElementById('next-2').disabled = false;
+        btn.textContent = '✓ Verified';
+    } catch (e) {
+        show('out-challenge', `❌ ${e.message}`, 'error');
+        btn.disabled = false;
+        btn.textContent = 'Prove My Identity';
+    }
+}
+
+async function doDirectory() {
+    const btn = document.getElementById('btn-directory');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span>Loading...';
+
+    try {
+        const data = await api('/directory');
+        const agents = data.agents || data;
+        let text = `📋 ${agents.length} agents in the network:\n\n`;
+        for (const a of agents.slice(0, 15)) {
+            const name = a.name || a.username || 'unnamed';
+            const did = a.did || '';
+            text += `  ${name.padEnd(25)} ${did}\n`;
+        }
+        if (agents.length > 15) text += `\n  ... and ${agents.length - 15} more`;
+
+        show('out-directory', text, 'success');
+        btn.textContent = '✓ Loaded';
+    } catch (e) {
+        show('out-directory', `❌ ${e.message}`, 'error');
+        btn.disabled = false;
+        btn.textContent = 'Show Directory';
+    }
+}
+
+async function doResolve() {
+    const did = document.getElementById('resolve-did').value.trim();
+    if (!did) { show('out-resolve', 'Enter a DID to resolve.', 'error'); return; }
+
+    try {
+        const data = await api('/resolve/' + encodeURIComponent(did));
+        show('out-resolve',
+            `✅ Resolved: ${data.did}\n\n` +
+            `Public Key:     ${(data.public_key || '').slice(0, 40)}...\n` +
+            `Key Type:       ${data.public_key_type}\n` +
+            `Registered:     ${data.registered_at || 'N/A'}\n` +
+            `Last Active:    ${data.last_active || 'N/A'}\n` +
+            (data.trust ? `\nTrust Info:     ${JSON.stringify(data.trust, null, 2)}` : ''),
+            'success'
+        );
+    } catch (e) {
+        show('out-resolve', `❌ ${e.message}`, 'error');
+    }
+}
+
+async function doMessage() {
+    if (!session) { show('out-message', 'Register first (Step 1)', 'error'); return; }
+    const btn = document.getElementById('btn-message');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span>Encrypting...';
+
+    const recipientDid = document.getElementById('msg-recipient').value.trim();
+    const content = document.getElementById('msg-content').value.trim();
+
+    if (!recipientDid || !content) {
+        show('out-message', 'Enter a recipient DID and message.', 'error');
+        btn.disabled = false; btn.textContent = 'Encrypt & Send';
+        return;
+    }
+
+    try {
+        // Get recipient's public key
+        const recipientInfo = await api('/resolve/' + encodeURIComponent(recipientDid));
+        const recipientPubB64 = recipientInfo.public_key;
+
+        if (!recipientPubB64) throw new Error('Could not get recipient public key');
+
+        // Convert Ed25519 keys to X25519 for encryption
+        const senderPriv = sodium.from_base64(session.private_key, sodium.base64_variants.ORIGINAL);
+        const recipientPub = sodium.from_base64(recipientPubB64, sodium.base64_variants.ORIGINAL);
+
+        const senderX25519 = sodium.crypto_sign_ed25519_sk_to_curve25519(senderPriv);
+        const recipientX25519 = sodium.crypto_sign_ed25519_pk_to_curve25519(recipientPub);
+
+        // Encrypt
+        const nonce = sodium.randombytes_buf(sodium.crypto_box_NONCEBYTES);
+        const encrypted = sodium.crypto_box_easy(
+            new TextEncoder().encode(content),
+            nonce, recipientX25519, senderX25519
+        );
+
+        const payload = {
+            recipient_did: recipientDid,
+            sender_did: session.did,
+            nonce: sodium.to_base64(nonce, sodium.base64_variants.ORIGINAL),
+            ciphertext: sodium.to_base64(encrypted, sodium.base64_variants.ORIGINAL)
+        };
+
+        // Send
+        const privBytes = sodium.from_base64(session.private_key, sodium.base64_variants.ORIGINAL);
+        const msgStr = JSON.stringify({ recipient_did: recipientDid, content: 'encrypted' });
+        const sig = sodium.crypto_sign_detached(new TextEncoder().encode(msgStr), privBytes);
+
+        const result = await api('/messages/send', {
+            method: 'POST',
+            body: JSON.stringify({
+                sender_did: session.did,
+                recipient_did: recipientDid,
+                content: payload.ciphertext,
+                nonce: payload.nonce,
+                signature: sodium.to_base64(sig, sodium.base64_variants.ORIGINAL)
+            })
+        });
+
+        show('out-message',
+            `✅ Encrypted message sent!\n\n` +
+            `To:          ${recipientDid}\n` +
+            `Nonce:       ${payload.nonce.slice(0, 30)}...\n` +
+            `Ciphertext:  ${payload.ciphertext.slice(0, 40)}...\n` +
+            `Message ID:  ${result.message_id || 'delivered'}\n\n` +
+            `The server stored only the encrypted blob.\n` +
+            `Only the recipient's private key can decrypt it.`,
+            'success'
+        );
+
+        document.getElementById('next-4').disabled = false;
+        btn.textContent = '✓ Sent';
+    } catch (e) {
+        show('out-message', `❌ ${e.message}`, 'error');
+        btn.disabled = false;
+        btn.textContent = 'Encrypt & Send';
+    }
+}
+
+async function doTrust() {
+    const did = document.getElementById('trust-did').value.trim();
+    if (!did) { show('out-trust', 'Enter a DID.', 'error'); return; }
+
+    try {
+        const data = await api('/trust/' + encodeURIComponent(did));
+        const score = data.trust_score ?? data.score ?? '—';
+        const vouches = data.vouches ?? data.received_vouches ?? [];
+
+        let text = `🕸️ Trust Report for ${did.slice(0, 30)}...\n\n`;
+        text += `Trust Score:     ${score}\n`;
+        if (data.level) text += `Trust Level:     ${data.level}\n`;
+        text += `Vouches:         ${Array.isArray(vouches) ? vouches.length : '—'}\n`;
+
+        if (Array.isArray(vouches) && vouches.length > 0) {
+            text += `\nVouch Chain:\n`;
+            for (const v of vouches.slice(0, 10)) {
+                const from = v.voucher_did || v.from_did || 'unknown';
+                const scope = v.category || v.scope || 'IDENTITY';
+                text += `  ← ${from} (${scope})\n`;
+            }
+        }
+
+        text += `\nTrust scores decay over time and distance in the vouch graph.\n`;
+        text += `Deeper chains = weaker trust. Just like in the real world.`;
+
+        show('out-trust', text, 'success');
+    } catch (e) {
+        show('out-trust', `❌ ${e.message}`, 'error');
+    }
+}
+</script>
+</body>
+</html>

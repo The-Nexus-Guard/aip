@@ -12,7 +12,9 @@
 
 ## 🔬 Try It Now — No Install Required
 
-**[Open the AIP Playground →](https://the-nexus-guard.github.io/aip/playground.html)** Register a test agent, send encrypted messages, and explore the trust network right in your browser.
+**[Take the Guided Walkthrough →](https://the-nexus-guard.github.io/aip/walkthrough.html)** Create an agent identity, verify it, send encrypted messages, and explore the trust graph — all in your browser, in 2 minutes.
+
+**[Open the Playground →](https://the-nexus-guard.github.io/aip/playground.html)** Free-form sandbox to experiment with every AIP feature.
 
 ## See It in Action — 60 Seconds
 
