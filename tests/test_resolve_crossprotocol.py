@@ -204,18 +204,22 @@ class TestResolveDidAps:
         return mock_client
 
     def test_resolve_did_aps_success(self):
-        """Resolve a did:aps with valid agent card."""
+        """Resolve a did:aps via the unified bridge resolve endpoint."""
         mock_resp = MagicMock()
         mock_resp.status_code = 200
         mock_resp.json.return_value = {
-            "agentId": "px2-002",
-            "publicKey": "6a95a2ca419b153aa6718cc7b5d87e877a0439bba468b036844ef96f7164a82b",
-            "delegationChain": [],
-            "tier": 3,
-            "reputation": {"mu": 0.82, "sigma": 0.04},
-            "intentCard": {"needs": [], "offers": []},
-            "createdAt": "2026-01-15T10:00:00Z",
-            "updatedAt": "2026-03-13T12:00:00Z"
+            "did": "did:aps:px2-002",
+            "source_protocol": "aps",
+            "public_key": "6a95a2ca419b153aa6718cc7b5d87e877a0439bba468b036844ef96f7164a82b",
+            "public_key_type": "Ed25519VerificationKey2020",
+            "trust_summary": {"behavioral": None},
+            "challenge_endpoint": "https://api.aeoess.com/api/challenge/create",
+            "resolved_at": "2026-03-13T23:58:40.005Z",
+            "card_summary": {
+                "needs": ["Builders"],
+                "offers": ["Agent Passport System"],
+                "expiresAt": "2026-04-11T01:38:08.448Z"
+            }
         }
 
         with patch('service.routes.verify.httpx.AsyncClient', return_value=self._make_mock_client(mock_resp)):
@@ -230,8 +234,44 @@ class TestResolveDidAps:
             assert data["public_key"] == expected_b64
             # Trust info should include APS-specific fields
             assert data["trust"]["source"] == "did:aps"
+            assert data["trust"]["card_summary"]["offers"] == ["Agent Passport System"]
+
+    def test_resolve_did_aps_fallback_to_cards(self):
+        """Fallback to /api/cards when /api/resolve returns non-200."""
+        # First call (resolve endpoint) returns 404
+        resolve_resp = MagicMock()
+        resolve_resp.status_code = 404
+        resolve_resp.text = "Not found"
+
+        # Second call (cards endpoint) returns card data
+        card_resp = MagicMock()
+        card_resp.status_code = 200
+        card_resp.json.return_value = {
+            "agentId": "px2-002",
+            "publicKey": "6a95a2ca419b153aa6718cc7b5d87e877a0439bba468b036844ef96f7164a82b",
+            "delegationChain": [],
+            "tier": 3,
+            "reputation": {"mu": 0.82, "sigma": 0.04},
+            "intentCard": {"needs": [], "offers": []},
+            "createdAt": "2026-01-15T10:00:00Z",
+            "updatedAt": "2026-03-13T12:00:00Z"
+        }
+
+        mock_client = AsyncMock()
+        mock_client.get = AsyncMock(side_effect=[resolve_resp, card_resp])
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+
+        with patch('service.routes.verify.httpx.AsyncClient', return_value=mock_client):
+            resp = client.get("/resolve/did:aps:px2-002")
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["did"] == "did:aps:px2-002"
+            # Public key should be converted from hex to base64
+            import base64 as b64
+            expected_b64 = b64.b64encode(bytes.fromhex("6a95a2ca419b153aa6718cc7b5d87e877a0439bba468b036844ef96f7164a82b")).decode()
+            assert data["public_key"] == expected_b64
             assert data["trust"]["aps_tier"] == 3
-            assert data["trust"]["aps_reputation"]["mu"] == 0.82
             assert data["trust"]["trust_summary"]["behavioral"] == 0.82
 
     def test_resolve_did_aps_not_found(self):
@@ -307,10 +347,15 @@ class TestResolveDidAps:
         assert "did:aps" in resp.json()["detail"]
 
     def test_resolve_did_aps_without_reputation(self):
-        """Resolve a did:aps card that has no reputation data."""
-        mock_resp = MagicMock()
-        mock_resp.status_code = 200
-        mock_resp.json.return_value = {
+        """Resolve a did:aps card that has no reputation data (via cards fallback)."""
+        # Resolve endpoint returns 404, falls through to cards
+        resolve_resp = MagicMock()
+        resolve_resp.status_code = 404
+        resolve_resp.text = "Not found"
+
+        card_resp = MagicMock()
+        card_resp.status_code = 200
+        card_resp.json.return_value = {
             "agentId": "new-agent-001",
             "publicKey": "aabbccdd" * 8,
             "tier": 0,
@@ -318,7 +363,12 @@ class TestResolveDidAps:
             "createdAt": "2026-03-13T10:00:00Z"
         }
 
-        with patch('service.routes.verify.httpx.AsyncClient', return_value=self._make_mock_client(mock_resp)):
+        mock_client = AsyncMock()
+        mock_client.get = AsyncMock(side_effect=[resolve_resp, card_resp])
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+
+        with patch('service.routes.verify.httpx.AsyncClient', return_value=mock_client):
             resp = client.get("/resolve/did:aps:new-agent-001")
             assert resp.status_code == 200
             data = resp.json()

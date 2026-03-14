@@ -667,11 +667,58 @@ async def _resolve_did_aps(did: str, req: Request) -> ResolveResponse:
         if not agent_id:
             raise HTTPException(status_code=400, detail="did:aps requires an agent ID")
 
-        # Query AEOESS API for the agent's card
+        base_url = str(req.base_url).rstrip("/")
+
+        # Try the unified bridge resolve endpoint first (returns clean format)
+        async with httpx.AsyncClient(timeout=5.0, follow_redirects=True) as client:
+            resolve_resp = await client.get(
+                f"{APS_API_BASE}/api/resolve",
+                params={"did": did}
+            )
+
+        if resolve_resp.status_code == 200:
+            data = resolve_resp.json()
+
+            # Extract public key (APS returns hex-encoded Ed25519)
+            pubkey_raw = data.get("public_key", "")
+            pubkey_b64 = None
+            if pubkey_raw:
+                try:
+                    raw_key = bytes.fromhex(pubkey_raw)
+                    pubkey_b64 = base64.b64encode(raw_key).decode()
+                except ValueError:
+                    pubkey_b64 = pubkey_raw  # Pass through if not valid hex
+
+            # Extract trust info from bridge response
+            trust_summary = data.get("trust_summary", {})
+            card_summary = data.get("card_summary", {})
+            trust_info = {
+                "source": "did:aps",
+                "aps_agent_id": agent_id,
+                "cross_referenced": False,
+            }
+            if trust_summary:
+                trust_info["trust_summary"] = trust_summary
+            if card_summary:
+                trust_info["card_summary"] = card_summary
+
+            challenge_ep = data.get("challenge_endpoint", f"{base_url}/challenge/create")
+
+            return ResolveResponse(
+                did=did,
+                public_key=pubkey_b64 or "",
+                public_key_type=data.get("public_key_type", "Ed25519VerificationKey2020"),
+                registered_at=data.get("resolved_at"),
+                last_active=data.get("resolved_at"),
+                platforms=None,
+                trust=trust_info,
+                verification_endpoint=f"{APS_API_BASE}/api/resolve?did={did}",
+                challenge_endpoint=challenge_ep,
+            )
+
+        # Fallback: try legacy cards endpoint
         async with httpx.AsyncClient(timeout=5.0, follow_redirects=True) as client:
             resp = await client.get(f"{APS_API_BASE}/api/cards/{agent_id}")
-
-        base_url = str(req.base_url).rstrip("/")
 
         if resp.status_code == 200:
             card = resp.json()
@@ -716,7 +763,6 @@ async def _resolve_did_aps(did: str, req: Request) -> ResolveResponse:
                 challenge_endpoint=f"{base_url}/challenge/create",
             )
         elif resp.status_code == 404 or "No active card" in resp.text:
-            # Agent exists but has no active card — return minimal info
             raise HTTPException(
                 status_code=404,
                 detail=f"APS agent '{agent_id}' not found or has no active card"
