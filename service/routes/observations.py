@@ -28,12 +28,45 @@ router = APIRouter(tags=["observations"])
 
 # --- Models ---
 
+PROMISE_SCHEMAS = {
+    "task_completion": {
+        "description": "Did the agent complete the promised tasks?",
+        "promised_fields": ["tasks"],
+        "delivered_fields": ["tasks"],
+    },
+    "response_time": {
+        "description": "Did the agent respond within promised time?",
+        "promised_fields": ["max_ms"],
+        "delivered_fields": ["actual_ms"],
+    },
+    "quality_threshold": {
+        "description": "Did the agent meet the promised quality bar?",
+        "promised_fields": ["min_score", "metric"],
+        "delivered_fields": ["actual_score", "metric"],
+    },
+    "uptime": {
+        "description": "Did the agent maintain promised availability?",
+        "promised_fields": ["target_pct", "window_hours"],
+        "delivered_fields": ["actual_pct", "window_hours"],
+    },
+    "generic": {
+        "description": "Free-form promise/delivery (default)",
+        "promised_fields": [],
+        "delivered_fields": [],
+    },
+}
+
+
 class ObservationSubmit(BaseModel):
     """A single behavioral observation."""
     promised: List[str] = Field(..., description="What the agent committed to deliver")
     delivered: List[str] = Field(..., description="What the agent actually delivered")
     timestamp: Optional[str] = Field(None, description="ISO 8601 timestamp (defaults to now)")
     conditions: Optional[Dict[str, Any]] = Field(None, description="Environmental context")
+    schema_type: Optional[str] = Field(
+        "generic",
+        description=f"Promise schema type: {', '.join(PROMISE_SCHEMAS.keys())}",
+    )
 
 
 class ObservationBatch(BaseModel):
@@ -67,12 +100,35 @@ def _ensure_observations_table():
                 delivered TEXT NOT NULL,
                 timestamp TEXT NOT NULL,
                 conditions TEXT,
+                schema_type TEXT DEFAULT 'generic',
                 created_at REAL NOT NULL
             )
         """)
         conn.execute("""
             CREATE INDEX IF NOT EXISTS idx_observations_did
             ON observations(did)
+        """)
+        # Add schema_type column if missing (migration for existing DBs)
+        try:
+            conn.execute("SELECT schema_type FROM observations LIMIT 0")
+        except Exception:
+            conn.execute("ALTER TABLE observations ADD COLUMN schema_type TEXT DEFAULT 'generic'")
+        # PDR score snapshots for history tracking
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS pdr_snapshots (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                did TEXT NOT NULL,
+                calibration REAL,
+                robustness REAL,
+                observation_count INTEGER NOT NULL,
+                window_days INTEGER NOT NULL,
+                chain_hash TEXT NOT NULL,
+                computed_at REAL NOT NULL
+            )
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_pdr_snapshots_did
+            ON pdr_snapshots(did)
         """)
         conn.commit()
 
@@ -126,6 +182,14 @@ async def submit_observations(batch: ObservationBatch):
         )
         conn.commit()
 
+    # Validate schema types
+    for obs in batch.observations:
+        if obs.schema_type and obs.schema_type not in PROMISE_SCHEMAS:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unknown schema_type '{obs.schema_type}'. Valid: {list(PROMISE_SCHEMAS.keys())}",
+            )
+
     # Store observations
     now = time.time()
     inserted = 0
@@ -134,10 +198,10 @@ async def submit_observations(batch: ObservationBatch):
             ts = obs.timestamp or datetime.now(tz=__import__("datetime").timezone.utc).isoformat()
             conditions_json = json.dumps(obs.conditions) if obs.conditions else None
             conn.execute(
-                "INSERT INTO observations (did, promised, delivered, timestamp, conditions, created_at) "
-                "VALUES (?, ?, ?, ?, ?, ?)",
+                "INSERT INTO observations (did, promised, delivered, timestamp, conditions, schema_type, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
                 (batch.did, json.dumps(obs.promised), json.dumps(obs.delivered),
-                 ts, conditions_json, now),
+                 ts, conditions_json, obs.schema_type or "generic", now),
             )
             inserted += 1
         conn.commit()
@@ -196,6 +260,25 @@ async def get_pdr_scores(
 
     scores = compute_pdr_from_promises(observations)
 
+    now = time.time()
+    computed_at = datetime.now(tz=__import__("datetime").timezone.utc).isoformat()
+
+    # Save snapshot for history tracking
+    if scores.calibration is not None or scores.robustness is not None:
+        try:
+            with database.get_connection() as conn:
+                conn.execute(
+                    "INSERT INTO pdr_snapshots "
+                    "(did, calibration, robustness, observation_count, window_days, chain_hash, computed_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (did, scores.calibration, scores.robustness,
+                     scores.observation_count, scores.window_days,
+                     scores.chain_hash, now),
+                )
+                conn.commit()
+        except Exception:
+            pass  # Don't fail the request if snapshot storage fails
+
     return PDRScoreResponse(
         did=did,
         calibration=scores.calibration,
@@ -203,7 +286,7 @@ async def get_pdr_scores(
         observation_count=scores.observation_count,
         window_days=scores.window_days,
         chain_hash=scores.chain_hash,
-        computed_at=datetime.now(tz=__import__("datetime").timezone.utc).isoformat(),
+        computed_at=computed_at,
     )
 
 
@@ -217,7 +300,7 @@ async def get_observations(
 
     with database.get_connection() as conn:
         rows = conn.execute(
-            "SELECT id, promised, delivered, timestamp, conditions FROM observations "
+            "SELECT id, promised, delivered, timestamp, conditions, schema_type FROM observations "
             "WHERE did = ? ORDER BY timestamp DESC LIMIT ?",
             (did, limit),
         ).fetchall()
@@ -229,6 +312,7 @@ async def get_observations(
             "promised": json.loads(row["promised"]),
             "delivered": json.loads(row["delivered"]),
             "timestamp": row["timestamp"],
+            "schema_type": row["schema_type"] if "schema_type" in row.keys() else "generic",
         }
         if row["conditions"]:
             obs["conditions"] = json.loads(row["conditions"])
@@ -238,4 +322,66 @@ async def get_observations(
         "did": did,
         "observations": observations,
         "count": len(observations),
+    }
+
+
+# --- Cleaner URL aliases ---
+
+@router.get("/pdr/schemas", response_model=dict)
+async def list_promise_schemas():
+    """List available promise schema types for observations."""
+    return {
+        "schemas": PROMISE_SCHEMAS,
+        "default": "generic",
+    }
+
+
+@router.get("/pdr/{did}", response_model=PDRScoreResponse)
+async def get_pdr_alias(
+    did: str,
+    window_days: int = Query(28, ge=1, le=365, description="Scoring window in days"),
+):
+    """Get PDR scores for an agent (alias for /observations/{did}/scores)."""
+    return await get_pdr_scores(did, window_days)
+
+
+@router.get("/pdr/{did}/history", response_model=dict)
+async def get_pdr_history(
+    did: str,
+    limit: int = Query(50, ge=1, le=500, description="Max snapshots to return"),
+):
+    """
+    Get PDR score history for an agent.
+
+    Returns historical PDR score snapshots, showing how behavioral
+    reliability has changed over time. Snapshots are created each time
+    scores are computed via /observations/{did}/scores or /pdr/{did}.
+    """
+    _ensure_observations_table()
+
+    with database.get_connection() as conn:
+        rows = conn.execute(
+            "SELECT calibration, robustness, observation_count, window_days, "
+            "chain_hash, computed_at FROM pdr_snapshots "
+            "WHERE did = ? ORDER BY computed_at DESC LIMIT ?",
+            (did, limit),
+        ).fetchall()
+
+    snapshots = []
+    for row in rows:
+        snapshots.append({
+            "calibration": row["calibration"],
+            "robustness": row["robustness"],
+            "observation_count": row["observation_count"],
+            "window_days": row["window_days"],
+            "chain_hash": row["chain_hash"],
+            "computed_at": datetime.fromtimestamp(
+                row["computed_at"], tz=__import__("datetime").timezone.utc
+            ).isoformat(),
+        })
+
+    return {
+        "did": did,
+        "snapshots": snapshots,
+        "count": len(snapshots),
     }

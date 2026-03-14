@@ -164,6 +164,115 @@ class TestObservationsAPI:
         })
         assert r.status_code == 401
 
+    def test_schema_type_stored(self, local_service):
+        """Observations with schema_type should be stored and returned."""
+        sk = SigningKey.generate()
+        did, pub_hex = _make_agent(sk)
+        _register_agent(local_service, did, pub_hex, f"schema_{time.time_ns()}")
+
+        nonce = f"schema-{time.time_ns()}"
+        sig = _sign_nonce(sk, nonce)
+
+        r = requests.post(f"{local_service}/observations", json={
+            "did": did,
+            "observations": [
+                {"promised": ["deploy_v2"], "delivered": ["deploy_v2"],
+                 "timestamp": "2026-03-01T00:00:00", "schema_type": "task_completion"},
+                {"promised": ["100"], "delivered": ["85"],
+                 "timestamp": "2026-03-02T00:00:00", "schema_type": "response_time"},
+            ],
+            "signature": sig,
+            "nonce": nonce,
+        })
+        assert r.status_code == 200
+
+        r = requests.get(f"{local_service}/observations/{did}")
+        data = r.json()
+        assert data["count"] == 2
+        schema_types = {o["schema_type"] for o in data["observations"]}
+        assert "task_completion" in schema_types
+        assert "response_time" in schema_types
+
+    def test_invalid_schema_type_rejected(self, local_service):
+        """Unknown schema types should be rejected."""
+        sk = SigningKey.generate()
+        did, pub_hex = _make_agent(sk)
+        _register_agent(local_service, did, pub_hex, f"badschema_{time.time_ns()}")
+
+        nonce = f"badschema-{time.time_ns()}"
+        sig = _sign_nonce(sk, nonce)
+
+        r = requests.post(f"{local_service}/observations", json={
+            "did": did,
+            "observations": [
+                {"promised": ["a"], "delivered": ["a"], "schema_type": "nonexistent_type"},
+            ],
+            "signature": sig,
+            "nonce": nonce,
+        })
+        assert r.status_code == 400
+
+    def test_pdr_alias_endpoint(self, local_service):
+        """GET /pdr/{did} should work like /observations/{did}/scores."""
+        r = requests.get(f"{local_service}/pdr/did:aip:nonexistent_pdr")
+        assert r.status_code == 200
+        data = r.json()
+        assert data["observation_count"] == 0
+
+    def test_pdr_history_empty(self, local_service):
+        """PDR history for new agent should be empty."""
+        r = requests.get(f"{local_service}/pdr/did:aip:nohistory/history")
+        assert r.status_code == 200
+        data = r.json()
+        assert data["count"] == 0
+        assert data["snapshots"] == []
+
+    def test_pdr_history_populated(self, local_service):
+        """Scoring should create history snapshots."""
+        sk = SigningKey.generate()
+        did, pub_hex = _make_agent(sk)
+        _register_agent(local_service, did, pub_hex, f"history_{time.time_ns()}")
+
+        nonce = f"hist-{time.time_ns()}"
+        sig = _sign_nonce(sk, nonce)
+
+        # Submit enough observations for scoring
+        observations = [
+            {"promised": [f"task_{i}"], "delivered": [f"task_{i}"],
+             "timestamp": f"2026-03-{i+1:02d}T00:00:00"}
+            for i in range(7)
+        ]
+
+        requests.post(f"{local_service}/observations", json={
+            "did": did, "observations": observations,
+            "signature": sig, "nonce": nonce,
+        })
+
+        # Trigger scoring (creates snapshot)
+        r = requests.get(f"{local_service}/pdr/{did}")
+        assert r.status_code == 200
+        scores = r.json()
+        assert scores["calibration"] is not None
+
+        # Check history
+        r = requests.get(f"{local_service}/pdr/{did}/history")
+        assert r.status_code == 200
+        data = r.json()
+        assert data["count"] >= 1
+        assert data["snapshots"][0]["calibration"] == scores["calibration"]
+
+    def test_promise_schemas_endpoint(self, local_service):
+        """GET /pdr/schemas should return available schemas."""
+        r = requests.get(f"{local_service}/pdr/schemas")
+        assert r.status_code == 200
+        data = r.json()
+        assert "task_completion" in data["schemas"]
+        assert "response_time" in data["schemas"]
+        assert "quality_threshold" in data["schemas"]
+        assert "uptime" in data["schemas"]
+        assert "generic" in data["schemas"]
+        assert data["default"] == "generic"
+
     def test_mixed_delivery_scores_lower(self, local_service):
         """Agent with partial delivery should score lower than perfect delivery."""
         sk = SigningKey.generate()

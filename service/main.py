@@ -165,7 +165,9 @@ async def root():
             "skill_sign": "POST /skill/sign - Sign a skill with your DID",
             "skill_verify": "GET /skill/verify - Verify a skill signature",
             "observations": "POST /observations - Submit behavioral observations",
-            "pdr_scores": "GET /observations/{did}/scores - Get PDR scores from observations",
+            "pdr_scores": "GET /pdr/{did} - Get PDR scores from observations",
+            "pdr_history": "GET /pdr/{did}/history - PDR score progression over time",
+            "pdr_schemas": "GET /pdr/schemas - List available promise schema types",
         },
         "docs": "/docs",
     }
