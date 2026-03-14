@@ -2397,12 +2397,164 @@ def cmd_doctor(args):
     print()
 
 
+def cmd_observe(args):
+    """Submit behavioral observations or view PDR scores."""
+    service = args.service or AIP_SERVICE
+
+    if args.observe_action == "submit":
+        creds = find_credentials()
+        if not creds:
+            print("  ❌ No credentials found. Run `aip quickstart` to get started.")
+            sys.exit(1)
+
+        did = creds["did"]
+
+        # Parse observations from JSON file or inline
+        if args.file:
+            try:
+                with open(args.file) as f:
+                    obs_data = json.load(f)
+            except (json.JSONDecodeError, FileNotFoundError) as e:
+                print(f"  ❌ Error reading observations file: {e}")
+                sys.exit(1)
+        elif args.promised and args.delivered:
+            obs_data = [{
+                "promised": [p.strip() for p in args.promised.split(",")],
+                "delivered": [d.strip() for d in args.delivered.split(",")],
+            }]
+        else:
+            print("  ❌ Provide --promised and --delivered, or --file with JSON observations.")
+            sys.exit(1)
+
+        # Normalize: accept list of obs or single obs
+        if isinstance(obs_data, dict):
+            obs_data = [obs_data]
+
+        # Sign nonce for authentication
+        nonce = f"observe:{did}:{int(time.time())}:{hashlib.sha256(os.urandom(16)).hexdigest()[:8]}"
+        private_key_b64 = creds.get("private_key", "")
+        if not private_key_b64:
+            print("  ❌ Private key not found in credentials.")
+            sys.exit(1)
+
+        try:
+            from nacl.signing import SigningKey
+            priv_bytes = base64.b64decode(private_key_b64)
+            signing_key = SigningKey(priv_bytes)
+            sig = signing_key.sign(nonce.encode()).signature
+            sig_hex = sig.hex()
+        except Exception as e:
+            print(f"  ❌ Signing failed: {e}")
+            sys.exit(1)
+
+        # Format observations for API
+        observations = []
+        for obs in obs_data:
+            entry = {
+                "promised": obs.get("promised", []),
+                "delivered": obs.get("delivered", []),
+            }
+            if "timestamp" in obs:
+                entry["timestamp"] = obs["timestamp"]
+            if "conditions" in obs:
+                entry["conditions"] = obs["conditions"]
+            observations.append(entry)
+
+        payload = {
+            "did": did,
+            "observations": observations,
+            "signature": sig_hex,
+            "nonce": nonce,
+        }
+
+        import requests
+        resp = requests.post(f"{service}/observations", json=payload)
+        if resp.status_code == 200:
+            result = resp.json()
+            print(f"  ✅ Submitted {result.get('observations_stored', 0)} observation(s)")
+            print(f"     DID: {did}")
+        else:
+            print(f"  ❌ Submission failed ({resp.status_code}): {resp.text}")
+            sys.exit(1)
+
+    elif args.observe_action == "scores":
+        target_did = args.did
+        if not target_did:
+            creds = find_credentials()
+            if creds:
+                target_did = creds["did"]
+            else:
+                print("  ❌ Provide a DID or run `aip quickstart` to set up identity.")
+                sys.exit(1)
+
+        import requests
+        window = getattr(args, "window", 28)
+        resp = requests.get(f"{service}/observations/{target_did}/scores", params={"window_days": window})
+        if resp.status_code == 200:
+            data = resp.json()
+            if data.get("observation_count", 0) == 0:
+                print(f"  📊 No observations recorded for {target_did}")
+                print(f"     Submit observations with: aip observe submit --promised 'task1,task2' --delivered 'task1'")
+            else:
+                print(f"  📊 PDR Scores for {target_did}")
+                print(f"     Calibration: {data.get('calibration', 'N/A')}")
+                print(f"     Robustness:  {data.get('robustness', 'N/A')}")
+                print(f"     Observations: {data.get('observation_count', 0)}")
+                print(f"     Window: {data.get('window_days', 0)} days")
+                if data.get("chain_hash"):
+                    print(f"     Chain hash: {data['chain_hash'][:16]}...")
+        else:
+            print(f"  ❌ Failed to fetch scores ({resp.status_code}): {resp.text}")
+            sys.exit(1)
+
+    elif args.observe_action == "list":
+        target_did = args.did
+        if not target_did:
+            creds = find_credentials()
+            if creds:
+                target_did = creds["did"]
+            else:
+                print("  ❌ Provide a DID or run `aip quickstart` to set up identity.")
+                sys.exit(1)
+
+        import requests
+        limit = getattr(args, "limit", 50)
+        resp = requests.get(f"{service}/observations/{target_did}", params={"limit": limit})
+        if resp.status_code == 200:
+            data = resp.json()
+            obs_list = data.get("observations", [])
+            if not obs_list:
+                print(f"  📋 No observations for {target_did}")
+            else:
+                print(f"  📋 {len(obs_list)} observation(s) for {target_did}\n")
+                for i, obs in enumerate(obs_list, 1):
+                    promised = ", ".join(obs.get("promised", []))
+                    delivered = ", ".join(obs.get("delivered", []))
+                    ts = obs.get("timestamp", "unknown")
+                    print(f"  {i}. [{ts}]")
+                    print(f"     Promised:  {promised}")
+                    print(f"     Delivered: {delivered}")
+                    if obs.get("conditions"):
+                        print(f"     Conditions: {json.dumps(obs['conditions'])}")
+                    print()
+        else:
+            print(f"  ❌ Failed to fetch observations ({resp.status_code}): {resp.text}")
+            sys.exit(1)
+
+    else:
+        print("Usage: aip observe <submit|scores|list>")
+        print("  submit  — Submit behavioral observations (promised vs delivered)")
+        print("  scores  — View PDR scores for an agent")
+        print("  list    — List stored observations")
+        sys.exit(1)
+
+
 def cmd_wallet(args):
     """Manage wallet-DID bindings for on-chain credential verification."""
     service = args.service or AIP_SERVICE
 
     if args.wallet_action == "bind":
-        creds = _load_credentials()
+        creds = find_credentials()
         if not creds:
             print("  ❌ No credentials found. Run `aip quickstart` to get started.")
             sys.exit(1)
@@ -2452,7 +2604,7 @@ def cmd_wallet(args):
             sys.exit(1)
 
     elif args.wallet_action == "list":
-        creds = _load_credentials()
+        creds = find_credentials()
         did = args.did or (creds["did"] if creds else None)
         if not did:
             print("  ❌ Provide --did or register first.")
@@ -2474,7 +2626,7 @@ def cmd_wallet(args):
             sys.exit(1)
 
     elif args.wallet_action == "verify":
-        creds = _load_credentials()
+        creds = find_credentials()
         did = args.did or (creds["did"] if creds else None)
         if not did:
             print("  ❌ Provide --did or register first.")
@@ -2737,6 +2889,19 @@ Run 'aip commands' for the full command list.
     p_wallet_verify.add_argument("--wallet", default=None, help="Specific wallet address (if multiple bound)")
 
     # demo
+    p_observe = sub.add_parser("observe", help="Submit behavioral observations or view PDR scores")
+    p_observe_sub = p_observe.add_subparsers(dest="observe_action")
+    p_obs_submit = p_observe_sub.add_parser("submit", help="Submit observations (promised vs delivered)")
+    p_obs_submit.add_argument("--promised", help="Comma-separated list of promised deliverables")
+    p_obs_submit.add_argument("--delivered", help="Comma-separated list of actual deliverables")
+    p_obs_submit.add_argument("--file", "-f", help="JSON file with observations array")
+    p_obs_scores = p_observe_sub.add_parser("scores", help="View PDR scores for an agent")
+    p_obs_scores.add_argument("did", nargs="?", help="DID to look up (default: your own)")
+    p_obs_scores.add_argument("--window", type=int, default=28, help="Scoring window in days (default: 28)")
+    p_obs_list = p_observe_sub.add_parser("list", help="List stored observations")
+    p_obs_list.add_argument("did", nargs="?", help="DID to look up (default: your own)")
+    p_obs_list.add_argument("--limit", type=int, default=50, help="Max observations to show")
+
     p_vouch_vc = sub.add_parser("vouch-vc", help="Export vouches as W3C Verifiable Credentials (MCP-I interop)")
     p_vouch_vc.add_argument("--target", help="Filter by target DID")
     p_vouch_vc.add_argument("--received", action="store_true", help="Export received vouches instead of issued")
@@ -2798,6 +2963,7 @@ Run 'aip commands' for the full command list.
         "export": cmd_export,
         "import": cmd_import,
         "wallet": cmd_wallet,
+        "observe": cmd_observe,
     }
 
     if args.command == "commands":
