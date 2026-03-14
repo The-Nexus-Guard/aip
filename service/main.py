@@ -18,7 +18,7 @@ import time
 import os
 
 # Import routes
-from routes import register, verify, challenge, vouch, messaging, skill, onboard, admin, webhooks, profile, oracle
+from routes import register, verify, challenge, vouch, messaging, skill, onboard, admin, webhooks, profile, oracle, observations
 from rate_limit import default_limiter, check_rate_limit, rate_limit_headers
 import system_identity
 
@@ -116,6 +116,7 @@ app.include_router(admin.router, tags=["Admin"])
 app.include_router(webhooks.router, tags=["Webhooks"])
 app.include_router(profile.router, tags=["Profiles"])
 app.include_router(oracle.router)
+app.include_router(observations.router)
 
 
 logger = logging.getLogger("aip.cleanup")
@@ -163,6 +164,8 @@ async def root():
             "lookup": "GET /lookup/{did} - Get public key for encryption",
             "skill_sign": "POST /skill/sign - Sign a skill with your DID",
             "skill_verify": "GET /skill/verify - Verify a skill signature",
+            "observations": "POST /observations - Submit behavioral observations",
+            "pdr_scores": "GET /observations/{did}/scores - Get PDR scores from observations",
         },
         "docs": "/docs",
     }
