@@ -336,6 +336,88 @@ class TestExpandedProfiles:
             "Gradual degradation should trigger at least one drift alert"
         )
 
+    def test_specification_clarity_multi_valid(self):
+        """MULTI_VALID tasks should get partial credit for valid alternatives."""
+        from datetime import datetime, timedelta
+        base = datetime(2026, 1, 1)
+        from aip_identity.pdr import SpecificationClarity, Observation
+        # All tasks are MULTI_VALID with different-but-valid outputs
+        obs = [
+            Observation(
+                agent_id="clarity_test",
+                timestamp=base + timedelta(days=i),
+                promised=["summarize"], delivered=["extract_key_points"],
+                conditions={"load": "normal", "dependencies_stable": True},
+                specification_clarity=SpecificationClarity.MULTI_VALID,
+            )
+            for i in range(10)
+        ]
+        scores = compute_pdr_from_promises(obs, min_observations=5, min_window_days=3)
+        assert scores.calibration is not None
+        # With MULTI_VALID: score = (0 + 0.5*2) / 2 = 0.5 per obs
+        assert scores.calibration == 0.5, (
+            f"MULTI_VALID calibration should be 0.5, got {scores.calibration}"
+        )
+
+        # Same data as UNAMBIGUOUS should score 0.0
+        obs_unambiguous = [
+            Observation(
+                agent_id="clarity_test",
+                timestamp=base + timedelta(days=i),
+                promised=["summarize"], delivered=["extract_key_points"],
+                conditions={"load": "normal", "dependencies_stable": True},
+                specification_clarity=SpecificationClarity.UNAMBIGUOUS,
+            )
+            for i in range(10)
+        ]
+        scores_u = compute_pdr_from_promises(obs_unambiguous, min_observations=5, min_window_days=3)
+        assert scores_u.calibration is not None
+        assert scores_u.calibration < scores.calibration, (
+            f"UNAMBIGUOUS ({scores_u.calibration}) should score lower than MULTI_VALID ({scores.calibration})"
+        )
+
+    def test_specification_clarity_underspecified(self):
+        """UNDERSPECIFIED tasks should not penalize over-delivery."""
+        from datetime import datetime, timedelta
+        from aip_identity.pdr import SpecificationClarity, Observation
+        base = datetime(2026, 1, 1)
+        # Agent over-delivers on underspecified tasks
+        obs = [
+            Observation(
+                agent_id="underspec_test",
+                timestamp=base + timedelta(days=i),
+                promised=["process_data"],
+                delivered=["process_data", "validate_data", "report_data"],
+                conditions={"load": "normal", "dependencies_stable": True},
+                specification_clarity=SpecificationClarity.UNDERSPECIFIED,
+            )
+            for i in range(10)
+        ]
+        scores = compute_pdr_from_promises(obs, min_observations=5, min_window_days=3)
+        assert scores.calibration is not None
+        # UNDERSPECIFIED: score = intersection/promised = 1/1 = 1.0
+        assert scores.calibration == 1.0, (
+            f"UNDERSPECIFIED over-delivery calibration should be 1.0, got {scores.calibration}"
+        )
+
+        # Same data as UNAMBIGUOUS would get Jaccard = 1/3 ≈ 0.333
+        obs_u = [
+            Observation(
+                agent_id="underspec_test",
+                timestamp=base + timedelta(days=i),
+                promised=["process_data"],
+                delivered=["process_data", "validate_data", "report_data"],
+                conditions={"load": "normal", "dependencies_stable": True},
+                specification_clarity=SpecificationClarity.UNAMBIGUOUS,
+            )
+            for i in range(10)
+        ]
+        scores_u = compute_pdr_from_promises(obs_u, min_observations=5, min_window_days=3)
+        assert scores_u.calibration is not None
+        assert abs(scores_u.calibration - 1/3) < 0.01, (
+            f"UNAMBIGUOUS over-delivery should score ~0.333, got {scores_u.calibration}"
+        )
+
     def test_all_profiles_distinguishable(self):
         """All 6 profiles should produce unique scoring signatures."""
         profiles = {

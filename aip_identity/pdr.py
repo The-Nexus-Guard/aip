@@ -454,6 +454,11 @@ def compute_pdr_from_promises(
     # Penalizes over-delivery too — an agent that promises 2 and delivers 5
     # is not perfectly calibrated (Nanook pilot finding: over-delivery was
     # second most common failure mode after under-delivery)
+    #
+    # Specification clarity adjustment (Nanook & Gerundium paper extension):
+    # - UNAMBIGUOUS (default): standard Jaccard, no adjustment
+    # - MULTI_VALID: mismatches get 0.5 credit (valid alternative interpretation)
+    # - UNDERSPECIFIED: over-delivery not penalized (agent filled in gaps)
     calibration_scores = []
     for o in obs:
         promised = set(o.promised) if o.promised else set()
@@ -461,9 +466,28 @@ def compute_pdr_from_promises(
         if not promised and not delivered:
             calibration_scores.append(1.0)
         else:
-            union = promised | delivered
-            intersection = promised & delivered
-            calibration_scores.append(len(intersection) / len(union) if union else 1.0)
+            clarity = o.specification_clarity
+            if clarity == SpecificationClarity.MULTI_VALID:
+                # Multiple valid outputs: partial credit for mismatches
+                # Score = (intersection + 0.5 * symmetric_difference) / union
+                union = promised | delivered
+                intersection = promised & delivered
+                sym_diff = union - intersection
+                score = (len(intersection) + 0.5 * len(sym_diff)) / len(union) if union else 1.0
+                calibration_scores.append(score)
+            elif clarity == SpecificationClarity.UNDERSPECIFIED:
+                # Underspecified: don't penalize over-delivery (agent filled gaps)
+                # Score = intersection / promised (recall-like, ignoring extras)
+                if promised:
+                    score = len(promised & delivered) / len(promised)
+                else:
+                    score = 1.0  # nothing promised, anything delivered is fine
+                calibration_scores.append(score)
+            else:
+                # UNAMBIGUOUS or None: standard Jaccard
+                union = promised | delivered
+                intersection = promised & delivered
+                calibration_scores.append(len(intersection) / len(union) if union else 1.0)
 
     scores.calibration = round(sum(calibration_scores) / len(calibration_scores), 4)
 
