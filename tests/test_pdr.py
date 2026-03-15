@@ -444,3 +444,111 @@ class TestScoresToTrustPathParams:
         )
         params = scores_to_trust_path_params(observed)
         assert "pdr_window_days" not in params
+
+
+class TestSpecificationClarity:
+    """Test specification_clarity metadata extension for PDR scoring."""
+
+    def test_clarity_enum_values(self):
+        from aip_identity.pdr import SpecificationClarity
+        assert SpecificationClarity.UNAMBIGUOUS.value == "UNAMBIGUOUS"
+        assert SpecificationClarity.MULTI_VALID.value == "MULTI_VALID"
+        assert SpecificationClarity.UNDERSPECIFIED.value == "UNDERSPECIFIED"
+
+    def test_observation_from_promises_with_clarity(self):
+        from aip_identity.pdr import Observation, SpecificationClarity
+        obs = Observation.from_promises(
+            agent_id="agent1",
+            timestamp=datetime.now(),
+            promised=["task_a"],
+            delivered=["task_b"],
+            specification_clarity=SpecificationClarity.MULTI_VALID,
+        )
+        assert obs.specification_clarity == SpecificationClarity.MULTI_VALID
+
+    def test_clarity_none_by_default(self):
+        from aip_identity.pdr import Observation
+        obs = Observation.from_promises(
+            agent_id="agent1",
+            timestamp=datetime.now(),
+            promised=["task_a"],
+            delivered=["task_a"],
+        )
+        assert obs.specification_clarity is None
+
+    def test_multi_valid_reduces_calibration_penalty(self):
+        """MULTI_VALID tasks should get partial credit for mismatches."""
+        from aip_identity.pdr import Observation, SpecificationClarity, compute_pdr
+        base = datetime(2026, 1, 1)
+
+        # Same observations but with MULTI_VALID clarity should score higher
+        def make_obs(clarity=None):
+            obs = []
+            for i in range(20):
+                o = Observation(
+                    timestamp=base + timedelta(days=i),
+                    task_type="code" if i % 2 == 0 else "review",
+                    self_reported_success=True,
+                    externally_verified=(i % 3 != 0),  # 1/3 mismatches
+                    feedback_received=False,
+                    specification_clarity=clarity,
+                )
+                obs.append(o)
+            return obs
+
+        scores_none = compute_pdr(make_obs(None))
+        scores_multi = compute_pdr(make_obs(SpecificationClarity.MULTI_VALID))
+        scores_unamb = compute_pdr(make_obs(SpecificationClarity.UNAMBIGUOUS))
+
+        # MULTI_VALID should have higher calibration (mismatches partially excused)
+        assert scores_multi.calibration > scores_none.calibration
+        # UNAMBIGUOUS should match no-clarity (no partial credit)
+        assert scores_unamb.calibration == scores_none.calibration
+
+    def test_underspecified_reduces_calibration_penalty(self):
+        """UNDERSPECIFIED tasks should also get partial credit."""
+        from aip_identity.pdr import Observation, SpecificationClarity, compute_pdr
+        base = datetime(2026, 1, 1)
+
+        def make_obs(clarity=None):
+            obs = []
+            for i in range(20):
+                o = Observation(
+                    timestamp=base + timedelta(days=i),
+                    task_type="code" if i % 2 == 0 else "review",
+                    self_reported_success=True,
+                    externally_verified=(i % 3 != 0),
+                    feedback_received=False,
+                    specification_clarity=clarity,
+                )
+                obs.append(o)
+            return obs
+
+        scores_none = compute_pdr(make_obs(None))
+        scores_under = compute_pdr(make_obs(SpecificationClarity.UNDERSPECIFIED))
+
+        assert scores_under.calibration > scores_none.calibration
+
+    def test_perfect_calibration_unaffected_by_clarity(self):
+        """When all observations match, clarity shouldn't change scores."""
+        from aip_identity.pdr import Observation, SpecificationClarity, compute_pdr
+        base = datetime(2026, 1, 1)
+
+        def make_perfect_obs(clarity=None):
+            obs = []
+            for i in range(20):
+                o = Observation(
+                    timestamp=base + timedelta(days=i),
+                    task_type="code" if i % 2 == 0 else "review",
+                    self_reported_success=True,
+                    externally_verified=True,
+                    feedback_received=False,
+                    specification_clarity=clarity,
+                )
+                obs.append(o)
+            return obs
+
+        scores_none = compute_pdr(make_perfect_obs(None))
+        scores_multi = compute_pdr(make_perfect_obs(SpecificationClarity.MULTI_VALID))
+
+        assert scores_none.calibration == scores_multi.calibration

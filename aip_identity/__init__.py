@@ -15,6 +15,7 @@ from .vc import (
 )
 from .pdr import (
     PDRScore,
+    SpecificationClarity,
     composite_trust_score,
     divergence_alert,
 )

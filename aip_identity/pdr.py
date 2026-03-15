@@ -27,7 +27,25 @@ Usage:
 import hashlib
 from dataclasses import dataclass, asdict
 from datetime import datetime, timedelta
+from enum import Enum
 from typing import Optional, Dict, Any, List, Tuple
+
+
+class SpecificationClarity(str, Enum):
+    """Classification of task specification clarity.
+
+    Per Nanook & Gerundium's follow-up paper on PDR empirical validation,
+    distinguishing specification artifacts from genuine drift requires
+    classifying the clarity of the original task specification.
+
+    UNAMBIGUOUS: Single correct interpretation exists.
+    MULTI_VALID: Multiple valid interpretations (A/B oscillation is expected, not drift).
+    UNDERSPECIFIED: Specification is incomplete; observed variance may be specification
+                    artifact rather than agent reliability issue.
+    """
+    UNAMBIGUOUS = "UNAMBIGUOUS"
+    MULTI_VALID = "MULTI_VALID"
+    UNDERSPECIFIED = "UNDERSPECIFIED"
 
 
 @dataclass
@@ -246,6 +264,7 @@ class Observation:
     promised: Optional[List[str]] = None            # what the agent committed to deliver
     delivered: Optional[List[str]] = None           # what the agent actually delivered
     conditions: Optional[Dict[str, Any]] = None     # environmental context
+    specification_clarity: Optional[SpecificationClarity] = None  # task spec clarity (Nanook paper extension)
 
     @classmethod
     def from_promises(
@@ -255,8 +274,16 @@ class Observation:
         promised: List[str],
         delivered: List[str],
         conditions: Optional[Dict[str, Any]] = None,
+        specification_clarity: Optional["SpecificationClarity"] = None,
     ) -> "Observation":
-        """Create an observation from promise/delivery data (Nanook pilot format)."""
+        """Create an observation from promise/delivery data (Nanook pilot format).
+
+        Args:
+            specification_clarity: Optional classification of task spec clarity.
+                UNAMBIGUOUS (default/None): single correct interpretation.
+                MULTI_VALID: multiple valid outputs; A/B oscillation is expected.
+                UNDERSPECIFIED: spec is incomplete; variance may be artifact.
+        """
         promised_set = set(promised)
         delivered_set = set(delivered)
         union = promised_set | delivered_set
@@ -267,6 +294,7 @@ class Observation:
             promised=promised,
             delivered=delivered,
             conditions=conditions,
+            specification_clarity=specification_clarity,
             self_reported_success=True,  # agent promised, so they expected success
             externally_verified=jaccard >= 1.0,  # perfect Jaccard = verified
             scope_hash=hashlib.sha256(",".join(sorted(promised)).encode()).hexdigest()[:16],
@@ -323,12 +351,29 @@ def compute_pdr(
         return scores
 
     # Calibration: self-reported vs externally-verified agreement
-    verified = [(o.self_reported_success, o.externally_verified)
-                for o in obs if o.externally_verified is not None]
+    # Specification clarity adjustment: MULTI_VALID/UNDERSPECIFIED tasks get
+    # reduced calibration penalty since observed variance may be specification
+    # artifact rather than genuine miscalibration (per Nanook & Gerundium paper).
+    verified_obs = [o for o in obs if o.externally_verified is not None]
+    verified = [(o.self_reported_success, o.externally_verified, o.specification_clarity)
+                for o in verified_obs]
     if len(verified) >= 5:
         mid = len(verified) // 2
-        older_rate = sum(1 for s, e in verified[:mid] if s == e) / mid
-        recent_rate = sum(1 for s, e in verified[mid:] if s == e) / len(verified[mid:])
+
+        def _clarity_adjusted_match(batch):
+            """Count matches with clarity-adjusted scoring."""
+            matches = 0.0
+            for s, e, clarity in batch:
+                if s == e:
+                    matches += 1.0
+                elif clarity in (SpecificationClarity.MULTI_VALID,
+                                 SpecificationClarity.UNDERSPECIFIED):
+                    # Partial credit: specification ambiguity explains some mismatches
+                    matches += 0.5
+            return matches
+
+        older_rate = _clarity_adjusted_match(verified[:mid]) / mid
+        recent_rate = _clarity_adjusted_match(verified[mid:]) / len(verified[mid:])
         scores.calibration = round(
             (1 - recency_weight) * older_rate + recency_weight * recent_rate, 4
         )
