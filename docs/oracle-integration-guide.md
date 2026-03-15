@@ -66,7 +66,7 @@ curl -X POST https://aip-service.fly.dev/oracle/verify/onchain \
     "conditions": [{
       "type": "token_balance",
       "contractAddress": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
-      "chain_id": 1,
+      "chainId": 1,
       "threshold": 1,
       "decimals": 6,
       "label": "USDC >= 1 on Ethereum"
@@ -93,39 +93,56 @@ Note: Template conditions (like `coinbase_verified_account`) imply the chain —
 **Response (conditions met):**
 ```json
 {
-  "success": true,
-  "did": "did:aip:your_did_here",
-  "wallet_address": "0xYour...Wallet",
-  "attestation_id": "att_abc123",
-  "passed": true,
-  "results": [
-    {
-      "type": "token_balance",
-      "label": "USDC >= 1 on Ethereum",
+  "ok": true,
+  "data": {
+    "attestation": {
+      "did": "did:aip:your_did_here",
+      "wallet_address": "0xYour...Wallet",
+      "attestation_id": "att_abc123",
       "pass": true,
-      "blockNumber": 19876543,
-      "blockTimestamp": "2026-03-04T20:00:00Z"
-    }
-  ],
-  "vouch_id": "oracle-a1b2c3d4e5f6",
-  "expires_at": "2026-03-04T20:30:00Z",
-  "message": "On-chain conditions verified"
+      "results": [
+        {
+          "type": "token_balance",
+          "label": "USDC >= 1 on Ethereum",
+          "met": true,
+          "conditionHash": "sha256:a1b2c3...",
+          "blockNumber": 19876543,
+          "blockTimestamp": "2026-03-04T20:00:00Z"
+        }
+      ]
+    },
+    "sig": "MEUCIQD...",
+    "kid": "insumer-attest-v1"
+  },
+  "meta": {
+    "vouch_id": "oracle-a1b2c3d4e5f6",
+    "expires_at": "2026-03-04T20:30:00Z"
+  }
 }
 ```
+
+Note on the response:
+- **Top-level `pass`** indicates whether all conditions passed.
+- **Per-result `met`** (not `pass`) indicates whether each individual condition was satisfied.
+- **`conditionHash`** is a SHA-256 hash per condition for tamper detection — verifiers can confirm the condition wasn't modified in transit.
+- **`sig` and `kid`** are InsumerAPI's ECDSA signature and key ID, enabling independent verification via their JWKS endpoint.
 
 When conditions pass, the oracle automatically creates a vouch from the credential oracle identity (`did:aip:insumer-oracle`). This vouch appears in the agent's trust graph alongside social vouches.
 
 ### Step 3: Verify the Oracle Independently
 
-The oracle doesn't re-sign the attestation — it passes through InsumerAPI's ECDSA signature. Any verifier can check the signature against InsumerAPI's [JWKS endpoint](https://api.insumermodel.com/v1/jwks) independently. The oracle translates format; it doesn't add trust it hasn't verified.
+The oracle doesn't re-sign the attestation — it passes through InsumerAPI's ECDSA signature. Any verifier can check the signature against InsumerAPI's [JWKS endpoint](https://api.insumermodel.com/v1/jwks) independently using the `sig` and `kid` fields from the response. The oracle translates format; it doesn't add trust it hasn't verified.
 
 ## Condition Types
 
 | Type | Fields | Notes |
 |------|--------|-------|
-| `token_balance` | `contractAddress`, `chain_id`, `threshold`, `decimals`, `label` | ERC-20 balance check |
-| `nft_ownership` | `contractAddress`, `chain_id`, `label` | ERC-721/1155 ownership |
-| `eas_attestation` | `template`, `label` | Named templates (e.g. `coinbase_verified_account`). Chain is implied by template — omit `chain_id`. |
+| `token_balance` | `contractAddress`, `chainId`, `threshold`, `decimals`, `label` | ERC-20 balance check |
+| `nft_ownership` | `contractAddress`, `chainId`, `label` | ERC-721/1155 ownership |
+| `eas_attestation` | `template`, `label` | Named templates (see below). Chain is implied by template — omit `chainId`. |
+| `farcaster_id` | `label` | Standalone Farcaster identity check. No chain or template needed. |
+
+**EAS templates:** `coinbase_verified_account`, `coinbase_one`, `gitcoin_passport_active`, `worldcoin_verified`, `ens_primary`
 
 ## How It Fits in the Trust Graph
 
