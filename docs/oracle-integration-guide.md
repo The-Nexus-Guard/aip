@@ -142,7 +142,7 @@ The oracle doesn't re-sign the attestation — it passes through InsumerAPI's EC
 | `eas_attestation` | `template`, `label` | Named templates (see below). Chain is implied by template — omit `chainId`. |
 | `farcaster_id` | `label` | Standalone Farcaster identity check. No chain or template needed. |
 
-**EAS templates:** `coinbase_verified_account`, `coinbase_one`, `gitcoin_passport_active`, `worldcoin_verified`, `ens_primary`
+**EAS templates** (from `GET /v1/compliance/templates`): `coinbase_verified_account`, `coinbase_verified_country`, `coinbase_one`, `gitcoin_passport_score`, `gitcoin_passport_active`
 
 ## How It Fits in the Trust Graph
 
