@@ -10,11 +10,14 @@ from tests.pdr_test_fixtures import (
     NON_MONOTONIC_DEGRADATION,
     OVER_PROMISER,
     ENVIRONMENT_SENSITIVE,
+    RAPID_RECOVERY,
+    GRADUAL_DEGRADATION,
     EXPECTED_PATTERNS,
 )
 from aip_identity.pdr import (
     Observation,
     compute_pdr_from_promises,
+    compute_pdr_sliding_window,
     composite_trust_score,
     PDRScore,
 )
@@ -244,4 +247,110 @@ class TestNanookFixtures:
         # Steady performer should be ~0.5 (stable, no trend)
         assert 0.3 <= scores.adaptation <= 0.7, (
             f"Steady performer adaptation {scores.adaptation} should be near 0.5"
+        )
+
+
+class TestExpandedProfiles:
+    """Tests for additional adversarial profiles (paper Case Study B expansion)."""
+
+    def test_rapid_recovery_moderate_calibration(self):
+        """Rapid recovery: 7 of 10 observations succeed → calibration ~0.70."""
+        scores = compute_pdr_from_promises(RAPID_RECOVERY)
+        assert scores.calibration is not None
+        assert 0.60 <= scores.calibration <= 0.80, (
+            f"Rapid recovery calibration {scores.calibration} should be ~0.70"
+        )
+
+    def test_rapid_recovery_near_zero_robustness(self):
+        """Rapid recovery: binary performance flip → robustness near zero."""
+        scores = compute_pdr_from_promises(RAPID_RECOVERY)
+        assert scores.robustness is not None
+        assert scores.robustness < 0.15, (
+            f"Rapid recovery robustness {scores.robustness} should be < 0.15 "
+            "(extreme variance between stable and failure conditions)"
+        )
+
+    def test_rapid_recovery_positive_adaptation(self):
+        """Rapid recovery: second half better than first → adaptation > 0.5."""
+        scores = compute_pdr_from_promises(RAPID_RECOVERY)
+        assert scores.adaptation is not None
+        assert scores.adaptation > 0.5, (
+            f"Rapid recovery adaptation {scores.adaptation} should be > 0.5 "
+            "(second half fully recovered)"
+        )
+
+    def test_rapid_recovery_sliding_window_captures_recovery(self):
+        """Sliding window positioned after recovery should show high scores."""
+        result = compute_pdr_sliding_window(RAPID_RECOVERY, window_size=4)
+        # Last 4 obs are all successes (recovery period)
+        assert result.windowed.calibration is not None
+        assert result.windowed.calibration > 0.9, (
+            f"Windowed calibration {result.windowed.calibration} should be > 0.9 "
+            "(last 4 obs are all successes)"
+        )
+
+    def test_gradual_degradation_declining_adaptation(self):
+        """Gradual degradation: negative trend → adaptation < 0.2."""
+        scores = compute_pdr_from_promises(
+            GRADUAL_DEGRADATION, min_observations=5, min_window_days=3
+        )
+        assert scores.adaptation is not None
+        assert scores.adaptation < 0.20, (
+            f"Gradual degradation adaptation {scores.adaptation} should be < 0.20 "
+            "(clear negative trend over 28 days)"
+        )
+
+    def test_gradual_degradation_moderate_cumulative(self):
+        """Gradual degradation: cumulative calibration masks the decline."""
+        scores = compute_pdr_from_promises(
+            GRADUAL_DEGRADATION, min_observations=5, min_window_days=3
+        )
+        assert scores.calibration is not None
+        # Cumulative includes the good early weeks, masking decline
+        assert 0.40 <= scores.calibration <= 0.80, (
+            f"Gradual degradation cumulative calibration {scores.calibration} "
+            "should be moderate (early success masks decline)"
+        )
+
+    def test_gradual_degradation_sliding_window_detects_decline(self):
+        """Sliding window should show lower calibration than cumulative for gradual decline."""
+        result = compute_pdr_sliding_window(
+            GRADUAL_DEGRADATION, window_size=7, min_observations=5, min_window_days=0
+        )
+        cum_cal = result.cumulative.calibration
+        win_cal = result.windowed.calibration
+        assert cum_cal is not None and win_cal is not None
+        assert win_cal < cum_cal, (
+            f"Windowed calibration ({win_cal}) should be lower than cumulative "
+            f"({cum_cal}) — the recent window catches the decline"
+        )
+
+    def test_gradual_degradation_drift_alert(self):
+        """Gradual degradation should trigger drift alerts."""
+        result = compute_pdr_sliding_window(
+            GRADUAL_DEGRADATION, window_size=7,
+            drift_warning_threshold=0.10,
+            min_observations=5, min_window_days=0,
+        )
+        assert len(result.drift_alerts) > 0, (
+            "Gradual degradation should trigger at least one drift alert"
+        )
+
+    def test_all_profiles_distinguishable(self):
+        """All 6 profiles should produce unique scoring signatures."""
+        profiles = {
+            "steady": compute_pdr_from_promises(STEADY_PERFORMER),
+            "degraded": compute_pdr_from_promises(NON_MONOTONIC_DEGRADATION),
+            "over_promiser": compute_pdr_from_promises(OVER_PROMISER),
+            "env_sensitive": compute_pdr_from_promises(ENVIRONMENT_SENSITIVE),
+            "rapid_recovery": compute_pdr_from_promises(RAPID_RECOVERY),
+            "gradual_degradation": compute_pdr_from_promises(
+                GRADUAL_DEGRADATION, min_observations=5, min_window_days=3
+            ),
+        }
+
+        # Each profile should have at least one dimension that uniquely identifies it
+        calibrations = {n: s.calibration for n, s in profiles.items() if s.calibration}
+        assert len(set(round(v, 2) for v in calibrations.values())) >= 4, (
+            f"At least 4 of 6 profiles should have distinct calibration: {calibrations}"
         )

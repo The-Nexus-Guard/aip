@@ -215,6 +215,125 @@ ENVIRONMENT_SENSITIVE = [
 ]
 
 
+# --- Pattern 5: Rapid Recovery ---
+# Complete failure for 3 days, then immediate return to perfect performance.
+# Tests: does PDR penalize transient failure fairly? Does the sliding window
+# capture the recovery? Robustness should be very low (binary condition flip).
+RAPID_RECOVERY = [
+    Observation(
+        agent_id="agent_epsilon",
+        timestamp=datetime(2026, 2, 1, 0, 0),
+        promised=["task_a", "task_b"],
+        delivered=["task_a", "task_b"],
+        conditions={"load": "normal", "dependencies_stable": True},
+    ),
+    Observation(
+        agent_id="agent_epsilon",
+        timestamp=datetime(2026, 2, 2, 0, 0),
+        promised=["task_c", "task_d"],
+        delivered=["task_c", "task_d"],
+        conditions={"load": "normal", "dependencies_stable": True},
+    ),
+    Observation(
+        agent_id="agent_epsilon",
+        timestamp=datetime(2026, 2, 3, 0, 0),
+        promised=["task_e", "task_f"],
+        delivered=["task_e", "task_f"],
+        conditions={"load": "normal", "dependencies_stable": True},
+    ),
+    Observation(
+        agent_id="agent_epsilon",
+        timestamp=datetime(2026, 2, 4, 0, 0),
+        promised=["task_g", "task_h"],
+        delivered=[],  # <-- total failure
+        conditions={"load": "high", "dependencies_stable": False},
+    ),
+    Observation(
+        agent_id="agent_epsilon",
+        timestamp=datetime(2026, 2, 5, 0, 0),
+        promised=["task_i", "task_j"],
+        delivered=[],  # <-- still down
+        conditions={"load": "high", "dependencies_stable": False},
+    ),
+    Observation(
+        agent_id="agent_epsilon",
+        timestamp=datetime(2026, 2, 6, 0, 0),
+        promised=["task_k", "task_l"],
+        delivered=[],  # <-- day 3 of failure
+        conditions={"load": "high", "dependencies_stable": False},
+    ),
+    Observation(
+        agent_id="agent_epsilon",
+        timestamp=datetime(2026, 2, 7, 0, 0),
+        promised=["task_m", "task_n"],
+        delivered=["task_m", "task_n"],  # <-- immediate recovery
+        conditions={"load": "normal", "dependencies_stable": True},
+    ),
+    Observation(
+        agent_id="agent_epsilon",
+        timestamp=datetime(2026, 2, 8, 0, 0),
+        promised=["task_o", "task_p"],
+        delivered=["task_o", "task_p"],
+        conditions={"load": "normal", "dependencies_stable": True},
+    ),
+    Observation(
+        agent_id="agent_epsilon",
+        timestamp=datetime(2026, 2, 9, 0, 0),
+        promised=["task_q", "task_r"],
+        delivered=["task_q", "task_r"],
+        conditions={"load": "normal", "dependencies_stable": True},
+    ),
+    Observation(
+        agent_id="agent_epsilon",
+        timestamp=datetime(2026, 2, 10, 0, 0),
+        promised=["task_s", "task_t"],
+        delivered=["task_s", "task_t"],
+        conditions={"load": "normal", "dependencies_stable": True},
+    ),
+]
+
+
+# --- Pattern 6: Gradual Degradation (28 days) ---
+# Starts at 100% and slowly declines. The "boiling frog" scenario.
+# Cumulative score stays moderate while the trend is clearly negative.
+# This is the pattern that motivates sliding window detection — the
+# cumulative average masks the decline.
+GRADUAL_DEGRADATION = [
+    # Week 1: Perfect delivery
+    *[Observation(
+        agent_id="agent_zeta",
+        timestamp=datetime(2026, 2, 1 + i, 0, 0),
+        promised=["task_a", "task_b"],
+        delivered=["task_a", "task_b"],
+        conditions={"load": "normal", "dependencies_stable": True},
+    ) for i in range(7)],
+    # Week 2: Occasional misses (2 out of 7)
+    *[Observation(
+        agent_id="agent_zeta",
+        timestamp=datetime(2026, 2, 8 + i, 0, 0),
+        promised=["task_a", "task_b"],
+        delivered=["task_a", "task_b"] if i not in (0, 3) else ["task_a"],
+        conditions={"load": "normal", "dependencies_stable": True},
+    ) for i in range(7)],
+    # Week 3: Frequent misses (4 out of 7)
+    *[Observation(
+        agent_id="agent_zeta",
+        timestamp=datetime(2026, 2, 15 + i, 0, 0),
+        promised=["task_a", "task_b"],
+        delivered=["task_a"] if i % 2 == 0 else ["task_a", "task_b"],
+        conditions={"load": "normal", "dependencies_stable": True},
+    ) for i in range(7)],
+    # Week 4: Mostly failing
+    *[Observation(
+        agent_id="agent_zeta",
+        timestamp=datetime(2026, 2, 22 + i, 0, 0),
+        promised=["task_a", "task_b"],
+        delivered=["task_a"] if i % 3 == 0 else [],
+        conditions={"load": "normal", "dependencies_stable": True},
+    ) for i in range(7)],
+]
+
+
 # --- Expected PDR characteristics (for test assertions) ---
 EXPECTED_PATTERNS = {
     "steady_performer": {
@@ -244,5 +363,23 @@ EXPECTED_PATTERNS = {
         "description": "The condition field is essential here. Without it, this "
                        "agent looks unreliable. With it, you see they're reliable "
                        "under normal conditions but have a hard dependency.",
+    },
+    "rapid_recovery": {
+        "calibration": "~0.70",  # 7 of 10 observations succeed
+        "robustness": "<0.10",  # extreme variance (0% vs 100%)
+        "trend": "failure_then_recovery",
+        "description": "Tests transient failure handling. Calibration moderate "
+                       "(overall 70% delivery), robustness near zero (binary "
+                       "condition-dependent performance). Sliding window should "
+                       "show the recovery if positioned after the failure.",
+    },
+    "gradual_degradation": {
+        "calibration": "~0.55-0.70",  # overall moderate due to early success
+        "adaptation": "<0.10",  # negative trend = near-zero adaptation
+        "robustness": "~0.55-0.70",  # single condition group tracks calibration
+        "trend": "declining",
+        "description": "The boiling frog. Cumulative average masks the decline. "
+                       "Sliding window detection is the only way to catch this — "
+                       "the delta between cumulative and windowed IS the signal.",
     },
 }
