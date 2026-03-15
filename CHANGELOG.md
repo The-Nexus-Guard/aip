@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.5.44 (2026-03-15) — Jaccard Calibration & Adaptation Scoring
+
+### Changes
+- **Jaccard similarity for calibration** — `compute_pdr_from_promises()` now uses intersection/union (Jaccard) instead of intersection/promised. This penalizes over-delivery in addition to under-delivery, matching Nanook's canonical scoring from the 28-day pilot (over-delivery was the second most common failure mode).
+- **Adaptation scoring** — Promise-based PDR now computes adaptation via first-half vs second-half trend comparison. Agents improving over time score >0.5, degrading agents score <0.5, stable agents ~0.5.
+- **Condition-based robustness** — Robustness now groups observations by condition hash and measures variance across groups, instead of simple CV. Single-condition observations fall back to calibration tracking.
+- **`Observation.from_promises()` uses Jaccard** — Bridge method now correctly computes `externally_verified` using Jaccard=1.0 (exact match required).
+- 4 new tests (533 total, 7 skipped).
+
 ## v0.5.43 (2026-03-14) — PDR Observation Enhancements
 
 ### New Features

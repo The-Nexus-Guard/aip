@@ -159,3 +159,89 @@ class TestNanookFixtures:
         scores2 = compute_pdr_from_promises(STEADY_PERFORMER)
         assert scores1.chain_hash == scores2.chain_hash
         assert scores1.chain_hash != ""
+
+    def test_jaccard_penalizes_over_delivery(self):
+        """Jaccard similarity should penalize over-delivery (extras beyond promised)."""
+        from datetime import datetime, timedelta
+        base = datetime(2026, 1, 1)
+        # Agent that always over-delivers: promises 2, delivers 4 (including the 2)
+        obs = [
+            Observation.from_promises(
+                agent_id="over_deliverer",
+                timestamp=base + timedelta(days=i),
+                promised=["task_a", "task_b"],
+                delivered=["task_a", "task_b", "task_c", "task_d"],
+            )
+            for i in range(10)
+        ]
+        scores = compute_pdr_from_promises(obs, min_observations=5, min_window_days=3)
+        assert scores.calibration is not None
+        # Jaccard = 2/4 = 0.5, not 1.0 (delivery rate would be 1.0)
+        assert scores.calibration == 0.5, (
+            f"Over-delivery calibration should be 0.5 (Jaccard), got {scores.calibration}"
+        )
+
+    def test_adaptation_improving_agent(self):
+        """Agent that improves over time should have adaptation > 0.5."""
+        from datetime import datetime, timedelta
+        base = datetime(2026, 1, 1)
+        obs = []
+        for i in range(12):
+            if i < 6:
+                # First half: poor delivery
+                obs.append(Observation.from_promises(
+                    agent_id="improver",
+                    timestamp=base + timedelta(days=i),
+                    promised=["a", "b", "c"],
+                    delivered=["a"],
+                ))
+            else:
+                # Second half: perfect delivery
+                obs.append(Observation.from_promises(
+                    agent_id="improver",
+                    timestamp=base + timedelta(days=i),
+                    promised=["a", "b", "c"],
+                    delivered=["a", "b", "c"],
+                ))
+        scores = compute_pdr_from_promises(obs, min_observations=5, min_window_days=3)
+        assert scores.adaptation is not None
+        assert scores.adaptation > 0.5, (
+            f"Improving agent adaptation should be > 0.5, got {scores.adaptation}"
+        )
+
+    def test_adaptation_degrading_agent(self):
+        """Agent that degrades over time should have adaptation < 0.5."""
+        from datetime import datetime, timedelta
+        base = datetime(2026, 1, 1)
+        obs = []
+        for i in range(12):
+            if i < 6:
+                # First half: perfect
+                obs.append(Observation.from_promises(
+                    agent_id="degrader",
+                    timestamp=base + timedelta(days=i),
+                    promised=["a", "b", "c"],
+                    delivered=["a", "b", "c"],
+                ))
+            else:
+                # Second half: poor
+                obs.append(Observation.from_promises(
+                    agent_id="degrader",
+                    timestamp=base + timedelta(days=i),
+                    promised=["a", "b", "c"],
+                    delivered=["a"],
+                ))
+        scores = compute_pdr_from_promises(obs, min_observations=5, min_window_days=3)
+        assert scores.adaptation is not None
+        assert scores.adaptation < 0.5, (
+            f"Degrading agent adaptation should be < 0.5, got {scores.adaptation}"
+        )
+
+    def test_steady_performer_has_adaptation(self):
+        """Steady performer should now return adaptation scores."""
+        scores = compute_pdr_from_promises(STEADY_PERFORMER)
+        assert scores.adaptation is not None, "Adaptation should be computed for sufficient data"
+        # Steady performer should be ~0.5 (stable, no trend)
+        assert 0.3 <= scores.adaptation <= 0.7, (
+            f"Steady performer adaptation {scores.adaptation} should be near 0.5"
+        )

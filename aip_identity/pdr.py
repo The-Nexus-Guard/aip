@@ -255,7 +255,10 @@ class Observation:
         conditions: Optional[Dict[str, Any]] = None,
     ) -> "Observation":
         """Create an observation from promise/delivery data (Nanook pilot format)."""
-        delivery_rate = len(set(delivered) & set(promised)) / len(promised) if promised else 1.0
+        promised_set = set(promised)
+        delivered_set = set(delivered)
+        union = promised_set | delivered_set
+        jaccard = len(promised_set & delivered_set) / len(union) if union else 1.0
         return cls(
             timestamp=timestamp,
             agent_id=agent_id,
@@ -263,7 +266,7 @@ class Observation:
             delivered=delivered,
             conditions=conditions,
             self_reported_success=True,  # agent promised, so they expected success
-            externally_verified=delivery_rate >= 1.0,  # full delivery = verified
+            externally_verified=jaccard >= 1.0,  # perfect Jaccard = verified
             scope_hash=hashlib.sha256(",".join(sorted(promised)).encode()).hexdigest()[:16],
             outcome_hash=hashlib.sha256(",".join(sorted(delivered)).encode()).hexdigest()[:16],
         )
@@ -373,9 +376,10 @@ def compute_pdr_from_promises(
 
     Unlike compute_pdr() which needs self_reported_success/externally_verified,
     this operates on promised/delivered lists directly:
-    - Calibration: ratio of delivered items to promised items (delivery rate)
-    - Robustness: consistency of delivery rate across time windows
-    - Adaptation: not computed (would need feedback data)
+    - Calibration: Jaccard similarity (intersection/union) — penalizes both
+      under-delivery AND over-delivery (Nanook canonical v2)
+    - Robustness: consistency across condition groups (variance of group means)
+    - Adaptation: trend direction (first-half vs second-half improvement)
 
     Lower thresholds than compute_pdr() since promise-based data is denser.
     """
@@ -399,26 +403,54 @@ def compute_pdr_from_promises(
     if len(obs) < min_observations or window < min_window_days:
         return scores
 
-    # Calibration: average delivery rate (|delivered ∩ promised| / |promised|)
-    delivery_rates = []
+    # Calibration: Jaccard similarity (|intersection| / |union|)
+    # Penalizes over-delivery too — an agent that promises 2 and delivers 5
+    # is not perfectly calibrated (Nanook pilot finding: over-delivery was
+    # second most common failure mode after under-delivery)
+    calibration_scores = []
     for o in obs:
-        if o.promised:
-            rate = len(set(o.delivered or []) & set(o.promised)) / len(o.promised)
+        promised = set(o.promised) if o.promised else set()
+        delivered = set(o.delivered) if o.delivered else set()
+        if not promised and not delivered:
+            calibration_scores.append(1.0)
         else:
-            rate = 1.0  # no promises = trivially calibrated
-        delivery_rates.append(rate)
+            union = promised | delivered
+            intersection = promised & delivered
+            calibration_scores.append(len(intersection) / len(union) if union else 1.0)
 
-    scores.calibration = round(sum(delivery_rates) / len(delivery_rates), 4)
+    scores.calibration = round(sum(calibration_scores) / len(calibration_scores), 4)
 
-    # Robustness: coefficient of variation of delivery rates
-    # Group by conditions (dependencies_stable True vs False)
-    if len(delivery_rates) >= 3:
-        mean = sum(delivery_rates) / len(delivery_rates)
-        if mean > 0:
-            cv = (sum((r - mean)**2 for r in delivery_rates) / len(delivery_rates))**0.5 / mean
-            scores.robustness = round(max(0.0, 1.0 - cv), 4)
-        else:
-            scores.robustness = 0.0
+    # Robustness: consistency across condition groups
+    # Group by condition hash, measure variance of group means
+    condition_groups: Dict[str, List[float]] = {}
+    for i, o in enumerate(obs):
+        cond_key = str(sorted((o.conditions or {}).items()))
+        if cond_key not in condition_groups:
+            condition_groups[cond_key] = []
+        promised = set(o.promised) if o.promised else set()
+        delivered = set(o.delivered) if o.delivered else set()
+        union = promised | delivered
+        score = len(promised & delivered) / len(union) if union else 1.0
+        condition_groups[cond_key].append(score)
+
+    if len(condition_groups) > 1:
+        group_means = [sum(g) / len(g) for g in condition_groups.values() if g]
+        overall_mean = sum(group_means) / len(group_means)
+        variance = sum((m - overall_mean) ** 2 for m in group_means) / len(group_means)
+        scores.robustness = round(max(0.0, 1.0 - (variance ** 0.5) * 2), 4)
+    else:
+        # Single condition group: robustness tracks calibration
+        scores.robustness = scores.calibration
+
+    # Adaptation: trend direction (first-half vs second-half)
+    if len(calibration_scores) >= 6:
+        mid = len(calibration_scores) // 2
+        first_half = calibration_scores[:mid]
+        second_half = calibration_scores[mid:]
+        trend = (sum(second_half) / len(second_half)) - (sum(first_half) / len(first_half))
+        scores.adaptation = round(min(1.0, max(0.0, 0.5 + trend)), 4)
+    else:
+        scores.adaptation = 0.5  # insufficient data for trend
 
     return scores
 
