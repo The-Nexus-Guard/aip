@@ -81,10 +81,33 @@ class PDRScoreResponse(BaseModel):
     """Computed PDR scores for an agent."""
     did: str
     calibration: Optional[float] = None
+    adaptation: Optional[float] = None
     robustness: Optional[float] = None
     observation_count: int = 0
     window_days: int = 0
     chain_hash: str = ""
+    computed_at: str = ""
+
+
+class DriftAlertResponse(BaseModel):
+    """A single drift alert."""
+    dimension: str
+    cumulative_score: float
+    windowed_score: float
+    delta: float
+    severity: str
+    window_size: int
+    message: str
+
+
+class SlidingWindowResponse(BaseModel):
+    """PDR scores with sliding window drift detection."""
+    did: str
+    cumulative: PDRScoreResponse
+    windowed: PDRScoreResponse
+    window_size: int
+    drift_alerts: List[DriftAlertResponse]
+    confidence: float
     computed_at: str = ""
 
 
@@ -282,6 +305,7 @@ async def get_pdr_scores(
     return PDRScoreResponse(
         did=did,
         calibration=scores.calibration,
+        adaptation=scores.adaptation,
         robustness=scores.robustness,
         observation_count=scores.observation_count,
         window_days=scores.window_days,
@@ -385,3 +409,120 @@ async def get_pdr_history(
         "snapshots": snapshots,
         "count": len(snapshots),
     }
+
+
+@router.get("/pdr/{did}/drift", response_model=SlidingWindowResponse)
+async def get_pdr_drift(
+    did: str,
+    window_size: int = Query(20, ge=5, le=200, description="Sliding window size (observations)"),
+    warning_threshold: float = Query(0.15, ge=0.01, le=0.5, description="Drift warning threshold"),
+    critical_threshold: float = Query(0.30, ge=0.05, le=0.8, description="Drift critical threshold"),
+):
+    """
+    Get PDR scores with sliding window drift detection.
+
+    Compares cumulative (all-time) scores with windowed (recent N observations)
+    scores. When the delta exceeds thresholds, drift alerts are generated.
+
+    Key insight: an agent with 50 stable observations at ~0.95 followed by
+    sudden degradation over 10 observations will show cumulative ~0.85 while
+    the sliding window drops to ~0.4. The divergence is the signal.
+
+    Also returns a confidence score (0.0-0.95) based on observation count
+    and temporal spread.
+    """
+    from aip_identity.pdr import (
+        Observation as PDRObservation,
+        compute_pdr_sliding_window,
+    )
+
+    _ensure_observations_table()
+
+    with database.get_connection() as conn:
+        rows = conn.execute(
+            "SELECT promised, delivered, timestamp, conditions FROM observations "
+            "WHERE did = ? ORDER BY timestamp ASC",
+            (did,),
+        ).fetchall()
+
+    if not rows:
+        now_iso = datetime.now(tz=__import__("datetime").timezone.utc).isoformat()
+        empty_scores = PDRScoreResponse(did=did, computed_at=now_iso)
+        return SlidingWindowResponse(
+            did=did,
+            cumulative=empty_scores,
+            windowed=empty_scores,
+            window_size=0,
+            drift_alerts=[],
+            confidence=0.0,
+            computed_at=now_iso,
+        )
+
+    # Convert to Observation objects
+    observations = []
+    for row in rows:
+        try:
+            promised = json.loads(row["promised"])
+            delivered = json.loads(row["delivered"])
+            conditions = json.loads(row["conditions"]) if row["conditions"] else None
+            timestamp = datetime.fromisoformat(row["timestamp"])
+            observations.append(PDRObservation.from_promises(
+                agent_id=did,
+                timestamp=timestamp,
+                promised=promised,
+                delivered=delivered,
+                conditions=conditions,
+            ))
+        except (json.JSONDecodeError, ValueError):
+            continue
+
+    result = compute_pdr_sliding_window(
+        observations,
+        window_size=window_size,
+        drift_warning_threshold=warning_threshold,
+        drift_critical_threshold=critical_threshold,
+    )
+
+    now_iso = datetime.now(tz=__import__("datetime").timezone.utc).isoformat()
+
+    cum = result.cumulative
+    win = result.windowed
+
+    return SlidingWindowResponse(
+        did=did,
+        cumulative=PDRScoreResponse(
+            did=did,
+            calibration=cum.calibration,
+            adaptation=cum.adaptation,
+            robustness=cum.robustness,
+            observation_count=cum.observation_count,
+            window_days=cum.window_days,
+            chain_hash=cum.chain_hash,
+            computed_at=now_iso,
+        ),
+        windowed=PDRScoreResponse(
+            did=did,
+            calibration=win.calibration,
+            adaptation=win.adaptation,
+            robustness=win.robustness,
+            observation_count=win.observation_count,
+            window_days=win.window_days,
+            chain_hash=win.chain_hash,
+            computed_at=now_iso,
+        ),
+        window_size=result.window_size,
+        drift_alerts=[
+            DriftAlertResponse(
+                dimension=a.dimension,
+                cumulative_score=a.cumulative_score,
+                windowed_score=a.windowed_score,
+                delta=a.delta,
+                severity=a.severity,
+                window_size=a.window_size,
+                message=a.message,
+            )
+            for a in result.drift_alerts
+        ],
+        confidence=result.confidence,
+        computed_at=now_iso,
+    )

@@ -168,6 +168,7 @@ async def root():
             "pdr_scores": "GET /pdr/{did} - Get PDR scores from observations",
             "pdr_history": "GET /pdr/{did}/history - PDR score progression over time",
             "pdr_schemas": "GET /pdr/schemas - List available promise schema types",
+            "pdr_drift": "GET /pdr/{did}/drift - Sliding window drift detection with confidence",
         },
         "docs": "/docs",
     }

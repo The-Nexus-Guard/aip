@@ -466,6 +466,156 @@ def _compute_chain_hash(observations: List[Observation]) -> str:
     return h.hexdigest()[:16]
 
 
+# ---------------------------------------------------------------------------
+# Sliding window drift detection
+# Based on Nanook's pilot findings: late-onset drift was invisible to
+# cumulative scoring. The delta between sliding and cumulative IS the signal.
+# ---------------------------------------------------------------------------
+
+@dataclass
+class DriftAlert:
+    """Alert when sliding window score diverges from cumulative score."""
+    dimension: str                  # "calibration", "adaptation", or "robustness"
+    cumulative_score: float
+    windowed_score: float
+    delta: float                    # cumulative - windowed (positive = declining)
+    severity: str                   # "warning" or "critical"
+    window_size: int                # observations in the sliding window
+    message: str
+
+
+@dataclass
+class SlidingWindowResult:
+    """PDR scores with both cumulative and windowed views."""
+    cumulative: ObservedPDRScores
+    windowed: ObservedPDRScores     # scores from recent window only
+    window_size: int                # number of observations in window
+    drift_alerts: List[DriftAlert]
+    confidence: float               # [0.0, 1.0] based on observation count + window span
+
+
+def compute_pdr_sliding_window(
+    observations: List[Observation],
+    window_size: int = 20,
+    drift_warning_threshold: float = 0.15,
+    drift_critical_threshold: float = 0.30,
+    min_observations: int = 5,
+    min_window_days: int = 3,
+    use_promises: bool = True,
+) -> SlidingWindowResult:
+    """
+    Compute PDR scores with sliding window drift detection.
+
+    The key insight from Nanook's pilot: an agent with 50 stable observations
+    at ~0.95 followed by sudden degradation over 10 observations will show
+    cumulative ~0.85 while the sliding window drops to ~0.4. The divergence
+    is the alert.
+
+    Args:
+        observations: Full observation history
+        window_size: Number of recent observations for the sliding window
+        drift_warning_threshold: Delta that triggers a warning (default 0.15)
+        drift_critical_threshold: Delta that triggers a critical alert (default 0.30)
+        min_observations: Minimum observations for scoring
+        min_window_days: Minimum window span in days
+        use_promises: Use promise-based scoring (True) or verification-based (False)
+
+    Returns:
+        SlidingWindowResult with cumulative scores, windowed scores, and any drift alerts.
+    """
+    compute_fn = compute_pdr_from_promises if use_promises else compute_pdr
+
+    # Cumulative: full history
+    cumulative = compute_fn(observations, min_observations=min_observations,
+                            min_window_days=min_window_days)
+
+    # Windowed: last N observations
+    sorted_obs = sorted(observations, key=lambda o: o.timestamp)
+    window_obs = sorted_obs[-window_size:] if len(sorted_obs) > window_size else sorted_obs
+    actual_window = len(window_obs)
+    windowed = compute_fn(window_obs, min_observations=min(min_observations, actual_window),
+                          min_window_days=0)  # no window-days requirement for sliding
+
+    # Detect drift
+    alerts: List[DriftAlert] = []
+    for dim in ("calibration", "adaptation", "robustness"):
+        cum_val = getattr(cumulative, dim)
+        win_val = getattr(windowed, dim)
+        if cum_val is not None and win_val is not None:
+            delta = cum_val - win_val
+            if abs(delta) >= drift_critical_threshold:
+                alerts.append(DriftAlert(
+                    dimension=dim,
+                    cumulative_score=round(cum_val, 4),
+                    windowed_score=round(win_val, 4),
+                    delta=round(delta, 4),
+                    severity="critical",
+                    window_size=actual_window,
+                    message=f"{dim} dropped from {cum_val:.2f} (cumulative) to "
+                            f"{win_val:.2f} (recent {actual_window} obs) — "
+                            f"delta {delta:.2f} exceeds critical threshold",
+                ))
+            elif abs(delta) >= drift_warning_threshold:
+                alerts.append(DriftAlert(
+                    dimension=dim,
+                    cumulative_score=round(cum_val, 4),
+                    windowed_score=round(win_val, 4),
+                    delta=round(delta, 4),
+                    severity="warning",
+                    window_size=actual_window,
+                    message=f"{dim} shifted from {cum_val:.2f} to {win_val:.2f} "
+                            f"(recent {actual_window} obs) — monitoring",
+                ))
+
+    # Confidence curve: grows with observation count and window span
+    obs_count = len(observations)
+    confidence = _compute_confidence(obs_count, cumulative.window_days)
+
+    return SlidingWindowResult(
+        cumulative=cumulative,
+        windowed=windowed,
+        window_size=actual_window,
+        drift_alerts=alerts,
+        confidence=confidence,
+    )
+
+
+def _compute_confidence(observation_count: int, window_days: int) -> float:
+    """
+    Compute confidence score for PDR measurements.
+
+    Based on Nanook's pilot data:
+    - <10 observations: very low confidence (< 0.3)
+    - 10-30 observations: growing (0.3-0.7)
+    - 30+ observations: high confidence (0.7-0.95)
+    - 14+ day window adds bonus (temporal spread matters)
+    - Max confidence caps at 0.95 — behavioral scoring is never certain
+
+    The curve is sigmoidal: slow start, fast middle, plateau at top.
+    """
+    # Observation count contribution (0 to 0.7)
+    if observation_count <= 0:
+        obs_score = 0.0
+    elif observation_count < 10:
+        obs_score = 0.3 * (observation_count / 10)
+    elif observation_count < 30:
+        obs_score = 0.3 + 0.4 * ((observation_count - 10) / 20)
+    else:
+        obs_score = 0.7
+
+    # Window span contribution (0 to 0.25)
+    if window_days < 3:
+        window_score = 0.0
+    elif window_days < 14:
+        window_score = 0.15 * ((window_days - 3) / 11)
+    elif window_days < 28:
+        window_score = 0.15 + 0.10 * ((window_days - 14) / 14)
+    else:
+        window_score = 0.25
+
+    return round(min(0.95, obs_score + window_score), 4)
+
+
 def observed_to_pdr_score(
     observed: ObservedPDRScores,
     agent_did: Optional[str] = None,
