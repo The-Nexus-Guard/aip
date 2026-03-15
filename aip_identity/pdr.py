@@ -3,6 +3,8 @@ Agent Identity Protocol - Probabilistic Delegation Reliability (PDR) Integration
 
 Provides behavioral trust scoring to complement AIP's social trust (vouch chains).
 Based on Nanook's PDR framework: https://github.com/nanookclaw
+Reference: Nanook, "PDR: A Task-Level Scoring Framework for Agent Reliability
+in Multi-Agent Systems" (2026). DOI: 10.5281/zenodo.19028012
 
 The composite trust formula:
     trust_score = social_trust(vouch_chain) × behavioral_reliability(pdr_score)
@@ -584,36 +586,41 @@ def _compute_confidence(observation_count: int, window_days: int) -> float:
     """
     Compute confidence score for PDR measurements.
 
-    Based on Nanook's pilot data:
+    Based on Nanook's pilot data + temporal spread refinement (v0.5.46):
     - <10 observations: very low confidence (< 0.3)
     - 10-30 observations: growing (0.3-0.7)
     - 30+ observations: high confidence (0.7-0.95)
-    - 14+ day window adds bonus (temporal spread matters)
+    - Temporal coverage is a *multiplier* on base confidence, not additive
     - Max confidence caps at 0.95 — behavioral scoring is never certain
 
-    The curve is sigmoidal: slow start, fast middle, plateau at top.
+    Temporal spread as multiplier (per Nanook's feedback on DOI:10.5281/zenodo.19028012):
+    30 observations in 30 minutes vs 14 days should produce very different
+    confidence. The multiplicative model ensures this gap is significant:
+        confidence = base_confidence * (floor + (1-floor) * temporal_coverage)
+    where floor=0.5 prevents zero-confidence with real observations.
     """
-    # Observation count contribution (0 to 0.7)
+    # Base confidence from observation count (0 to 0.95)
     if observation_count <= 0:
-        obs_score = 0.0
+        base = 0.0
     elif observation_count < 10:
-        obs_score = 0.3 * (observation_count / 10)
+        base = 0.3 * (observation_count / 10)
     elif observation_count < 30:
-        obs_score = 0.3 + 0.4 * ((observation_count - 10) / 20)
+        base = 0.3 + 0.4 * ((observation_count - 10) / 20)
     else:
-        obs_score = 0.7
+        # Asymptotic approach to 0.95
+        base = 0.7 + 0.25 * min(1.0, (observation_count - 30) / 20)
 
-    # Window span contribution (0 to 0.25)
-    if window_days < 3:
-        window_score = 0.0
+    # Temporal coverage multiplier [0.5, 1.0]
+    # 0 days → 0.5x, 14+ days → 1.0x
+    temporal_floor = 0.5
+    if window_days <= 0:
+        temporal_mult = temporal_floor
     elif window_days < 14:
-        window_score = 0.15 * ((window_days - 3) / 11)
-    elif window_days < 28:
-        window_score = 0.15 + 0.10 * ((window_days - 14) / 14)
+        temporal_mult = temporal_floor + (1.0 - temporal_floor) * (window_days / 14)
     else:
-        window_score = 0.25
+        temporal_mult = 1.0
 
-    return round(min(0.95, obs_score + window_score), 4)
+    return round(min(0.95, base * temporal_mult), 4)
 
 
 def observed_to_pdr_score(

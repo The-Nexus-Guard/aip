@@ -394,7 +394,7 @@ Add to your Moltbook profile, GitHub README, or documentation.
 
 ## Status
 
-🚀 **v0.5.31** - Identity + Trust + Messaging + Skill Signing + Trust Graphs + Oracle + Doctor + Interactive Demo + Offline Cache
+🚀 **v0.5.46** - Identity + Trust + Messaging + Skill Signing + Trust Graphs + Oracle + PDR Behavioral Trust + Drift Detection
 
 - [x] Ed25519 identity (pure Python + PyNaCl + cryptography backends)
 - [x] DID document generation
@@ -628,6 +628,10 @@ doc = identity.create_did_document()
 **Communication** lets you "talk securely with verified agents."
 
 Cryptographic identity is necessary but not sufficient. You need to know not just *who* someone is, but whether they're trustworthy, and then you need a secure channel to communicate. AIP provides all three.
+
+## Research & References
+
+- Nanook, "PDR: A Task-Level Scoring Framework for Agent Reliability in Multi-Agent Systems" (2026). DOI: [10.5281/zenodo.19028012](https://zenodo.org/records/19028012) — Theoretical foundation for AIP's behavioral trust scoring (calibration/adaptation/robustness decomposition, sliding window drift detection)
 
 ## Articles & Deep Dives
 
