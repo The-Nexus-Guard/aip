@@ -5,10 +5,8 @@
   "description": "MCP server for AI agent identity verification — verify agents via DID, check trust scores, sign content, and exchange encrypted messages using the Agent Identity Protocol (AIP).",
   "version": "0.1.1",
   "repository": {
-    "url": "https://github.com/The-Nexus-Guard/aip",
-    "source": "github",
-    "id": "1147482753",
-    "subfolder": "mcp-server"
+    "url": "https://github.com/The-Nexus-Guard/aip-mcp-server",
+    "source": "github"
   },
   "packages": [
     {
@@ -17,7 +15,16 @@
       "version": "0.1.1",
       "transport": {
         "type": "stdio"
-      }
+      },
+      "environmentVariables": [
+        {
+          "description": "Path to AIP credentials JSON file (optional, defaults to ~/.aip/credentials.json)",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false,
+          "name": "AIP_CREDENTIALS_PATH"
+        }
+      ]
     }
   ],
   "tools": [
