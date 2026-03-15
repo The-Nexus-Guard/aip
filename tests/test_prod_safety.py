@@ -49,9 +49,11 @@ def test_read_allowed_in_testing_mode(cmd_args):
     env["AIP_TESTING"] = "1"
     env.pop("AIP_SERVICE_URL", None)
 
+    # health command reaches the live service — needs more time in CI
+    timeout = 30 if "health" in cmd_args else 10
     result = subprocess.run(
         [sys.executable, CLI_PATH] + cmd_args,
-        capture_output=True, text=True, env=env, timeout=10,
+        capture_output=True, text=True, env=env, timeout=timeout,
     )
     # Should not exit 99
     assert result.returncode != 99, f"Read command was blocked: {result.stdout}"
