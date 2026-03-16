@@ -18,7 +18,7 @@ import time
 import os
 
 # Import routes
-from routes import register, verify, challenge, vouch, messaging, skill, onboard, admin, webhooks, profile, oracle, observations
+from routes import register, verify, challenge, vouch, messaging, skill, onboard, admin, webhooks, profile, oracle, observations, feed
 from rate_limit import default_limiter, check_rate_limit, rate_limit_headers
 import system_identity
 
@@ -117,6 +117,7 @@ app.include_router(webhooks.router, tags=["Webhooks"])
 app.include_router(profile.router, tags=["Profiles"])
 app.include_router(oracle.router)
 app.include_router(observations.router)
+app.include_router(feed.router)
 
 
 logger = logging.getLogger("aip.cleanup")
