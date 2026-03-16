@@ -211,6 +211,31 @@ peers = mw.discover_peers(min_trust=0.3)
 
 See [docs/design/identity-middleware.md](docs/design/identity-middleware.md) for the full design.
 
+## CI/CD Identity (GitHub Action)
+
+Give your CI pipeline a cryptographic identity. Sign build artifacts, verify dependencies, gate deployments on trust:
+
+```yaml
+- uses: The-Nexus-Guard/aip@main
+  with:
+    did: ${{ secrets.AIP_DID }}
+    private-key: ${{ secrets.AIP_PRIVATE_KEY }}
+    sign-paths: 'dist/*'
+```
+
+Trust-gated deployments — only deploy if an upstream agent is still trusted:
+
+```yaml
+- uses: The-Nexus-Guard/aip@main
+  with:
+    did: ${{ secrets.AIP_DID }}
+    private-key: ${{ secrets.AIP_PRIVATE_KEY }}
+    verify-did: 'did:aip:upstream-agent'
+    trust-threshold: '0.5'
+```
+
+See [action/README.md](action/README.md) for full documentation.
+
 ## A2A Protocol Integration
 
 AIP provides the missing identity layer for [Google's A2A protocol](https://github.com/a2aproject/A2A). Add DIDs to AgentCards, verify agents before delegating tasks, and sign every message:

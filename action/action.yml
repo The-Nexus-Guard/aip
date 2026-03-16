@@ -1,0 +1,164 @@
+name: 'AIP Identity for CI/CD'
+description: 'Give your CI pipeline a cryptographic identity. Sign artifacts, verify peers, build trust.'
+author: 'The-Nexus-Guard'
+
+branding:
+  icon: 'shield'
+  color: 'blue'
+
+inputs:
+  did:
+    description: 'Your agent DID (from `aip whoami`)'
+    required: true
+  private-key:
+    description: 'Base64-encoded Ed25519 private key (store as GitHub secret)'
+    required: true
+  service-url:
+    description: 'AIP service URL'
+    required: false
+    default: 'https://aip-service.fly.dev'
+  sign-paths:
+    description: 'Paths to sign (space-separated). Supports globs.'
+    required: false
+    default: ''
+  verify-did:
+    description: 'DID to verify before proceeding (trust gate)'
+    required: false
+    default: ''
+  trust-threshold:
+    description: 'Minimum trust score required for verify-did (0.0-1.0)'
+    required: false
+    default: '0.0'
+  python-version:
+    description: 'Python version to use'
+    required: false
+    default: '3.11'
+
+outputs:
+  did:
+    description: 'The agent DID used'
+    value: ${{ steps.setup.outputs.did }}
+  trust-score:
+    description: 'Trust score of the agent'
+    value: ${{ steps.setup.outputs.trust-score }}
+  signatures:
+    description: 'JSON array of signed file paths and signatures'
+    value: ${{ steps.sign.outputs.signatures }}
+  verified:
+    description: 'Whether verify-did passed trust gate (true/false)'
+    value: ${{ steps.verify.outputs.verified }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ inputs.python-version }}
+
+    - name: Install AIP
+      shell: bash
+      run: pip install aip-identity --quiet
+
+    - name: Configure identity
+      id: setup
+      shell: bash
+      env:
+        AIP_DID: ${{ inputs.did }}
+        AIP_PRIVATE_KEY: ${{ inputs.private-key }}
+        AIP_SERVICE: ${{ inputs.service-url }}
+      run: |
+        # Verify credentials work
+        echo "🔐 Configuring AIP identity..."
+        WHOAMI=$(aip whoami 2>&1) || true
+        echo "$WHOAMI"
+        echo "did=$AIP_DID" >> "$GITHUB_OUTPUT"
+
+        # Get trust score
+        SCORE=$(python3 -c "
+        import requests, os, sys
+        did = os.environ['AIP_DID']
+        svc = os.environ.get('AIP_SERVICE', 'https://aip-service.fly.dev')
+        try:
+            r = requests.get(f'{svc}/trust/{did}', timeout=10)
+            if r.ok:
+                print(r.json().get('trust_score', 0))
+            else:
+                print(0)
+        except:
+            print(0)
+        " 2>/dev/null)
+        echo "trust-score=$SCORE" >> "$GITHUB_OUTPUT"
+        echo "✅ AIP identity configured (trust score: $SCORE)"
+
+    - name: Trust gate
+      id: verify
+      if: inputs.verify-did != ''
+      shell: bash
+      env:
+        AIP_DID: ${{ inputs.did }}
+        AIP_PRIVATE_KEY: ${{ inputs.private-key }}
+        AIP_SERVICE: ${{ inputs.service-url }}
+      run: |
+        echo "🔍 Verifying ${{ inputs.verify-did }}..."
+        RESULT=$(python3 -c "
+        import requests, os, sys
+        did = '${{ inputs.verify-did }}'
+        threshold = float('${{ inputs.trust-threshold }}')
+        svc = os.environ.get('AIP_SERVICE', 'https://aip-service.fly.dev')
+        try:
+            r = requests.get(f'{svc}/trust/{did}', timeout=10)
+            if r.ok:
+                score = r.json().get('trust_score', 0)
+                if score >= threshold:
+                    print(f'PASS:{score}')
+                else:
+                    print(f'FAIL:{score}')
+            else:
+                print('FAIL:0')
+        except Exception as e:
+            print(f'FAIL:0')
+        ")
+        STATUS=$(echo "$RESULT" | cut -d: -f1)
+        SCORE=$(echo "$RESULT" | cut -d: -f2)
+        if [ "$STATUS" = "PASS" ]; then
+          echo "verified=true" >> "$GITHUB_OUTPUT"
+          echo "✅ Trust gate passed (score: $SCORE, threshold: ${{ inputs.trust-threshold }})"
+        else
+          echo "verified=false" >> "$GITHUB_OUTPUT"
+          echo "❌ Trust gate FAILED (score: $SCORE, threshold: ${{ inputs.trust-threshold }})"
+          exit 1
+        fi
+
+    - name: Sign artifacts
+      id: sign
+      if: inputs.sign-paths != ''
+      shell: bash
+      env:
+        AIP_DID: ${{ inputs.did }}
+        AIP_PRIVATE_KEY: ${{ inputs.private-key }}
+        AIP_SERVICE: ${{ inputs.service-url }}
+      run: |
+        echo "✍️ Signing artifacts..."
+        SIGS="[]"
+        for pattern in ${{ inputs.sign-paths }}; do
+          for file in $pattern; do
+            if [ -f "$file" ]; then
+              echo "  Signing: $file"
+              SIG=$(aip sign "$file" 2>&1) || true
+              echo "$SIG"
+              # Extract signature from output
+              SIG_VALUE=$(echo "$SIG" | grep -oP 'Signature: \K.*' || echo "")
+              if [ -n "$SIG_VALUE" ]; then
+                SIGS=$(python3 -c "
+        import json
+        sigs = json.loads('$SIGS')
+        sigs.append({'path': '$file', 'signature': '$SIG_VALUE'})
+        print(json.dumps(sigs))
+        ")
+              fi
+            fi
+          done
+        done
+        echo "signatures=$SIGS" >> "$GITHUB_OUTPUT"
+        echo "✅ Signing complete"
