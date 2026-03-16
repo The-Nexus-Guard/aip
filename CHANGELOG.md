@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.5.49 (2026-03-16) — Encrypted Credential Storage
+
+### New Features
+- **Encrypted credential storage** — New `aip encrypt-credentials` command encrypts your private key at rest using Argon2id key derivation + NaCl SecretBox. Addresses plaintext key storage concern raised in community security audit.
+- **Environment variable credentials** — Support `AIP_DID` + `AIP_PRIVATE_KEY` env vars for keyless-file operation (CI/CD, containers). `AIP_PASSPHRASE` for automated encrypted access.
+- **Transparent encrypted loading** — `find_credentials()` now automatically handles both plaintext and encrypted credential files. Prompts for passphrase interactively, or reads `AIP_PASSPHRASE` env var.
+- 21 new tests for credential encryption (598 total, 7 skipped).
+
+### Security
+- Credentials file now suggests `aip encrypt-credentials` after every plaintext save.
+- Encrypted format: `aip-encrypted-v1` with per-encryption random salt.
+
 ## v0.5.44 (2026-03-15) — Jaccard Calibration & Adaptation Scoring
 
 ### Changes

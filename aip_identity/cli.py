@@ -42,31 +42,33 @@ def find_credentials():
     """Find AIP credentials from known locations.
     
     Checks AIP_CREDENTIALS_PATH env var first, then standard locations.
+    Supports both plaintext and encrypted (aip-encrypted-v1) credential files.
+    For encrypted files, checks AIP_PASSPHRASE env var or prompts interactively.
     """
-    # Check env var override first
+    from aip_identity.credential_store import is_encrypted, load_credentials as _load_creds
+
+    # Check env var for private key (no file needed)
+    env_key = os.environ.get("AIP_PRIVATE_KEY")
+    env_did = os.environ.get("AIP_DID")
+    if env_key and env_did:
+        return {"did": env_did, "private_key": env_key}
+
+    # Check env var override for path
     env_path = os.environ.get("AIP_CREDENTIALS_PATH")
     if env_path:
         p = Path(env_path)
         if p.exists():
-            try:
-                with open(p) as f:
-                    creds = json.load(f)
-                if "did" in creds and "private_key" in creds:
-                    return creds
-            except (json.JSONDecodeError, KeyError):
-                pass
+            creds = _load_creds(p)
+            if creds and "did" in creds and "private_key" in creds:
+                return creds
         # If env var is set but file doesn't exist/is invalid, don't fall through
         return None
 
     for path in CREDENTIALS_PATHS:
         if path.exists():
-            try:
-                with open(path) as f:
-                    creds = json.load(f)
-                if "did" in creds and "private_key" in creds:
-                    return creds
-            except (json.JSONDecodeError, KeyError):
-                continue
+            creds = _load_creds(path)
+            if creds and "did" in creds and "private_key" in creds:
+                return creds
     return None
 
 
@@ -80,6 +82,7 @@ def save_credentials(creds, path=None):
     os.chmod(path, 0o600)
     print(f"Credentials saved to {path}")
     print(f"  ⚠️  Private key stored in plaintext (file permissions set to 600).")
+    print(f"  💡 Run `aip encrypt-credentials` to encrypt with a passphrase.")
 
 
 def require_credentials():
@@ -2077,6 +2080,83 @@ def cmd_demo(args):
         _demo_interactive(args)
 
 
+def cmd_encrypt_credentials(args):
+    """Encrypt stored credentials with a passphrase.
+
+    Converts plaintext credentials to encrypted format (Argon2id + NaCl SecretBox).
+    Your private key will no longer be stored in cleartext.
+    """
+    from aip_identity.credential_store import (
+        is_encrypted,
+        encrypt_credentials as _encrypt_creds,
+        save_credentials_encrypted,
+    )
+    import getpass
+
+    print("═══ AIP Credential Encryption ═══\n")
+
+    # Find current credentials
+    creds_path = None
+    creds = None
+    for path in CREDENTIALS_PATHS:
+        if path.exists():
+            try:
+                with open(path) as f:
+                    data = json.load(f)
+                if is_encrypted(data):
+                    print(f"✅ Credentials at {path} are already encrypted.")
+                    return
+                if "did" in data and "private_key" in data:
+                    creds_path = path
+                    creds = data
+                    break
+            except (json.JSONDecodeError, OSError):
+                continue
+
+    if not creds:
+        print("❌ No plaintext credentials found to encrypt.")
+        print("   Run `aip quickstart` first to create an identity.")
+        return
+
+    print(f"Found credentials at: {creds_path}")
+    print(f"  DID: {creds['did']}")
+    print(f"  Platform: {creds.get('platform', '?')}/{creds.get('username', '?')}")
+    print()
+    print("Your private key will be encrypted with a passphrase.")
+    print("You'll need this passphrase every time you use AIP commands.")
+    print("Set AIP_PASSPHRASE env var to avoid prompts in automated contexts.")
+    print()
+
+    # Get passphrase
+    if sys.stdin.isatty():
+        passphrase = getpass.getpass("Enter passphrase: ")
+        confirm = getpass.getpass("Confirm passphrase: ")
+        if passphrase != confirm:
+            print("❌ Passphrases don't match. Aborting.")
+            return
+    else:
+        passphrase = os.environ.get("AIP_PASSPHRASE")
+        if not passphrase:
+            print("❌ Non-interactive mode requires AIP_PASSPHRASE env var.")
+            return
+
+    if not passphrase:
+        print("⚠️  Empty passphrase provides no protection. Use a strong passphrase.")
+        if sys.stdin.isatty():
+            confirm = input("Continue with empty passphrase? [y/N] ").strip().lower()
+            if confirm != "y":
+                print("Aborting.")
+                return
+
+    # Encrypt and save
+    save_credentials_encrypted(creds, creds_path, passphrase)
+    print(f"\n✅ Credentials encrypted at {creds_path}")
+    print(f"   Format: aip-encrypted-v1 (Argon2id + NaCl SecretBox)")
+    print(f"   DID visible in cleartext (not secret)")
+    print(f"   Private key encrypted at rest 🔒")
+    print(f"\n💡 Tip: Set AIP_PASSPHRASE for non-interactive use (CI/CD, cron).")
+
+
 def cmd_migrate(args):
     """Migrate credentials between locations or upgrade format."""
     print("═══ AIP Credential Migration ═══\n")
@@ -2858,6 +2938,9 @@ Run 'aip commands' for the full command list.
     p_import.add_argument("source", help="JSON file path or DID to fetch from service")
     p_import.add_argument("--keyring-dir", default=None, help="Directory to store imported keys (default: ~/.aip/keyring/)")
 
+    # encrypt-credentials
+    sub.add_parser("encrypt-credentials", help="Encrypt your credentials file with a passphrase (Argon2id + NaCl)")
+
     # migrate
     p_migrate = sub.add_parser("migrate", help="Migrate credentials between locations or upgrade format")
     p_migrate.add_argument("--target", default=None, help="Target path (default: ~/.aip/credentials.json)")
@@ -2958,6 +3041,7 @@ Run 'aip commands' for the full command list.
         "stats": cmd_stats,
         "webhook": cmd_webhook,
         "changelog": cmd_changelog,
+        "encrypt-credentials": cmd_encrypt_credentials,
         "migrate": cmd_migrate,
         "cache": cmd_cache,
         "export": cmd_export,
