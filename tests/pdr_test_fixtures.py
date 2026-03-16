@@ -382,4 +382,71 @@ EXPECTED_PATTERNS = {
                        "Sliding window detection is the only way to catch this — "
                        "the delta between cumulative and windowed IS the signal.",
     },
+    "linear_decline": {
+        "calibration": "~0.65-0.75",  # early perfection + late drops average out
+        "robustness": "~0.60-0.80",  # single condition, variance from declining delivery
+        "trend": "smooth_declining",
+        "description": "Linear decline from Jaccard 1.0 to ~0.5 over 20 observations. "
+                       "Smoother than step-function gradual_degradation. Tests whether "
+                       "sliding window catches drift without step changes.",
+    },
+    "recovery_after_total_failure": {
+        "calibration": "~0.80",  # 20 of 25 observations succeed
+        "robustness": "<0.20",  # extreme variance: 100% vs 0% periods
+        "adaptation": ">0.30",  # strong recovery trajectory
+        "trend": "good_fail_good",
+        "description": "10 perfect → 5 total failure → 10 perfect. Tests whether "
+                       "adaptation score captures the recovery trajectory and "
+                       "whether sliding window positioned at the boundary correctly "
+                       "shows the transition.",
+    },
 }
+
+
+# --- Pattern 7: Linear Decline ---
+# Jaccard declining smoothly from 1.0 toward 0.5 over 20 observations.
+# Each observation has 4 promised items; delivered count decreases gradually.
+# No step changes — tests smooth drift detection.
+# Requested by Nanook for follow-up paper (Case B).
+LINEAR_DECLINE = []
+for i in range(20):
+    # Start delivering 4/4, end delivering ~2/4
+    # Linear interpolation: deliver_count = 4 - floor(i * 2 / 19)
+    # This gives: 4,4,4,3,3,3,3,3,3,3,2,2,2,2,2,2,2,2,2,2
+    # More precise: use a ratio to get gradual drop
+    promised = [f"task_{i}_{j}" for j in range(4)]
+    # Deliver count: 4 at i=0, ~2 at i=19 (linear)
+    deliver_ratio = 1.0 - (i / 19) * 0.5  # 1.0 → 0.5
+    deliver_count = max(1, round(deliver_ratio * 4))
+    delivered = promised[:deliver_count]
+    LINEAR_DECLINE.append(Observation(
+        agent_id="agent_eta",
+        timestamp=datetime(2026, 2, 1 + i, 0, 0),
+        promised=promised,
+        delivered=delivered,
+        conditions={"load": "normal", "dependencies_stable": True},
+    ))
+
+
+# --- Pattern 8: Recovery After Total Failure ---
+# 10 perfect → 5 total failure → 10 perfect.
+# Tests whether adaptation score captures recovery trajectory.
+# Requested by Nanook for follow-up paper (Case B).
+RECOVERY_AFTER_TOTAL_FAILURE = []
+for i in range(25):
+    promised = [f"task_{i}_a", f"task_{i}_b"]
+    if 10 <= i < 15:
+        # Total failure period
+        delivered = []
+        conditions = {"load": "high", "dependencies_stable": False}
+    else:
+        # Perfect delivery
+        delivered = list(promised)
+        conditions = {"load": "normal", "dependencies_stable": True}
+    RECOVERY_AFTER_TOTAL_FAILURE.append(Observation(
+        agent_id="agent_theta",
+        timestamp=datetime(2026, 2, 1 + i, 0, 0),
+        promised=promised,
+        delivered=delivered,
+        conditions=conditions,
+    ))

@@ -1,0 +1,130 @@
+[
+  {
+    "profile": "steady_performer",
+    "observation_count": 7,
+    "cumulative": {
+      "calibration": 1.0,
+      "adaptation": 0.5,
+      "robustness": 1.0
+    },
+    "windowed_5": {
+      "calibration": 1.0,
+      "adaptation": 0.5,
+      "robustness": 1.0
+    },
+    "drift_alerts": 0,
+    "confidence": 0.15
+  },
+  {
+    "profile": "non_monotonic_degradation",
+    "observation_count": 7,
+    "cumulative": {
+      "calibration": 0.8095,
+      "adaptation": 0.5556,
+      "robustness": 0.3333
+    },
+    "windowed_5": {
+      "calibration": 0.7333,
+      "adaptation": 0.5,
+      "robustness": 0.3333
+    },
+    "drift_alerts": 0,
+    "confidence": 0.15
+  },
+  {
+    "profile": "over_promiser",
+    "observation_count": 5,
+    "cumulative": {
+      "calibration": 0.4667,
+      "adaptation": 0.5,
+      "robustness": 0.8333
+    },
+    "windowed_5": {
+      "calibration": 0.4667,
+      "adaptation": 0.5,
+      "robustness": 0.8333
+    },
+    "drift_alerts": 0,
+    "confidence": 0.0964
+  },
+  {
+    "profile": "environment_sensitive",
+    "observation_count": 6,
+    "cumulative": {
+      "calibration": 0.6667,
+      "adaptation": 0.5,
+      "robustness": 0.0572
+    },
+    "windowed_5": {
+      "calibration": 0.6,
+      "adaptation": 0.5,
+      "robustness": 0.0572
+    },
+    "drift_alerts": 0,
+    "confidence": 0.1221
+  },
+  {
+    "profile": "rapid_recovery",
+    "observation_count": 10,
+    "cumulative": {
+      "calibration": 0.7,
+      "adaptation": 0.7,
+      "robustness": 0.0
+    },
+    "windowed_5": {
+      "calibration": 0.8,
+      "adaptation": 0.5,
+      "robustness": 0.0
+    },
+    "drift_alerts": 1,
+    "confidence": 0.2464
+  },
+  {
+    "profile": "gradual_degradation",
+    "observation_count": 28,
+    "cumulative": {
+      "calibration": 0.6964,
+      "adaptation": 0.0357,
+      "robustness": 0.6964
+    },
+    "windowed_5": {
+      "calibration": 0.2,
+      "adaptation": 0.5,
+      "robustness": 0.2
+    },
+    "drift_alerts": 3,
+    "confidence": 0.66
+  },
+  {
+    "profile": "linear_decline",
+    "observation_count": 20,
+    "cumulative": {
+      "calibration": 0.75,
+      "adaptation": 0.25,
+      "robustness": 0.75
+    },
+    "windowed_5": {
+      "calibration": 0.5,
+      "adaptation": 0.5,
+      "robustness": 0.5
+    },
+    "drift_alerts": 3,
+    "confidence": 0.5
+  },
+  {
+    "profile": "recovery_after_total_failure",
+    "observation_count": 25,
+    "cumulative": {
+      "calibration": 0.8,
+      "adaptation": 0.4359,
+      "robustness": 0.0
+    },
+    "windowed_5": {
+      "calibration": 1.0,
+      "adaptation": 0.5,
+      "robustness": 1.0
+    },
+    "drift_alerts": 2,
+    "confidence": 0.6
+  }
+]

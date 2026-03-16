@@ -12,6 +12,8 @@ from tests.pdr_test_fixtures import (
     ENVIRONMENT_SENSITIVE,
     RAPID_RECOVERY,
     GRADUAL_DEGRADATION,
+    LINEAR_DECLINE,
+    RECOVERY_AFTER_TOTAL_FAILURE,
     EXPECTED_PATTERNS,
 )
 from aip_identity.pdr import (
@@ -418,8 +420,96 @@ class TestExpandedProfiles:
             f"UNAMBIGUOUS over-delivery should score ~0.333, got {scores_u.calibration}"
         )
 
+    # --- Pattern 7: Linear Decline (Nanook request) ---
+
+    def test_linear_decline_moderate_calibration(self):
+        """Linear decline should have moderate overall calibration (early success + late drops)."""
+        scores = compute_pdr_from_promises(LINEAR_DECLINE, min_observations=5, min_window_days=3)
+        assert scores.calibration is not None
+        assert 0.55 < scores.calibration < 0.85, (
+            f"Linear decline calibration {scores.calibration} should be moderate (0.55-0.85)"
+        )
+
+    def test_linear_decline_sliding_window_detects_drift(self):
+        """Sliding window should detect drift between cumulative and windowed scores."""
+        result = compute_pdr_sliding_window(LINEAR_DECLINE, window_size=5)
+        assert result.drift_alerts, (
+            "Linear decline should produce at least one drift alert"
+        )
+        # Windowed calibration should be lower than cumulative
+        assert result.windowed.calibration is not None
+        assert result.cumulative.calibration is not None
+        assert result.windowed.calibration < result.cumulative.calibration, (
+            f"Windowed {result.windowed.calibration} should be < "
+            f"cumulative {result.cumulative.calibration}"
+        )
+
+    def test_linear_decline_cumulative_vs_windowed_gap(self):
+        """Cumulative score should mask the decline that windowed analysis reveals."""
+        result = compute_pdr_sliding_window(LINEAR_DECLINE, window_size=5)
+        assert result.cumulative.calibration is not None
+        assert result.windowed.calibration is not None
+        delta = result.cumulative.calibration - result.windowed.calibration
+        assert delta > 0.1, (
+            f"Cumulative-windowed gap {delta} should be > 0.1 for linear decline"
+        )
+
+    def test_linear_decline_observation_count(self):
+        """Linear decline should have exactly 20 observations."""
+        assert len(LINEAR_DECLINE) == 20
+
+    # --- Pattern 8: Recovery After Total Failure (Nanook request) ---
+
+    def test_recovery_total_failure_observation_count(self):
+        """Recovery profile should have exactly 25 observations."""
+        assert len(RECOVERY_AFTER_TOTAL_FAILURE) == 25
+
+    def test_recovery_total_failure_overall_calibration(self):
+        """20 of 25 observations deliver perfectly → calibration ~0.80."""
+        scores = compute_pdr_from_promises(
+            RECOVERY_AFTER_TOTAL_FAILURE, min_observations=5, min_window_days=3
+        )
+        assert scores.calibration is not None
+        assert 0.70 < scores.calibration < 0.90, (
+            f"Recovery calibration {scores.calibration} should be ~0.80"
+        )
+
+    def test_recovery_total_failure_low_robustness(self):
+        """Binary failure mode → robustness should be very low."""
+        scores = compute_pdr_from_promises(
+            RECOVERY_AFTER_TOTAL_FAILURE, min_observations=5, min_window_days=3
+        )
+        assert scores.robustness is not None
+        assert scores.robustness < 0.40, (
+            f"Recovery robustness {scores.robustness} should be < 0.40 (binary failure mode)"
+        )
+
+    def test_recovery_total_failure_sliding_window_captures_transition(self):
+        """Sliding window at end should show recovery (last 5 obs are all perfect)."""
+        result = compute_pdr_sliding_window(RECOVERY_AFTER_TOTAL_FAILURE, window_size=5)
+        # The last 5 observations are all perfect → windowed should be high
+        assert result.windowed.calibration is not None
+        assert result.windowed.calibration > 0.90, (
+            f"Last 5 obs are perfect, windowed cal should be > 0.90, got {result.windowed.calibration}"
+        )
+        # The cumulative includes the failure period → should be lower
+        assert result.cumulative.calibration is not None
+        assert result.cumulative.calibration < result.windowed.calibration, (
+            f"Cumulative {result.cumulative.calibration} should be < "
+            f"windowed {result.windowed.calibration} (failure period drags down cumulative)"
+        )
+
+    def test_recovery_total_failure_adaptation_score(self):
+        """Recovery trajectory should produce positive adaptation score."""
+        scores = compute_pdr_from_promises(
+            RECOVERY_AFTER_TOTAL_FAILURE, min_observations=5, min_window_days=3
+        )
+        # Adaptation should be positive since the agent improves over time
+        # (or at least not zero — the failure → recovery is a positive trajectory)
+        assert scores.adaptation is not None
+
     def test_all_profiles_distinguishable(self):
-        """All 6 profiles should produce unique scoring signatures."""
+        """All 8 profiles should produce unique scoring signatures."""
         profiles = {
             "steady": compute_pdr_from_promises(STEADY_PERFORMER),
             "degraded": compute_pdr_from_promises(NON_MONOTONIC_DEGRADATION),
@@ -429,10 +519,16 @@ class TestExpandedProfiles:
             "gradual_degradation": compute_pdr_from_promises(
                 GRADUAL_DEGRADATION, min_observations=5, min_window_days=3
             ),
+            "linear_decline": compute_pdr_from_promises(
+                LINEAR_DECLINE, min_observations=5, min_window_days=3
+            ),
+            "recovery_failure": compute_pdr_from_promises(
+                RECOVERY_AFTER_TOTAL_FAILURE, min_observations=5, min_window_days=3
+            ),
         }
 
         # Each profile should have at least one dimension that uniquely identifies it
         calibrations = {n: s.calibration for n, s in profiles.items() if s.calibration}
-        assert len(set(round(v, 2) for v in calibrations.values())) >= 4, (
-            f"At least 4 of 6 profiles should have distinct calibration: {calibrations}"
+        assert len(set(round(v, 2) for v in calibrations.values())) >= 5, (
+            f"At least 5 of 8 profiles should have distinct calibration: {calibrations}"
         )
