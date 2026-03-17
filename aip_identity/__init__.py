@@ -19,6 +19,13 @@ from .pdr import (
     composite_trust_score,
     divergence_alert,
 )
+from .handshake import (
+    HandshakeInitiator,
+    HandshakeResponder,
+    HandshakeResult,
+    HandshakeError,
+    perform_handshake,
+)
 
 try:
     from importlib.metadata import version as _pkg_version
@@ -40,4 +47,9 @@ __all__ = [
     "PDRScore",
     "composite_trust_score",
     "divergence_alert",
+    "HandshakeInitiator",
+    "HandshakeResponder",
+    "HandshakeResult",
+    "HandshakeError",
+    "perform_handshake",
 ]

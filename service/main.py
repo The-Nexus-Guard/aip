@@ -119,6 +119,9 @@ app.include_router(oracle.router)
 app.include_router(observations.router)
 app.include_router(feed.router)
 
+from routes import handshake
+app.include_router(handshake.router)
+
 
 logger = logging.getLogger("aip.cleanup")
 
