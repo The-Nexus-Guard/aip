@@ -1491,6 +1491,97 @@ class TestVerifyEndpointCoverage:
         assert data["trust"] is None
 
 
+class TestDIDDocument:
+    """Test W3C-compliant DID Document resolution at /did/{did}."""
+
+    def _register(self, suffix):
+        import base64, nacl.signing
+        client = get_test_client()
+        resp = client.post("/register/easy", json={
+            "platform": "test", "username": f"didoc_{suffix}_{uuid.uuid4().hex[:6]}"
+        })
+        assert resp.status_code == 200
+        data = resp.json()
+        return data["did"], data["public_key"]
+
+    def test_did_document_success(self):
+        """GET /did/{did} returns a W3C-compliant DID Resolution Result."""
+        client = get_test_client()
+        did, pub_key = self._register("doc")
+        resp = client.get(f"/did/{did}")
+        assert resp.status_code == 200
+        result = resp.json()
+        # DID Resolution Result structure
+        assert "@context" in result
+        assert result["@context"] == "https://w3id.org/did-resolution/v1"
+        assert "didDocument" in result
+        assert "didDocumentMetadata" in result
+        assert "didResolutionMetadata" in result
+
+        doc = result["didDocument"]
+        # DID Document structure
+        assert doc["id"] == did
+        assert "@context" in doc
+        assert "https://www.w3.org/ns/did/v1" in doc["@context"]
+        assert len(doc["verificationMethod"]) == 1
+        vm = doc["verificationMethod"][0]
+        assert vm["type"] == "Ed25519VerificationKey2020"
+        assert vm["controller"] == did
+        assert vm["id"] == f"{did}#key-1"
+        assert vm["publicKeyMultibase"].startswith("z")
+        # Authentication and assertion references
+        assert f"{did}#key-1" in doc["authentication"]
+        assert f"{did}#key-1" in doc["assertionMethod"]
+        # alsoKnownAs should include did:key representation
+        assert len(doc["alsoKnownAs"]) >= 1
+        assert doc["alsoKnownAs"][0].startswith("did:key:")
+        # Service endpoints should be present
+        assert len(doc["service"]) >= 1
+
+    def test_did_document_not_found(self):
+        """GET /did/{did} for unknown DID returns 404."""
+        client = get_test_client()
+        resp = client.get("/did/did:aip:nonexistent_didoc_test")
+        assert resp.status_code == 404
+
+    def test_did_document_wrong_method(self):
+        """GET /did/{did} with non-aip method returns 400."""
+        client = get_test_client()
+        resp = client.get("/did/did:key:z6Mktest123")
+        assert resp.status_code == 400
+
+    def test_did_document_metadata(self):
+        """DID Document metadata includes created and deactivated fields."""
+        client = get_test_client()
+        did, _ = self._register("meta")
+        resp = client.get(f"/did/{did}")
+        result = resp.json()
+        meta = result["didDocumentMetadata"]
+        assert "created" in meta
+        assert meta["deactivated"] == False
+
+    def test_did_document_services(self):
+        """DID Document includes trust and agent service endpoints."""
+        client = get_test_client()
+        did, _ = self._register("svc")
+        resp = client.get(f"/did/{did}")
+        doc = result = resp.json()["didDocument"]
+        service_types = [s["type"] for s in doc["service"]]
+        assert "AgentTrustService" in service_types
+        assert "AIAgentService" in service_types
+
+    def test_did_document_content_negotiation(self):
+        """GET /did/{did} with Accept: application/did+json returns plain JSON."""
+        client = get_test_client()
+        did, _ = self._register("ctype")
+        resp = client.get(f"/did/{did}", headers={"Accept": "application/did+json"})
+        assert resp.status_code == 200
+        result = resp.json()
+        # Plain JSON format should not have @context at top level
+        assert "@context" not in result
+        assert "didDocument" in result
+
+
 class TestVouchEdgeCases:
     """Cover missing lines in vouch.py - error branches."""
 

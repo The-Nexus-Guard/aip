@@ -499,6 +499,152 @@ async def resolve_did(did: str, req: Request, include_trust: bool = True):
     )
 
 
+def _build_did_document(did: str, registration: dict, platform_links: list, vouches: list, base_url: str) -> dict:
+    """
+    Build a W3C-compliant DID Document from AIP registration data.
+
+    Conforms to https://www.w3.org/TR/did-core/
+    """
+    public_key_b64 = registration["public_key"]
+    # Convert base64 public key to multibase base58btc for did:key
+    public_key_bytes = base64.b64decode(public_key_b64)
+    # Ed25519 multicodec prefix: 0xed01
+    multicodec_key = b'\xed\x01' + public_key_bytes
+    did_key = "did:key:z" + base58.b58encode(multicodec_key).decode()
+
+    verification_method_id = f"{did}#key-1"
+
+    doc = {
+        "@context": [
+            "https://www.w3.org/ns/did/v1",
+            "https://w3id.org/security/suites/ed25519-2020/v1"
+        ],
+        "id": did,
+        "alsoKnownAs": [did_key],
+        "verificationMethod": [
+            {
+                "id": verification_method_id,
+                "type": "Ed25519VerificationKey2020",
+                "controller": did,
+                "publicKeyMultibase": "z" + base58.b58encode(multicodec_key).decode()
+            }
+        ],
+        "authentication": [verification_method_id],
+        "assertionMethod": [verification_method_id],
+        "keyAgreement": [],
+        "service": []
+    }
+
+    # Add platform services
+    for i, link in enumerate(platform_links):
+        service_entry = {
+            "id": f"{did}#platform-{i}",
+            "type": "AgentPlatformLink",
+            "serviceEndpoint": {
+                "platform": link.get("platform", ""),
+                "username": link.get("username", ""),
+                "verified": link.get("verified", False)
+            }
+        }
+        doc["service"].append(service_entry)
+
+    # Add trust service
+    doc["service"].append({
+        "id": f"{did}#trust",
+        "type": "AgentTrustService",
+        "serviceEndpoint": f"{base_url}/trust-path?target_did={did}"
+    })
+
+    # Add AIP agent service endpoint
+    doc["service"].append({
+        "id": f"{did}#agent",
+        "type": "AIAgentService",
+        "serviceEndpoint": {
+            "resolve": f"{base_url}/resolve/{did}",
+            "verify": f"{base_url}/verify?did={did}",
+            "challenge": f"{base_url}/challenge/create"
+        }
+    })
+
+    return doc
+
+
+def _build_did_resolution_result(did_document: dict, registration: dict) -> dict:
+    """
+    Build a W3C DID Resolution Result.
+
+    Conforms to https://www.w3.org/TR/did-core/#did-resolution
+    """
+    return {
+        "@context": "https://w3id.org/did-resolution/v1",
+        "didDocument": did_document,
+        "didDocumentMetadata": {
+            "created": registration.get("created_at", ""),
+            "updated": registration.get("last_active", ""),
+            "deactivated": False
+        },
+        "didResolutionMetadata": {
+            "contentType": "application/did+ld+json",
+            "retrieved": registration.get("last_active", "")
+        }
+    }
+
+
+@router.get("/did/{did}")
+async def resolve_did_document(did: str, req: Request):
+    """
+    Resolve a DID to a W3C-compliant DID Document.
+
+    Returns a proper DID Resolution Result conforming to W3C DID Core spec.
+    Supports Accept header content negotiation:
+    - application/did+ld+json (default): JSON-LD DID Document
+    - application/did+json: Plain JSON DID Document (no @context on resolution result)
+
+    Example: GET /did/did:aip:abc123
+    """
+    client_ip = req.client.host if req.client else "unknown"
+    allowed, retry_after = default_limiter.is_allowed(client_ip)
+    if not allowed:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Rate limit exceeded. Try again in {retry_after} seconds.",
+            headers={"Retry-After": str(retry_after)}
+        )
+
+    if not did.startswith("did:aip:"):
+        raise HTTPException(
+            status_code=400,
+            detail="This endpoint only resolves did:aip identifiers. Use /resolve/{did} for cross-protocol resolution."
+        )
+
+    registration = database.get_registration(did)
+    if not registration:
+        raise HTTPException(status_code=404, detail="DID not found")
+
+    platform_links = database.get_platform_links(did) if hasattr(database, 'get_platform_links') else []
+    vouches = database.get_vouches_for(did)
+    base_url = str(req.base_url).rstrip("/")
+
+    did_document = _build_did_document(did, registration, platform_links, vouches, base_url)
+    resolution_result = _build_did_resolution_result(did_document, registration)
+
+    from fastapi.responses import JSONResponse
+    accept = req.headers.get("accept", "application/did+ld+json")
+
+    if "application/did+json" in accept and "application/did+ld+json" not in accept:
+        # Plain JSON — strip @context from resolution result
+        result = {k: v for k, v in resolution_result.items() if k != "@context"}
+        return JSONResponse(
+            content=result,
+            media_type="application/did+json"
+        )
+
+    return JSONResponse(
+        content=resolution_result,
+        media_type="application/did+ld+json"
+    )
+
+
 async def _resolve_did_key(did: str, req: Request) -> ResolveResponse:
     """
     Resolve a did:key identifier.

@@ -1,5 +1,18 @@
 # Changelog
 
+## v0.5.52 (2026-03-21) — W3C DID Document Resolution
+
+### New Features
+- **W3C-compliant DID Document endpoint** — New `GET /did/{did}` returns a proper DID Resolution Result conforming to W3C DID Core spec, including `@context`, `verificationMethod`, `authentication`, `assertionMethod`, `service`, and `alsoKnownAs` (did:key).
+- **Content negotiation** — `Accept: application/did+ld+json` (default) returns JSON-LD; `Accept: application/did+json` returns plain JSON without top-level `@context`.
+- **DID Document metadata** — Resolution result includes `didDocumentMetadata` (created, updated, deactivated) and `didResolutionMetadata` (contentType).
+- **Proper service entries** — Platform links, trust service, and agent service endpoints are structured as W3C DID Service entries.
+- 6 new tests for DID Document resolution (651 total, 7 skipped).
+
+### Standards Compliance
+- Addresses W3C did-extensions PR #684 reviewer feedback from @wip-abramson.
+- DID Documents now resolve with proper multibase-encoded Ed25519 verification methods.
+
 ## v0.5.49 (2026-03-16) — Encrypted Credential Storage
 
 ### New Features
