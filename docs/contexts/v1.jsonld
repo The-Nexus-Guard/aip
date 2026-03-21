@@ -1,0 +1,17 @@
+{
+  "@context": {
+    "@version": 1.1,
+    "id": "@id",
+    "type": "@type",
+    "aip": "https://the-nexus-guard.github.io/aip/contexts/v1#",
+    "AgentPlatformLink": "aip:AgentPlatformLink",
+    "AgentTrustService": "aip:AgentTrustService",
+    "AIAgentService": "aip:AIAgentService",
+    "platform": "aip:platform",
+    "username": "aip:username",
+    "verified": "aip:verified",
+    "resolve": "aip:resolve",
+    "verify": "aip:verify",
+    "challenge": "aip:challenge"
+  }
+}

@@ -527,7 +527,8 @@ def _build_did_document(did: str, registration: dict, platform_links: list, vouc
     doc = {
         "@context": [
             "https://www.w3.org/ns/did/v1",
-            "https://w3id.org/security/suites/ed25519-2020/v1"
+            "https://w3id.org/security/suites/ed25519-2020/v1",
+            "https://the-nexus-guard.github.io/aip/contexts/v1.jsonld"
         ],
         "id": did,
         "alsoKnownAs": [did_key],
