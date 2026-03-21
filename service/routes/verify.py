@@ -23,6 +23,16 @@ from rate_limit import default_limiter
 router = APIRouter()
 
 
+def _get_base_url(req: Request) -> str:
+    """Get the public base URL, respecting X-Forwarded-Proto behind reverse proxies."""
+    base_url = str(req.base_url).rstrip("/")
+    # Behind Fly.io/nginx/etc., the actual protocol is in X-Forwarded-Proto
+    forwarded_proto = req.headers.get("x-forwarded-proto")
+    if forwarded_proto == "https" and base_url.startswith("http://"):
+        base_url = "https://" + base_url[len("http://"):]
+    return base_url
+
+
 class PlatformLink(BaseModel):
     """A link between a DID and a platform identity."""
     platform: str
@@ -484,7 +494,7 @@ async def resolve_did(did: str, req: Request, include_trust: bool = True):
         }
 
     # Build base URL from request
-    base_url = str(req.base_url).rstrip("/")
+    base_url = _get_base_url(req)
 
     return ResolveResponse(
         did=did,
@@ -623,7 +633,7 @@ async def resolve_did_document(did: str, req: Request):
 
     platform_links = database.get_platform_links(did) if hasattr(database, 'get_platform_links') else []
     vouches = database.get_vouches_for(did)
-    base_url = str(req.base_url).rstrip("/")
+    base_url = _get_base_url(req)
 
     did_document = _build_did_document(did, registration, platform_links, vouches, base_url)
     resolution_result = _build_did_resolution_result(did_document, registration)
@@ -682,7 +692,7 @@ async def _resolve_did_key(did: str, req: Request) -> ResolveResponse:
         aip_did = f"did:aip:{pubkey_hash}"
         aip_registration = database.get_registration(aip_did)
 
-        base_url = str(req.base_url).rstrip("/")
+        base_url = _get_base_url(req)
 
         trust_info = None
         if aip_registration:
@@ -772,7 +782,7 @@ async def _resolve_did_web(did: str, req: Request) -> ResolveResponse:
                 detail="No Ed25519 verification method found in DID document"
             )
 
-        base_url = str(req.base_url).rstrip("/")
+        base_url = _get_base_url(req)
 
         return ResolveResponse(
             did=did,
@@ -813,7 +823,7 @@ async def _resolve_did_aps(did: str, req: Request) -> ResolveResponse:
         if not agent_id:
             raise HTTPException(status_code=400, detail="did:aps requires an agent ID")
 
-        base_url = str(req.base_url).rstrip("/")
+        base_url = _get_base_url(req)
 
         # Try the unified bridge resolve endpoint first (returns clean format)
         async with httpx.AsyncClient(timeout=5.0, follow_redirects=True) as client:
