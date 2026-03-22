@@ -128,9 +128,15 @@ Content-Type: application/json
 <p><strong>CLI equivalent:</strong> <code>aip init</code> (generate + register) or <code>aip register</code> (register existing keypair)</p>
 
 <h3>4.2 Read (Resolve)</h3>
-<pre><code>GET /resolve/{did}</code></pre>
-<p>Returns a DID Document as specified in Section 3. Returns <code>404</code> if not found. If deactivated, includes <code>"deactivated": true</code>.</p>
-<p><strong>Cross-protocol resolution:</strong> The endpoint also supports <code>did:key</code>, <code>did:web</code>, and <code>did:aps</code> identifiers.</p>
+<pre><code>GET /did/{did}</code></pre>
+<p>Returns a W3C DID Resolution Result containing a conformant DID Document as specified in Section 3.
+Supports content negotiation via the <code>Accept</code> header:</p>
+<ul>
+<li><code>application/did+ld+json</code> (default): JSON-LD DID Document with <code>@context</code></li>
+<li><code>application/did+json</code>: Plain JSON DID Document</li>
+</ul>
+<p>Returns <code>404</code> if not found. If deactivated, <code>didDocumentMetadata.deactivated</code> is <code>true</code>.</p>
+<p><strong>Internal resolution:</strong> <code>GET /resolve/{did}</code> returns an extended response with trust metadata, platform links, and verification endpoints. Supports cross-protocol resolution for <code>did:key</code>, <code>did:web</code>, and <code>did:aps</code> identifiers.</p>
 <p><strong>Local resolution:</strong> Agents holding their own keypair can construct a DID Document locally without network access.</p>
 
 <h3>4.3 Update (Key Rotation)</h3>
